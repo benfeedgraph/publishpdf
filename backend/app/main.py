@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import logging
+import re
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from app import db
 from app.api import admin_routes, auth_routes, report_routes, settings_routes, tenant_routes
 from app.tenancy import system_context
+
+_SECRET_IN_URL = re.compile(r"://[^\s/@]+:[^\s/@]+@")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,8 +21,28 @@ CSRF_HEADER = "x-ppdf-csrf"
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+def _public_failure(exc: Exception) -> str:
+    """A sentence safe to show in the browser. Connection strings stay out of it."""
+    if isinstance(exc, ValidationError):
+        parts = []
+        for err in exc.errors():
+            loc = ".".join(str(x) for x in err.get("loc", ()))
+            msg = err.get("msg", "invalid")
+            parts.append(f"{loc}: {msg}" if loc else msg)
+        return "Server configuration error. " + "; ".join(parts)
+    text_value = _SECRET_IN_URL.sub("://***:***@", str(exc)).replace("\n", " ")
+    return f"{type(exc).__name__}: {text_value[:400]}"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="PublishPDF API", version="0.1.0")
+
+    @app.exception_handler(Exception)
+    async def show_failure(request: Request, exc: Exception):
+        if isinstance(exc, HTTPException):
+            return await http_exception_handler(request, exc)
+        logging.getLogger("app").exception("request failed")
+        return JSONResponse({"detail": _public_failure(exc)}, status_code=500)
 
     @app.middleware("http")
     async def csrf_and_headers(request: Request, call_next):

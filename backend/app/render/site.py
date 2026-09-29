@@ -326,6 +326,10 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 pg = (b.get("source") or {}).get("page")
                 if pg and methods.get(pg) == "ocr" and b["type"] in ("paragraph", "table", "stat"):
                     scan_blocks.setdefault(pg, []).append({**b, "_section": sec})
+        # A scanned cover or photo page with a few words doesn't need a text box under it.
+        def _words(bl):
+            return sum(len(r.get("t", "").split()) + ("f" in r) for b in bl for r in b.get("runs") or [])
+        scan_blocks = {pg: bl for pg, bl in scan_blocks.items() if any(b["type"] == "table" for b in bl) or _words(bl) >= 25}
         css_all = Markup(css + pages_mod.fonts_css(href) + PAGES_CSS)
         files[base.lstrip("/") + "index.html"] = _ENV.get_template("pages.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,

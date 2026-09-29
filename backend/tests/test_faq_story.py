@@ -3,6 +3,8 @@ KPI tiles, and the PDF's charts/cover are carried into the site as images."""
 
 from __future__ import annotations
 
+import re
+
 import pymupdf
 
 from app import validation
@@ -67,7 +69,8 @@ def test_the_report_is_one_page_that_looks_like_the_pdf():
     # Exactly one HTML page per report; every PDF page is on it, with its artwork.
     assert [k for k in files if k.endswith(".html")] == [base + "index.html"]
     html_ = files[base + "index.html"].decode()
-    assert html_.count('class="pg"') == 2 and 'id="p1"' in html_ and 'id="p2"' in html_
+    assert html_.count('<section class="part') == 2 and 'id="p1"' in html_ and 'id="p2"' in html_
+    assert 'class="pg' not in html_ and 'class="flow"' in html_          # one continuous page, no page frames
     assert {base + "pages/p0001.webp", base + "pages/p0002.webp"} <= set(files)
     assert all(files[k][:4] == b"RIFF" for k in files if k.endswith(".webp"))
     assert any(k.endswith(".woff2") for k in files) and any(k.endswith("-OFL.txt") for k in files)
@@ -149,3 +152,35 @@ def test_bullet_paragraphs_lose_only_the_glyph():
         [{"t": "The Company continues"}, {"f": "p1f1"}]
     assert story.bullet_runs({"runs": [{"t": "-based pricing"}]}) is None
     assert story.bullet_runs({"runs": [{"t": "Plain text"}]}) is None
+
+
+def test_continuous_page_drops_page_furniture_contents_and_blank_pages():
+    doc = pymupdf.open()
+    for _ in range(6):
+        doc.new_page()
+    for n in range(1, 7):
+        p = doc[n - 1]
+        p.insert_text((60, 40), "ACME LIMITED ANNUAL REPORT", fontname="helv", fontsize=8)     # running header
+        p.insert_text((290, 820), str(n), fontname="helv", fontsize=8)                          # page number
+        if n == 2:                                             # contents page, linked
+            for k, (label, target) in enumerate([("Cover", 1), ("Chairman's message", 3), ("Our businesses", 4),
+                                                 ("Strategy", 5), ("Governance", 6)]):
+                y = 150 + 30 * k
+                p.insert_text((72, y), label, fontname="helv", fontsize=12)
+                p.insert_link({"kind": pymupdf.LINK_GOTO, "page": target - 1,
+                               "from": pymupdf.Rect(70, y - 12, 400, y + 4)})
+        elif n == 6:
+            pass                                               # blank apart from furniture
+        else:
+            assert p.insert_textbox(pymupdf.Rect(72, 120, 520, 300), BODY, fontname="helv", fontsize=11) >= 0
+    pdf = doc.tobytes()
+    schema, _ = extract(pdf, META)
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    html_ = files[base + "index.html"].decode()
+    parts = re.findall(r'<section class="part[^"]*" id="p(\d+)"', html_)
+    assert parts == ["1", "3", "4", "5"]                        # contents (2) and blank (6) pages left out
+    assert "ACME LIMITED ANNUAL REPORT" not in html_           # running header trimmed away
+    nav = html_[html_.index('class="edition-rail"'):html_.index("</nav>", html_.index('class="edition-rail"'))]
+    assert 'href="#p3"' in nav and "Chairman" in nav and "Governance" not in nav   # its target page was blank
+    assert validation.check_bundle(schema, files) == []

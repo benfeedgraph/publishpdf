@@ -6,8 +6,50 @@ placeholders the operator must confirm.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Hosts that exist on a laptop or inside Railway, and nowhere Vercel can dial.
+_PRIVATE_DB_MARKERS = ("localhost", "127.0.0.1", "0.0.0.0", "railway.internal")
+
+
+def _private_database_host(url: str) -> bool:
+    return any(marker in url for marker in _PRIVATE_DB_MARKERS)
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept Railway's postgresql:// URL and talk to Postgres with psycopg 3.
+
+    ``postgresql://`` makes SQLAlchemy look for psycopg2, which this app does not
+    install. Remote hosts also need TLS; the local test database does not.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql+psycopg2://"):
+        url = "postgresql+psycopg://" + url[len("postgresql+psycopg2://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    if not _private_database_host(url) and "sslmode=" not in url:
+        url += ("&" if "?" in url else "?") + "sslmode=require"
+    return url
+
+
+def choose_database_url(*candidates: str) -> str:
+    """Pick a URL Vercel can open. A public URL wins over localhost or Railway's private host."""
+    cleaned = [c.strip().strip('"').strip("'") for c in candidates if c and c.strip()]
+    if not cleaned:
+        raise ValueError(
+            "No database URL is set. On the publishpdf API project, set DATABASE_APP_URL and "
+            "DATABASE_OWNER_URL to Railway's public URL (the host looks like proxy.rlwy.net)."
+        )
+    public = [c for c in cleaned if not _private_database_host(c)]
+    chosen = public[0] if public else cleaned[0]
+    if "railway.internal" in chosen:
+        raise ValueError(
+            "postgres.railway.internal only works inside Railway. Use the public database URL "
+            "(DATABASE_PUBLIC_URL), whose host looks like proxy.rlwy.net."
+        )
+    return normalize_database_url(chosen)
 
 
 class Settings(BaseSettings):
@@ -17,9 +59,20 @@ class Settings(BaseSettings):
 
     # --- Database -------------------------------------------------------------
     # Owner role: runs migrations, owns tables. Never used by the app at runtime.
-    database_owner_url: str = Field(alias="DATABASE_OWNER_URL")
+    # Empty defaults let a Railway-style DATABASE_URL fill these in (see the validator).
+    database_owner_url: str = Field(default="", alias="DATABASE_OWNER_URL")
     # App role: NOT superuser, NOT table owner -> Row-Level Security applies to it.
-    database_app_url: str = Field(alias="DATABASE_APP_URL")
+    database_app_url: str = Field(default="", alias="DATABASE_APP_URL")
+    database_public_url: str = Field(default="", alias="DATABASE_PUBLIC_URL")
+    database_url: str = Field(default="", alias="DATABASE_URL")
+    postgres_url: str = Field(default="", alias="POSTGRES_URL")
+
+    @model_validator(mode="after")
+    def _fill_database_urls(self) -> "Settings":
+        fallbacks = (self.database_public_url, self.database_url, self.postgres_url)
+        self.database_app_url = choose_database_url(self.database_app_url, *fallbacks)
+        self.database_owner_url = choose_database_url(self.database_owner_url, *fallbacks)
+        return self
 
     # --- Platform domains (placeholders; confirm before production) ------------
     platform_domain: str = Field(alias="PLATFORM_DOMAIN")

@@ -81,7 +81,7 @@ def test_clean_pdf_goes_all_the_way_to_a_public_page(admin_client):
     assert page.status_code == 200
     assert page.headers["x-robots-tag"].startswith("noindex")
     assert f'<link rel="canonical" href="https://{host}/fy2026/q2/results/">' in page.text
-    assert 'class="pg"' in page.text and ">1,234.56<" in page.text and ">(12.30)<" in page.text  # page edition
+    assert '<section class="part' in page.text and ">1,234.56<" in page.text and ">(12.30)<" in page.text  # page edition
     art = pub.get("/fy2026/q2/results/pages/p0001.webp", headers={"host": host})
     assert art.status_code == 200 and art.headers["content-type"] == "image/webp"
     assert pub.get("/fy2026/q2/results/full/", headers={"host": host}).status_code == 404   # no second page

@@ -372,8 +372,8 @@ def _norm(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
-def _band_lines(page: pymupdf.Page) -> list[tuple[str, float, float, str]]:
-    """(band, y0, y1, normalised text) for text lines near the top or bottom edge."""
+def _band_lines(page: pymupdf.Page) -> list[tuple[str, float, float, str, float]]:
+    """(band, y0, y1, normalised text, size) for text lines near the top or bottom edge."""
     H = page.rect.height
     out = []
     for b in page.get_text("dict")["blocks"]:
@@ -382,36 +382,79 @@ def _band_lines(page: pymupdf.Page) -> list[tuple[str, float, float, str]]:
             if not t:
                 continue
             y0, y1 = ln["bbox"][1], ln["bbox"][3]
+            size = max(sp["size"] for sp in ln["spans"])
             if y1 <= H * BAND:
-                out.append(("top", y0, y1, _norm(t)))
+                out.append(("top", y0, y1, _norm(t), size))
             elif y0 >= H * (1 - BAND):
-                out.append(("bottom", y0, y1, _norm(t)))
+                out.append(("bottom", y0, y1, _norm(t), size))
     return out
 
 
+def _band_art(page: pymupdf.Page) -> list[tuple[str, tuple, float, float]]:
+    """(band, rounded rect, y0, y1) for vector art near the top or bottom edge — running
+    headers and footers are often drawn as outlines rather than text."""
+    H = page.rect.height
+    out = []
+    for d in page.get_drawings():
+        r = d["rect"]
+        if r.y1 <= H * BAND:
+            band = "top"
+        elif r.y0 >= H * (1 - BAND):
+            band = "bottom"
+        else:
+            continue
+        out.append((band, (round(r.x0), round(r.y0), round(r.x1), round(r.y1)), r.y0, r.y1))
+    return out
+
+
+SECTION_TITLE_PT = 11     # a repeated line at least this big is a running section title
+ART_REPEAT = 5            # identical edge artwork on this many pages is page furniture
+
+
 def running_bands(doc: pymupdf.Document, pages: range) -> dict[int, tuple[float, float]]:
-    """Per page, the (top, bottom) y between the running header and footer. A line counts
-    as running when the same text (numbers ignored) sits in the same edge band on many
-    pages, or is just a page number."""
+    """Per page, the (top, bottom) y between the running header and footer.
+
+    Running = page furniture repeated across the report: the same header/footer artwork
+    or text in the same edge band on many pages, page numbers, and — after its first
+    appearance — a section's running title repeated at the top of its following pages
+    (the first stays, so the section is still introduced once)."""
     lines = {n: _band_lines(doc[n - 1]) for n in pages}
-    seen: dict[tuple[str, str], int] = {}
-    for ls in lines.values():
-        for key in {(band, t) for band, _a, _b, t in ls}:
-            seen[key] = seen.get(key, 0) + 1
+    art = {n: _band_art(doc[n - 1]) for n in pages}
+    seen_t: dict[tuple[str, str], int] = {}
+    seen_a: dict[tuple[str, tuple], int] = {}
+    for n in pages:
+        for key in {(band, t) for band, _a, _b, t, _s in lines[n]}:
+            seen_t[key] = seen_t.get(key, 0) + 1
+        for key in {(band, r) for band, r, _a, _b in art[n]}:
+            seen_a[key] = seen_a.get(key, 0) + 1
     need = max(3, int(len(lines) * 0.15))
     out = {}
-    for n, ls in lines.items():
+    for n in pages:
         H = doc[n - 1].rect.height
         top, bottom = 0.0, H
-        for band, y0, y1, t in ls:
-            running = seen.get((band, t), 0) >= need or re.fullmatch(r"[\d\s.\-–|]+|[ivxlc]+", t) is not None
-            if not running:
+        prev = {(b, t) for b, _a, _c, t, _s in lines.get(n - 1, [])}
+        for band, y0, y1, t, size in lines[n]:
+            running = seen_t.get((band, t), 0) >= need \
+                or re.fullmatch(r"[\d\s.\-–|]+|[ivxlc]+", t) is not None \
+                or (band == "top" and size >= SECTION_TITLE_PT and seen_t.get((band, t), 0) >= 3 and (band, t) in prev)
+            if running:
+                if band == "top":
+                    top = max(top, y1 + 3)
+                else:
+                    bottom = min(bottom, y0 - 3)
+        # Repeated edge artwork counts only where it sits clear of the page's own text in
+        # that band (above the first content line / below the last), so a repeated table
+        # rule can never take a table's header row with it.
+        content_top = min([y0 for b, y0, _y1, _t, _s in lines[n] if b == "top" and y0 >= top] + [H * BAND])
+        content_bottom = max([y1 for b, _y0, y1, _t, _s in lines[n] if b == "bottom" and y1 <= bottom] + [H * (1 - BAND)])
+        for band, r, y0, y1 in art[n]:
+            if seen_a.get((band, r), 0) < ART_REPEAT:
                 continue
-            if band == "top":
+            if band == "top" and y1 <= content_top:
                 top = max(top, y1 + 3)
-            else:
+            elif band == "bottom" and y0 >= content_bottom:
                 bottom = min(bottom, y0 - 3)
-        out[n] = (top, bottom if bottom > top + 40 else H)
+        out[n] = (top, bottom) if bottom > top + 40 else (0.0, H)
     return out
 
 
