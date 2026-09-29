@@ -201,28 +201,40 @@ details.chart-data{margin:-.6em 0 1.6em}details.chart-data summary{cursor:pointe
 
 
 PAGES_CSS = """
-.layout-document:has(.edition){background:color-mix(in srgb,var(--c-primary) 4%,#e9ebf0)}
+.layout-document:has(.edition){background:var(--c-surface)}
 .edition-bar{background:var(--c-background);border-bottom:1px solid var(--c-border)}
-.edition-bar-in{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:18px;padding-bottom:18px}
-.edition-bar h1{font-size:clamp(1.2em,2.2vw,1.55em);margin:0;letter-spacing:-.02em}
-.edition-eyebrow{margin:0 0 2px;color:var(--c-primary);font-weight:700;font-size:.78em;letter-spacing:.12em;text-transform:uppercase}
-.edition-actions{margin:0}
-.pages{padding:28px 12px 8px}
-.pg{position:relative;width:min(100%,980px);aspect-ratio:var(--pw)/var(--ph);margin:0 auto 22px;background:#fff;
-  box-shadow:0 1px 2px rgba(16,24,40,.08),0 18px 44px -22px rgba(16,24,40,.4);container-type:inline-size;overflow:hidden;
-  scroll-margin-top:84px}
-.pg-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
-.pg-t{position:absolute;inset:0;content-visibility:auto}
-.pg .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
+.edition-bar-in{max-width:1360px;margin:0 auto;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.edition-bar h1{font-size:clamp(1.15em,2vw,1.45em);margin:0;letter-spacing:-.02em}
+.edition-eyebrow{margin:0 0 2px;color:var(--c-primary);font-weight:700;font-size:.76em;letter-spacing:.12em;text-transform:uppercase}
+.edition-actions{margin:0;display:flex;gap:10px;flex-wrap:wrap}
+.edition-menu-btn{display:none}
+.edition-body{max-width:1360px;margin:0 auto;padding:24px 24px 0;display:grid;grid-template-columns:minmax(0,1040px);justify-content:center;gap:32px}
+.edition-body.has-menu{grid-template-columns:250px minmax(0,1040px)}
+.edition-rail{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:.86em;padding:4px 6px 16px 0}
+.edition-rail ol{list-style:none;margin:0;padding:0;border-left:2px solid var(--c-border)}
+.edition-rail a{display:block;padding:6px 12px;margin-left:-2px;border-left:2px solid transparent;color:var(--c-muted);text-decoration:none;line-height:1.35}
+.edition-rail a:hover,.edition-rail a:focus-visible{color:var(--c-primary);border-left-color:var(--c-primary);background:var(--c-background)}
+/* The report as one continuous surface: parts meet edge to edge, no page frames. */
+.flow{background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.06),0 0 0 1px var(--c-border)}
+.part{position:relative;width:100%;aspect-ratio:var(--pw)/var(--ph);container-type:inline-size;overflow:hidden;scroll-margin-top:84px}
+.part-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
+.part-t{position:absolute;inset:0;content-visibility:auto}
+.part .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
   transform-origin:0 0;transform:scaleX(var(--k,1));color:#000;font-kerning:normal}
-.pg .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
-.pg .pl:hover,.pg .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent);outline:1px solid color-mix(in srgb,var(--c-primary) 55%,transparent)}
-.pg ::selection{background:color-mix(in srgb,var(--c-primary) 30%,transparent)}
-.pg-text{width:min(100%,980px);margin:-10px auto 26px;background:var(--c-background);border:1px solid var(--c-border);border-radius:10px;padding:10px 18px}
-.pg-text summary{cursor:pointer;font-weight:650;color:var(--c-primary)}
-.pg-text-in{padding:8px 0 4px;font-size:.95em}
-@media (max-width:640px){.pages{padding:10px 0}.pg{margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.15)}}
-@media print{.edition-bar{display:none}.pg{box-shadow:none;margin:0;break-after:page}.pages{padding:0}}
+.part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
+.part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent);outline:1px solid color-mix(in srgb,var(--c-primary) 55%,transparent)}
+.part ::selection{background:color-mix(in srgb,var(--c-primary) 30%,transparent)}
+.part-text{margin:0;background:var(--c-surface);border-block:1px solid var(--c-border);padding:10px 5%}
+.part-text summary{cursor:pointer;font-weight:650;color:var(--c-primary)}
+.part-text-in{padding:8px 0 4px;font-size:.95em}
+.flow .doc-note{padding:18px 5% 22px;margin:0;text-align:center;border-top:1px solid var(--c-border)}
+.to-top{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
+@media (max-width:1100px){.edition-body.has-menu{grid-template-columns:minmax(0,1040px)}
+  .edition-rail{position:static;max-height:none;background:var(--c-background);border:1px solid var(--c-border);border-radius:10px;padding:12px}
+  .edition-rail ol{columns:2 220px;border-left:0}.edition-rail a{border-left:0;padding:5px 4px}
+  .edition-menu-btn{display:inline-flex}}
+@media (max-width:640px){.edition-body{padding:10px 0 0}.edition-bar-in{padding:12px 16px}}
+@media print{.edition-bar,.edition-rail,.to-top{display:none}.flow{box-shadow:none}}
 """
 
 
@@ -284,8 +296,27 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
     files: dict[str, bytes] = {}
     if pdf_bytes:
         methods = {int(k): v for k, v in (m.get("extraction") or {}).get("methods", {}).items()}
-        page_list, art = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                max_pages=max_pages)
+        # A contents table in the PDF (no links) becomes the site's contents menu, and its
+        # page is left out — on the web the menu does that job.
+        skip, menu = set(), []
+        by_slug = {x["slug"]: x for x in sections}
+        tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
+        for tid, rows in story.index_links(schema, (m.get("source_pdf") or {}).get("page_count")).items():
+            t = tables[tid]
+            if t["source"]["page"] > 5:
+                continue                    # contents live at the front; later tables are content
+            skip.add(t["source"]["page"])
+            for ri, slug in sorted(rows.items()):
+                target = by_slug[slug].get("source", {}).get("page")
+                if target:
+                    menu.append({"page": target, "label": _runs_html(t["rows"][ri]["label"], figures)})
+        page_list, art, link_menu = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
+                                                           max_pages=max_pages, skip_pages=skip)
+        kept = sorted(p["n"] for p in page_list)
+        for it in menu:
+            it["page"] = next((k for k in kept if k >= it["page"]), None)
+        # The PDF's own contents links, where it has them, are the authority.
+        menu = link_menu or [it for it in menu if it["page"]]
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
         # Scanned pages: their text, from the verified blocks, follows the page image.
@@ -299,6 +330,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         files[base.lstrip("/") + "index.html"] = _ENV.get_template("pages.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
             jsonld=Markup(_jsonld(schema, base)), pages=page_list, scan_blocks=scan_blocks,
+            menu=[{"page": it["page"], "label": Markup(it["label"])} for it in menu],
             cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
@@ -316,6 +348,21 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
     files[base.lstrip("/") + "figures.json"] = js.encode()
     files[base.lstrip("/") + "figures.csv"] = cs.encode()
     return files
+
+
+def _runs_html(runs: list[dict], figures: dict) -> str:
+    """Runs as inline HTML; figures keep their exact PDF string and data-fig."""
+    out = []
+    for r in runs:
+        if "f" not in r:
+            out.append(html.escape(r["t"]))
+            continue
+        f = figures[r["f"]]
+        if f["kind"] in ("number", "percent", "bps", "multiple", "nil"):
+            out.append(f'<data value="{html.escape(str(f.get("value") or ""))}" data-fig="{f["id"]}">{html.escape(f["raw"])}</data>')
+        else:
+            out.append(f'<span data-fig="{f["id"]}">{html.escape(f["raw"])}</span>')
+    return "".join(out).strip()
 
 
 def _plain_heading(s: dict) -> str:

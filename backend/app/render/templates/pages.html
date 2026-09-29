@@ -1,40 +1,54 @@
 {% extends "base.html" %}
 {% from "_macros.html" import runs, meta, table with context %}
-{#- The web edition, page by page: each PDF page looks as it does in the PDF (its own
-    artwork) with its words and figures as real text on top. Scanned pages have no text
-    to lay over, so their text follows the page image, read from the verified figures. -#}
+{#- The web edition: the report's own design and order as ONE continuous page. Each part
+    is a PDF page's content with its running header/footer and blank margins trimmed, so
+    parts run into each other; the words and figures are real text laid over the artwork.
+    The PDF's contents page becomes the contents menu. Scanned parts carry their text,
+    from the verified figures, right after the image. -#}
 {% block content %}
-<article class="edition" aria-label="{{ report_type_label }} — web edition">
+<div class="edition" id="top">
   <header class="edition-bar">
-    <div class="wrap edition-bar-in">
+    <div class="edition-bar-in">
       <div>
         <p class="edition-eyebrow">{{ meta("company", m.company) }}</p>
         <h1>{{ meta("period_label", m.period_label) }} {{ report_type_label }}</h1>
       </div>
-      <p class="edition-actions"><a class="btn btn-primary" href="{{ pdf_href }}">Download the PDF</a></p>
+      <p class="edition-actions">
+        {%- if menu %}<a class="btn edition-menu-btn" href="#contents">Contents</a>{% endif %}
+        <a class="btn btn-primary" href="{{ pdf_href }}">Download the PDF</a>
+      </p>
     </div>
   </header>
-  <div class="pages">
-  {%- for p in pages %}
-    <section class="pg{% if p.ocr %} pg-scan{% endif %}" id="p{{ p.n }}" style="--pw:{{ p.w }};--ph:{{ p.h }}">
-      <img class="pg-bg" src="{{ base_path }}{{ p.bg }}" width="{{ p.bg_w }}" height="{{ p.bg_h }}" alt="{{ 'Scanned page of the ' ~ report_type_label if p.ocr else '' }}"{% if loop.index > 2 %} loading="lazy"{% endif %} decoding="async">
-      <div class="pg-t">{{ p.html|safe }}</div>
-    </section>
-    {%- if p.ocr and scan_blocks.get(p.n) %}
-    <details class="pg-text">
-      <summary>Text on this page</summary>
-      <div class="pg-text-in">
-      {%- for b in scan_blocks[p.n] %}
-        {%- if b.type == 'paragraph' %}<p>{{ runs(b.runs, figures) }}</p>
-        {%- elif b.type == 'table' %}{{ table(b, figures, b._section, m) }}
-        {%- elif b.type == 'stat' %}<p><strong>{{ runs(b.label, figures) }}</strong> {{ runs(b.value, figures) }}</p>
-        {%- endif %}
-      {%- endfor %}
-      </div>
-    </details>
+  <div class="edition-body{% if menu %} has-menu{% endif %}">
+    {%- if menu %}
+    <nav class="edition-rail" id="contents" aria-label="Contents">
+      <p class="toc-title">Contents</p>
+      <ol>{% for it in menu %}<li><a href="#p{{ it.page }}">{{ it.label }}</a></li>{% endfor %}</ol>
+    </nav>
     {%- endif %}
-  {%- endfor %}
+    <article class="flow" aria-label="{{ report_type_label }}">
+    {%- for p in pages %}
+      <section class="part{% if p.ocr %} part-scan{% endif %}" id="p{{ p.n }}" style="--pw:{{ p.w }};--ph:{{ p.h }}">
+        <img class="part-bg" src="{{ base_path }}{{ p.bg }}" width="{{ p.bg_w }}" height="{{ p.bg_h }}" alt="{{ 'Scanned page of the ' ~ report_type_label if p.ocr else '' }}"{% if loop.index > 2 %} loading="lazy"{% endif %} decoding="async">
+        <div class="part-t">{{ p.html|safe }}</div>
+      </section>
+      {%- if p.ocr and scan_blocks.get(p.n) %}
+      <details class="part-text">
+        <summary>Text of the scanned part above</summary>
+        <div class="part-text-in">
+        {%- for b in scan_blocks[p.n] %}
+          {%- if b.type == 'paragraph' %}<p>{{ runs(b.runs, figures) }}</p>
+          {%- elif b.type == 'table' %}{{ table(b, figures, b._section, m) }}
+          {%- elif b.type == 'stat' %}<p><strong>{{ runs(b.label, figures) }}</strong> {{ runs(b.value, figures) }}</p>
+          {%- endif %}
+        {%- endfor %}
+        </div>
+      </details>
+      {%- endif %}
+    {%- endfor %}
+      <p class="doc-note fine">Every figure on this page is copied unchanged from the PDF, which remains the official document.</p>
+    </article>
   </div>
-  <p class="doc-note fine">The web edition of the PDF, page for page. Every figure is copied unchanged from the PDF, which remains the official document.</p>
-</article>
+  <a class="to-top" href="#top" aria-label="Back to the top">↑</a>
+</div>
 {% endblock %}
