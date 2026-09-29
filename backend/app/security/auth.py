@@ -107,11 +107,52 @@ def consume_magic_link(token: str, ip: str | None, user_agent: str | None) -> st
     return session_token
 
 
-def _create_session(s: Session, user_id: uuid.UUID, ip: str | None, user_agent: str | None) -> str:
+def _create_session(s: Session, user_id: uuid.UUID, ip: str | None, user_agent: str | None, *,
+                    mfa_verified: bool = False) -> str:
     token = new_token()
     s.add(AuthSession(user_id=user_id, token_hash=hash_token(token), ip=ip,
                       user_agent=(user_agent or "")[:500],
+                      mfa_verified_at=_now() if mfa_verified else None,
                       expires_at=_now() + timedelta(hours=get_settings().session_ttl_hours)))
+    return token
+
+
+DEMO_EMAIL = "demo@publishpdf.ai"
+DEMO_RATE_LIMIT = 30          # sessions for the shared demo account per window
+
+
+def sign_in_demo(ip: str | None, user_agent: str | None) -> str:
+    """Sign in the shared demo account, with no email code.
+
+    Only ``demo@publishpdf.ai``. The account is created on first use, with its own
+    workspace, and is never a platform admin. The session is marked past MFA because
+    this identity is public: there is no secret to protect, and a 2FA screen would
+    stop everyone who clicked the button.
+    """
+    with db.session(system_context()) as s:
+        user = s.scalars(select(User).where(User.email == DEMO_EMAIL)).first()
+        if user is None:
+            user = User(email=DEMO_EMAIL, name="Demo")
+            s.add(user)
+            s.flush()
+        if user.disabled_at is not None:
+            raise AuthError("The demo account is unavailable right now.")
+        if user.is_platform_admin:
+            raise AuthError("The demo account can't be used this way. Sign in with your email instead.")
+        recent = s.scalar(select(func.count()).select_from(AuthSession).where(
+            AuthSession.user_id == user.id, AuthSession.created_at > _now() - LOGIN_RATE_WINDOW))
+        if recent >= DEMO_RATE_LIMIT:
+            raise AuthError("The demo is busy. Wait a few minutes and try again.")
+        if s.scalar(select(func.count()).select_from(Membership).where(Membership.user_id == user.id)) == 0:
+            tenant = s.scalars(select(Tenant).where(Tenant.slug == "demo")).first()
+            if tenant is None:
+                tenant = Tenant(slug="demo", name="PublishPDF Demo")
+                s.add(tenant)
+                s.flush()
+            s.add(Membership(tenant_id=tenant.id, user_id=user.id, role=Role.client_admin.value))
+        token = _create_session(s, user.id, ip, user_agent, mfa_verified=True)
+        audit.record(s, system_context(), "auth.login", target_type="user", target_id=user.id,
+                     actor_user_id=user.id, ip=ip, after={"method": "demo"})
     return token
 
 

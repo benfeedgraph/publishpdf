@@ -14,7 +14,8 @@ export default function Login() {
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<null | "code" | "demo" | "verify" | "signup">(null);
   const [resendIn, setResendIn] = useState(0);
   const boxes = useRef<(HTMLInputElement | null)[]>([]);
   const qc = useQueryClient();
@@ -28,8 +29,9 @@ export default function Login() {
 
   async function sendCode(e?: FormEvent) {
     e?.preventDefault();
-    setBusy(true);
+    setBusy("code");
     setError(null);
+    setDemoError(null);
     try {
       const r = await post<{ dev_code?: string }>("/api/auth/code", { email });
       setDevCode(r.dev_code ?? null);
@@ -40,12 +42,12 @@ export default function Login() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function verify(code: string) {
-    setBusy(true);
+    setBusy("verify");
     setError(null);
     try {
       const r = await post<{ status: string; signup_token?: string }>("/api/auth/code/verify", { email, code });
@@ -60,13 +62,13 @@ export default function Login() {
       setDigits(Array(6).fill(""));
       boxes.current[0]?.focus();
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function signup(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    setBusy("signup");
     setError(null);
     try {
       await post("/api/auth/signup", { signup_token: signupToken, name, company });
@@ -74,13 +76,27 @@ export default function Login() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function done() {
     await qc.invalidateQueries({ queryKey: ["me"] });
     navigate("/", { replace: true });
+  }
+
+  async function useDemo() {
+    setBusy("demo");
+    setError(null);
+    setDemoError(null);
+    try {
+      await post("/api/auth/demo");
+      await done();
+    } catch (err) {
+      setDemoError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
   }
 
   function setDigit(i: number, v: string) {
@@ -129,8 +145,22 @@ export default function Login() {
                 <input type="email" required autoFocus autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
               </label>
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy}>{busy ? "Sending…" : "Continue"}</button>
+              <button className="primary lg" disabled={busy !== null}>{busy === "code" ? "Sending…" : "Continue"}</button>
             </form>
+          )}
+
+          {step === "email" && (
+            <div className="auth-demo">
+              <p className="auth-or">or</p>
+              <button type="button" className="demo-card" disabled={busy !== null} onClick={useDemo}>
+                <span className="demo-copy">
+                  <span className="demo-kicker">Just exploring the tool?</span>
+                  <span className="demo-action">{busy === "demo" ? "Signing in…" : "Use the demo account"}</span>
+                </span>
+                <span className="demo-email">demo@publishpdf.ai</span>
+              </button>
+              {demoError && <p className="error" role="alert">{demoError}</p>}
+            </div>
           )}
 
           {step === "code" && (
@@ -141,16 +171,16 @@ export default function Login() {
                 {digits.map((d, i) => (
                   <input key={i} ref={(el) => (boxes.current[i] = el)} inputMode="numeric" autoComplete={i === 0 ? "one-time-code" : "off"}
                     maxLength={1} value={d} aria-label={`Digit ${i + 1}`} onChange={(e) => setDigit(i, e.target.value)}
-                    onKeyDown={(e) => onKey(i, e)} onPaste={onPaste} disabled={busy} />
+                    onKeyDown={(e) => onKey(i, e)} onPaste={onPaste} disabled={busy !== null} />
                 ))}
               </div>
               {devCode && <p className="callout info small">Development mode (no email is sent). Your code is <strong className="mono">{devCode}</strong>{" "}
                 <button type="button" className="link" onClick={() => { setDigits(devCode.split("")); verify(devCode); }}>Use it</button></p>}
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy || digits.some((x) => !x)}>{busy ? "Checking…" : "Verify"}</button>
+              <button className="primary lg" disabled={busy !== null || digits.some((x) => !x)}>{busy === "verify" ? "Checking…" : "Verify"}</button>
               <div className="row" style={{ marginTop: 14, justifyContent: "space-between" }}>
                 <button type="button" className="link" onClick={() => { setStep("email"); setError(null); }}>Use a different email</button>
-                <button type="button" className="link" disabled={resendIn > 0 || busy} onClick={() => sendCode()}>
+                <button type="button" className="link" disabled={resendIn > 0 || busy !== null} onClick={() => sendCode()}>
                   {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
                 </button>
               </div>
@@ -170,7 +200,7 @@ export default function Login() {
                 <input required value={company} onChange={(e) => setCompany(e.target.value)} autoComplete="organization" placeholder="e.g. Acme Industries Limited" />
               </label>
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy}>{busy ? "Creating…" : "Create workspace"}</button>
+              <button className="primary lg" disabled={busy !== null}>{busy === "signup" ? "Creating…" : "Create workspace"}</button>
             </form>
           )}
         </div>

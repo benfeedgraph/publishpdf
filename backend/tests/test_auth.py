@@ -204,6 +204,24 @@ def test_suspended_tenant_blocks_members(client):
     assert client.get(f"/api/tenants/{t.id}").status_code == 403
 
 
+def test_demo_account_signs_in_without_a_code(client):
+    r = client.post("/api/auth/demo")
+    assert r.status_code == 200
+    me = client.get("/api/auth/me").json()
+    assert me["user"]["email"] == "demo@publishpdf.ai"
+    assert me["fully_authenticated"]
+    assert me["tenants"]
+    assert not me["user"]["is_platform_admin"]
+    client.post("/api/auth/logout")
+
+    with db.session(system_context()) as s:
+        s.execute(text("UPDATE users SET is_platform_admin = true WHERE email = 'demo@publishpdf.ai'"))
+    refused = client.post("/api/auth/demo")
+    assert refused.status_code == 400
+    with db.session(system_context()) as s:
+        s.execute(text("UPDATE users SET is_platform_admin = false WHERE email = 'demo@publishpdf.ai'"))
+
+
 def test_admin_creates_tenant_with_first_admin_invite(client):
     sign_in(client, make_user(platform_admin=True))
     slug = f"acme-{make_tenant().slug[-8:]}"

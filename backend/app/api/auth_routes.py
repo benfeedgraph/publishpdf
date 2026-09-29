@@ -80,6 +80,18 @@ def verify_code(body: CodeVerifyIn, request: Request, response: Response) -> dic
     return {"status": "needs_profile", "signup_token": r.signup_token}
 
 
+@router.post("/demo")
+def demo_login(request: Request, response: Response) -> dict[str, str]:
+    """Public sign-in for the shared demo account. No email code."""
+    try:
+        token = auth.sign_in_demo(client_ip(request), request.headers.get("user-agent"))
+    except AuthError as e:
+        status = 429 if str(e).startswith("The demo is busy") else 400
+        raise HTTPException(status, str(e)) from e
+    _set_session_cookie(response, token)
+    return {"status": "signed_in"}
+
+
 @router.post("/signup")
 def signup(body: SignupIn, request: Request, response: Response) -> dict:
     try:
