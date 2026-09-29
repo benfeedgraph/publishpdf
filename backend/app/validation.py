@@ -269,11 +269,14 @@ def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
                 verified.add(f["id"])
             continue
         rs = [r for r in reads[f["id"]] if r]
-        # Text-layer values that two independent PDF parsers already read identically: an
-        # OCR reading that only failed to read them cleanly (no reading contradicts the
-        # digits) is a warning; a reading that shows different digits still blocks.
+        # Text-layer values that two independent PDF parsers already read identically: when
+        # OCR merely failed to read them cleanly, that's a warning. It still blocks when
+        # most OCR readings show different digits — the sign of a text layer that doesn't
+        # match what's printed (e.g. hidden text saying 46.20 over a printed 48.20).
+        digit_reads = [r for r in rs if re.search(r"\d", r)]
+        against = sum(1 for r in digit_reads if ocr_contradicts(f["raw"], r))
         if f["method"] == "text_layer" and text_confirmed and f["id"] in text_confirmed \
-                and not any(ocr_contradicts(f["raw"], r) for r in rs):
+                and against * 2 < max(1, len(digit_reads)):
             issues.append(_fig_issue("re_extraction", "warning", f,
                                      "The image re-read couldn't read this cleanly, but two independent PDF "
                                      "parsers read it identically and no reading shows different digits.",

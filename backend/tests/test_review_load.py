@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from app import validation
 from app.extraction.tokens import looks_numeric_unparsed
-from tests.test_pipeline_e2e import _version, drain, upload
+from tests.test_pipeline_e2e import _version, admin_client, drain, upload  # noqa: F401 (fixture)
 
 
 def _fig(fid, raw, *, method="ocr", conf=0.9, kind="number", **kw):
@@ -44,7 +44,7 @@ def test_year_ranges_are_not_unreadable_numbers():
 def test_checker_fixes_from_the_annual_report():
     # a value printed with a footnote mark is its own figure; the markdown check accepts it
     schema = {"figures": {"x": {"raw": "(38.19)*"}}, "metadata": {}}
-    assert validation.check_markdown(schema, "| at 31st March, | (38.19)* |") == []
+    assert validation.check_markdown(schema, "| Provision | (38.19)* |") == []
     # a non-breaking hyphen or a stray control byte isn't a different value
     assert validation._same_glyphs("IEPF‑5") == "IEPF-5" and validation._same_glyphs("\x072") == "2"
 
