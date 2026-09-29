@@ -59,29 +59,39 @@ def test_a_wrapped_link_is_not_a_kpi_tile():
     assert not stats
 
 
-def test_one_report_is_one_page_in_the_pdf_order():
+def test_the_report_is_one_page_that_looks_like_the_pdf():
     pdf = _faq_pdf()
     schema, _ = extract(pdf, META)
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
-    # Exactly one HTML page per report: no section pages, no separate "full" page.
+    # Exactly one HTML page per report; every PDF page is on it, with its artwork.
     assert [k for k in files if k.endswith(".html")] == [base + "index.html"]
-    landing = files[base + "index.html"].decode()
+    html_ = files[base + "index.html"].decode()
+    assert html_.count('class="pg"') == 2 and 'id="p1"' in html_ and 'id="p2"' in html_
+    assert {base + "pages/p0001.webp", base + "pages/p0002.webp"} <= set(files)
+    assert all(files[k][:4] == b"RIFF" for k in files if k.endswith(".webp"))
+    assert any(k.endswith(".woff2") for k in files) and any(k.endswith("-OFL.txt") for k in files)
+    # The words are real text on the page (search and answer engines read them)…
+    assert "diversified portfolio" in html_ and "What is the Company" in html_
+    # …and every number reaches the page only as a figure with its exact PDF string.
     assert validation.check_bundle(schema, files) == []
-    # Every question, in the PDF's order, as real text on that page (sections are anchors).
+    q1 = next(f for f in schema["figures"].values() if f["raw"] == "Q1" and f["source"]["page"] == 2)
+    assert f'data-fig="{q1["id"]}">Q1<' in html_
+    # The page scales to any screen: positions and sizes are shares of the page width.
+    assert "--x:" in html_ and "cqw" in html_
+
+
+def test_without_the_pdf_the_text_is_laid_out_as_one_flowing_page():
+    schema, _ = extract(_faq_pdf(), META)
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d")
+    landing = files[base + "index.html"].decode()
+    assert 'class="doc"' in landing and validation.check_bundle(schema, files) == []
     qs = [s for s in schema["sections"] if story.question_parts(schema, s)]
     pos = [landing.index(f'id="{s["slug"]}"') for s in qs]
-    assert pos == sorted(pos) and "diversified portfolio" in landing
-    # Search/answer engines: FAQ microdata around the visible answers.
-    assert landing.count('itemtype="https://schema.org/Question"') == 3 and 'itemprop="acceptedAnswer"' in landing
-    # Printed web addresses are links, re-joined where the PDF wrapped them.
+    assert pos == sorted(pos)
+    assert landing.count('itemtype="https://schema.org/Question"') == 3
     assert 'href="https://example.com/content/dam/pdfs/financial-result/quarterly-results-2026-2027/june-2026/Presentation-Q1-FY2027.pdf"' in landing
-    # The cover and the chart are carried over as images from the PDF.
-    pngs = [k for k in files if k.endswith(".png")]
-    assert base + "media/cover.png" in pngs and len(pngs) >= 2 and 'class="dv' in landing
-    # Without the PDF (theme editor preview) the page still renders, just without images.
-    bare = site.render_report(schema, theme=theming.validate({}), disclaimer="d")
-    assert not any(k.endswith(".png") for k in bare) and 'class="doc"' in bare[base + "index.html"].decode()
     # The retired "story" layout in a saved theme is ignored, not an error.
     assert "layout" not in theming.validate({"layout": "story"})
 

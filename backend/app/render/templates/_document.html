@@ -3,25 +3,6 @@
     read it); figures still render only through fig(). -#}
 {%- from "_macros.html" import fig, runs, table, meta with context -%}
 
-{%- macro visual(b, figures) -%}
-{%- set v = visuals[b.id] %}{%- set d = doclayout.get(b.id, {"w": 100, "float": none}) %}
-<figure class="dv{% if d.float %} fl-{{ d.float }}{% endif %}" id="{{ b.id }}" style="--w:{{ d.w }}%">
-  <a class="dv-img" href="{{ v.href }}" target="_blank" rel="noopener" title="Open the full-size image"><img src="{{ v.href }}" width="{{ v.w }}" height="{{ v.h }}" loading="lazy" decoding="async" alt="{{ 'Chart' if b.extracted else 'Graphic' }} from the original {{ report_type_label }} PDF"></a>
-  <figcaption><a href="{{ pdf_href }}#page={{ v.page }}">View in the PDF <span aria-hidden="true">↗</span></a></figcaption>
-</figure>
-{%- if b.extracted %}
-<details class="chart-data dv-data"><summary>Chart values</summary>
-<div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0">
-<table id="{{ b.id }}-data" class="chart-data">
-<caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption>
-<thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead>
-<tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody>
-</table>
-</div>
-</details>
-{%- endif %}
-{%- endmacro -%}
-
 {%- macro index_table(b, figures, links) -%}
 <div class="table-wrap toc-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0">
 <table id="{{ b.id }}" class="toc-table">
@@ -44,7 +25,6 @@
   {%- elif li is not none -%}<p class="li">{{ runs(li, figures) }}</p>
   {%- elif ll -%}<p><strong class="lead-label">{{ ll[0] }}</strong> {{ runs(ll[1], figures) }}</p>
   {%- else -%}<p>{{ runs(b.runs, figures) }}</p>{%- endif -%}
-{%- elif b.type == 'chart' and visuals.get(b.id) -%}{{ visual(b, figures) }}
 {%- elif b.type == 'chart' and b.extracted -%}
 <div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div>
 {%- elif b.type == 'chart' -%}

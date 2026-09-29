@@ -20,7 +20,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
-from app.render import media as media_mod
+from app.render import pages as pages_mod
 from app.render import story
 from app.render import theme as theming
 
@@ -200,6 +200,32 @@ details.chart-data{margin:-.6em 0 1.6em}details.chart-data summary{cursor:pointe
 """
 
 
+PAGES_CSS = """
+.layout-document:has(.edition){background:color-mix(in srgb,var(--c-primary) 4%,#e9ebf0)}
+.edition-bar{background:var(--c-background);border-bottom:1px solid var(--c-border)}
+.edition-bar-in{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:18px;padding-bottom:18px}
+.edition-bar h1{font-size:clamp(1.2em,2.2vw,1.55em);margin:0;letter-spacing:-.02em}
+.edition-eyebrow{margin:0 0 2px;color:var(--c-primary);font-weight:700;font-size:.78em;letter-spacing:.12em;text-transform:uppercase}
+.edition-actions{margin:0}
+.pages{padding:28px 12px 8px}
+.pg{position:relative;width:min(100%,980px);aspect-ratio:var(--pw)/var(--ph);margin:0 auto 22px;background:#fff;
+  box-shadow:0 1px 2px rgba(16,24,40,.08),0 18px 44px -22px rgba(16,24,40,.4);container-type:inline-size;overflow:hidden;
+  scroll-margin-top:84px}
+.pg-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
+.pg-t{position:absolute;inset:0;content-visibility:auto}
+.pg .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
+  transform-origin:0 0;transform:scaleX(var(--k,1));color:#000;font-kerning:normal}
+.pg .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
+.pg .pl:hover,.pg .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent);outline:1px solid color-mix(in srgb,var(--c-primary) 55%,transparent)}
+.pg ::selection{background:color-mix(in srgb,var(--c-primary) 30%,transparent)}
+.pg-text{width:min(100%,980px);margin:-10px auto 26px;background:var(--c-background);border:1px solid var(--c-border);border-radius:10px;padding:10px 18px}
+.pg-text summary{cursor:pointer;font-weight:650;color:var(--c-primary)}
+.pg-text-in{padding:8px 0 4px;font-size:.95em}
+@media (max-width:640px){.pages{padding:10px 0}.pg{margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.15)}}
+@media print{.edition-bar{display:none}.pg{box-shadow:none;margin:0;break-after:page}.pages{padding:0}}
+"""
+
+
 _ASSETS = Path(__file__).parent / "assets"
 _MARK = {"light": (_ASSETS / "publishpdf-mark-color.svg").read_text(),
          "dark": (_ASSETS / "publishpdf-mark-on-dark.svg").read_text()}
@@ -224,9 +250,12 @@ def page_css(theme: dict) -> str:
 
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
-                  pdf_bytes: bytes | None = None) -> dict[str, bytes]:
+                  pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
-    With `pdf_bytes`, the cover and every chart/infographic are carried over as images."""
+
+    With the PDF (always, in the pipeline) the report page is the page-faithful web
+    edition: every PDF page as designed, its text as real HTML on top. Without it (a
+    design preview on sample data) the report's text is laid out as one flowing page."""
     m = schema["metadata"]
     base = report_base_path(m)
     figures = schema["figures"]
@@ -249,27 +278,39 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                     {"type": "application/json", "href": f"{ORIGIN_PLACEHOLDER}{base}figures.json", "title": "Figures as JSON"},
                     {"type": "text/csv", "href": f"{ORIGIN_PLACEHOLDER}{base}figures.csv", "title": "Figures as CSV"}],
     )
-    media_files, media = media_mod.render_media(schema, pdf_bytes)
     href = lambda rel: f"{ORIGIN_PLACEHOLDER}{base}{rel}"  # noqa: E731
-    visuals = {bid: {**v, "href": href(v["src"])} for bid, v in media["blocks"].items()}
-    qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
-    page_count = (m.get("source_pdf") or {}).get("page_count")
-    front = sections[0] if sections and not sections[0].get("heading") else None
-    page1 = [b for b in (front["blocks"] if front else []) if b.get("source", {}).get("page") == 1]
-    cover_is_art = bool(media["cover"] and page1 and all(b["type"] == "chart" for b in page1))
-    doclayout = story.document_layout(schema, visuals)
     lead_text = next((t for t in (story.plain_excerpt(s) for s in sections) if t), "")
-    # One report = one page: the PDF's content in the PDF's order. Sections are anchors
-    # on that page, never pages of their own.
-    files: dict[str, bytes] = {base.lstrip("/") + k: v for k, v in media_files.items()}
-    files[base.lstrip("/") + "index.html"] = _ENV.get_template("report.html").render(
-        **common, page_title=title, canonical_path=base, jsonld=Markup(_jsonld(schema, base)),
-        description=f"{m['company']} {m['period_label']} {type_label}: {lead_text}" if lead_text else description,
-        visuals=visuals, qparts=qparts, faq=story.is_faq(schema), front=front, cover_is_art=cover_is_art,
-        first_q=next((s for s in sections if qparts[s["id"]]), None),
-        cover=({**media["cover"], "href": href(media["cover"]["src"])} if media["cover"] else None),
-        doclayout=doclayout, doc_order=story.document_order(schema, doclayout),
-        heading_ids=story.heading_like(schema), index_links=story.index_links(schema, page_count)).encode()
+    desc = f"{m['company']} {m['period_label']} {type_label}: {lead_text}" if lead_text else description
+    files: dict[str, bytes] = {}
+    if pdf_bytes:
+        methods = {int(k): v for k, v in (m.get("extraction") or {}).get("methods", {}).items()}
+        page_list, art = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
+                                                max_pages=max_pages)
+        files.update({base.lstrip("/") + k: v for k, v in art.items()})
+        files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
+        # Scanned pages: their text, from the verified blocks, follows the page image.
+        scan_blocks: dict[int, list] = {}
+        for sec in sections:
+            for b in sec["blocks"]:
+                pg = (b.get("source") or {}).get("page")
+                if pg and methods.get(pg) == "ocr" and b["type"] in ("paragraph", "table", "stat"):
+                    scan_blocks.setdefault(pg, []).append({**b, "_section": sec})
+        css_all = Markup(css + pages_mod.fonts_css(href) + PAGES_CSS)
+        files[base.lstrip("/") + "index.html"] = _ENV.get_template("pages.html").render(
+            **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
+            jsonld=Markup(_jsonld(schema, base)), pages=page_list, scan_blocks=scan_blocks,
+            cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
+    else:
+        qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
+        page_count = (m.get("source_pdf") or {}).get("page_count")
+        front = sections[0] if sections and not sections[0].get("heading") else None
+        doclayout = story.document_layout(schema, {})
+        files[base.lstrip("/") + "index.html"] = _ENV.get_template("report.html").render(
+            **common, page_title=title, canonical_path=base, jsonld=Markup(_jsonld(schema, base)), description=desc,
+            visuals={}, qparts=qparts, faq=story.is_faq(schema), front=front,
+            first_q=next((s for s in sections if qparts[s["id"]]), None),
+            doclayout=doclayout, doc_order=story.document_order(schema, doclayout),
+            heading_ids=story.heading_like(schema), index_links=story.index_links(schema, page_count)).encode()
     files[base.lstrip("/") + "report.md"] = render_markdown(schema, base).encode()
     js, cs = figures_exports(schema, base)
     files[base.lstrip("/") + "figures.json"] = js.encode()
@@ -484,6 +525,16 @@ def robots_txt(policy: str, *, preview: bool = False) -> str:
     blocked = AI_TRAINING_BOTS if policy == "search_and_answer" else AI_TRAINING_BOTS + AI_ANSWER_BOTS
     rules = "".join(f"User-agent: {b}\nDisallow: /\n\n" for b in blocked)
     return rules + "User-agent: *\nAllow: /\n\n" + sm
+
+
+CONTENT_TYPES = ((".html", "text/html; charset=utf-8"), (".md", "text/markdown; charset=utf-8"),
+                 (".json", "application/json"), (".csv", "text/csv; charset=utf-8"), (".xml", "application/xml"),
+                 (".txt", "text/plain; charset=utf-8"), (".png", "image/png"), (".webp", "image/webp"),
+                 (".woff2", "font/woff2"), (".pdf", "application/pdf"))
+
+
+def content_type(name: str) -> str:
+    return next((ct for ext, ct in CONTENT_TYPES if name.endswith(ext)), "application/octet-stream")
 
 
 def bundle_sha256(files: dict[str, bytes]) -> str:

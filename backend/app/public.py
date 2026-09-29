@@ -157,7 +157,7 @@ _NOT_FOUND_FONTS = ("https://fonts.googleapis.com/css2?family=Manrope:wght@800&f
                     "&display=swap")
 
 CSP = ("default-src 'self'; img-src 'self' data: https://www.google-analytics.com https://www.googletagmanager.com; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
        "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; "
        "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -259,13 +259,8 @@ def serve(path: str, request: Request) -> Response:
 
 
 def _ctype(key: str) -> str:
-    for ext, ct in ((".html", "text/html; charset=utf-8"), (".md", "text/markdown; charset=utf-8"),
-                    (".json", "application/json"), (".csv", "text/csv; charset=utf-8"),
-                    (".xml", "application/xml"), (".txt", "text/plain; charset=utf-8"),
-                    (".png", "image/png"), (".pdf", "application/pdf")):
-        if key.endswith(ext):
-            return ct
-    return "application/octet-stream"
+    from app.render.site import content_type
+    return content_type(key)
 
 
 _NOT_FOUND_CSS = (

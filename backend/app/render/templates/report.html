@@ -10,19 +10,13 @@
   </nav>
   <article class="doc"{% if faq %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
     {#- Cover: the PDF's first page, in its own order — its art, then its title. -#}
-    <header class="sheet cover-sheet{% if cover_is_art %} cover-page{% endif %}">
+    <header class="sheet cover-sheet">
       {%- set cover_blocks = front.blocks|selectattr("source.page", "equalto", 1)|list if front else [] %}
-      {%- if cover_is_art %}
-      {#- A cover that is all artwork (no text of its own) is shown as the PDF's cover page itself. #}
-      <img class="cover-img" src="{{ cover.href }}" width="{{ cover.w }}" height="{{ cover.h }}" alt="Cover of the {{ report_type_label }}" fetchpriority="high">
-      {%- endif %}
       <p class="cover-eyebrow">{{ meta("company", m.company) }}</p>
       <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
-      {%- if not cover_is_art %}
       {%- for b in cover_blocks %}
       {{ doc_block(b, figures, front) }}
       {%- endfor %}
-      {%- endif %}
       <p class="cover-actions"><a class="btn btn-primary" href="{{ pdf_href }}">Download the PDF</a>{% if first_q %}<a class="btn" href="#{{ first_q.slug }}">Start reading <span class="arr" aria-hidden="true">↓</span></a>{% endif %}</p>
     </header>
     <div class="sheet">

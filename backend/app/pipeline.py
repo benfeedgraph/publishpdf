@@ -149,11 +149,19 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         schema, vid, v_sha = v.schema_json, v.id, v.source_sha256
     _set_stage(ctx, vid, "render")
     pdf = storage.get(ctx, source_key(v_sha))
-    files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf)
+    last = {"t": 0.0}
+
+    def on_page(done: int, total: int) -> None:
+        import time
+        if done == total or time.monotonic() - last["t"] > 1.5:
+            last["t"] = time.monotonic()
+            _set_stage(ctx, vid, f"render: building page {done} of {total}")
+
+    files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
+                               progress=on_page)
     prefix = bundle_prefix(vid)
     for rel, data in files.items():
-        ctype = "text/html" if rel.endswith(".html") else "text/markdown" if rel.endswith(".md") else \
-            "application/json" if rel.endswith(".json") else "image/png" if rel.endswith(".png") else "text/csv"
+        ctype = site.content_type(rel)
         storage.put(ctx, prefix + rel, data, ctype)
     storage.put(ctx, prefix + "_files.json", json.dumps(sorted(files)).encode(), "application/json")
     bsha = site.bundle_sha256(files)

@@ -202,6 +202,9 @@ def get_logo(ctx: Context = Depends(require("report.view"))):
     return Response(storage.get(ctx, logo["key"]), media_type="image/png")
 
 
+PREVIEW_PAGES = 3
+
+
 @router.post("/theme/preview")
 def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
     """Live preview for the theme editor: renders the tenant's latest report (or a
@@ -218,12 +221,28 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             q = q.where(ReportVersion.report_id == body["report_id"])
         v = s.scalars(q.order_by(ReportVersion.created_at.desc())).first()
         schema = v.schema_json if v else _sample_schema(s.get(Tenant, ctx.tenant_id).name)
+        sha = v.source_sha256 if v else None
         st = settings_for(s, ctx)
         disclaimer = effective_disclaimer(st)
-    files = site.render_report(schema, theme=used, disclaimer=disclaimer,
+    pdf = None
+    if sha:
+        from app.reports import source_key
+        try:
+            pdf = storage.get(ctx, source_key(sha))
+        except Exception:  # noqa: BLE001 - no stored PDF: preview the text layout instead
+            pdf = None
+    # The first few pages are enough to judge a design, and keep the preview instant.
+    files = site.render_report(schema, theme=used, disclaimer=disclaimer, pdf_bytes=pdf, max_pages=PREVIEW_PAGES,
                                logo_src=f"/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
-    html = files[base + "index.html"].decode().replace(site.ORIGIN_PLACEHOLDER, "#")
+    html = files[base + "index.html"].decode()
+    # One self-contained response: page artwork and fonts travel inline.
+    import base64
+    for name, data in files.items():
+        if name.endswith((".webp", ".woff2")):
+            uri = f"data:{site.content_type(name)};base64,{base64.b64encode(data).decode()}"
+            html = html.replace(f"{site.ORIGIN_PLACEHOLDER}/{name}", uri)
+    html = html.replace(site.ORIGIN_PLACEHOLDER, "#")
     return HTMLResponse(html, headers={"X-Frame-Options": "SAMEORIGIN", "X-Robots-Tag": "noindex"})
 
 

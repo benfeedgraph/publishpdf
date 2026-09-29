@@ -534,9 +534,8 @@ def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context
         return Response(html, media_type="text/html", headers={"X-Robots-Tag": "noindex",
                                                                 "Content-Security-Policy": "frame-ancestors 'self'",
                                                                 "X-Frame-Options": "SAMEORIGIN"})
-    media = "text/markdown; charset=utf-8" if name.endswith(".md") else "application/json" if name.endswith(".json") \
-        else "image/png" if name.endswith(".png") else "text/csv; charset=utf-8"
-    return Response(data, media_type=media)
+    from app.render.site import content_type
+    return Response(data, media_type=content_type(name))
 
 
 # ------------------------------------------------------------------ publish / rollback / drafts
