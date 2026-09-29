@@ -1,0 +1,44 @@
+[project]
+name = "publishpdf"
+version = "0.1.0"
+description = "PDF-to-Web quarterly report platform"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "email-validator>=2.2",
+    "pyotp>=2.9",
+    "boto3>=1.34",
+    "cryptography>=43",
+    "qrcode>=7.4",
+    "pymupdf>=1.28.2",
+    "jinja2>=3.1.6",
+    "jsonschema>=4.26.0",
+    "dnspython>=2.8.0",
+    "tldextract>=5.3.2",
+    "pillow>=12.3.0",
+    "python-multipart>=0.0.32",
+    "httpx>=0.28.1",
+    "numpy>=2.5.3",
+    "pdfminer-six>=20260107",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+    "hypothesis>=6.100",
+    "reportlab>=5.0.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+package = false

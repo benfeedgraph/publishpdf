@@ -1,0 +1,284 @@
+{
+ "file": "edge_cases_index_microtext.pdf",
+ "synthetic": true,
+ "figures": [
+  {
+   "page": 1,
+   "raw": "3",
+   "bbox": [
+    502.0,
+    100.1,
+    508.0,
+    112.8
+   ],
+   "role": "cell",
+   "row_label": "Vision & Mission",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "3",
+   "bbox": [
+    502.0,
+    122.1,
+    508.0,
+    134.8
+   ],
+   "role": "cell",
+   "row_label": "Core Values",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "4",
+   "bbox": [
+    501.9,
+    144.1,
+    508.1,
+    156.8
+   ],
+   "role": "cell",
+   "row_label": "Strategy",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "Q1",
+   "bbox": [
+    126.4,
+    166.1,
+    139.3,
+    178.8
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY27",
+   "bbox": [
+    142.0,
+    166.1,
+    167.0,
+    178.8
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "4",
+   "bbox": [
+    501.9,
+    166.1,
+    508.1,
+    178.8
+   ],
+   "role": "cell",
+   "row_label": "Overview of Q1 FY27 results",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "5",
+   "bbox": [
+    502.1,
+    188.1,
+    507.9,
+    200.8
+   ],
+   "role": "cell",
+   "row_label": "Impact of taxes",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "6",
+   "bbox": [
+    501.9,
+    210.1,
+    508.1,
+    222.8
+   ],
+   "role": "cell",
+   "row_label": "Track record",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "7",
+   "bbox": [
+    502.2,
+    232.1,
+    507.8,
+    244.8
+   ],
+   "role": "cell",
+   "row_label": "Distribution channel",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "9",
+   "bbox": [
+    501.9,
+    254.1,
+    508.1,
+    266.8
+   ],
+   "role": "cell",
+   "row_label": "Brands",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "10",
+   "bbox": [
+    499.3,
+    276.1,
+    510.7,
+    288.8
+   ],
+   "role": "cell",
+   "row_label": "New categories",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "11",
+   "bbox": [
+    500.3,
+    298.1,
+    509.7,
+    310.8
+   ],
+   "role": "cell",
+   "row_label": "Margins",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "12",
+   "bbox": [
+    499.6,
+    320.1,
+    510.4,
+    332.8
+   ],
+   "role": "cell",
+   "row_label": "Segments",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "13",
+   "bbox": [
+    499.6,
+    342.1,
+    510.4,
+    354.8
+   ],
+   "role": "cell",
+   "row_label": "Fresh food",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "14",
+   "bbox": [
+    499.5,
+    364.1,
+    510.5,
+    376.8
+   ],
+   "role": "cell",
+   "row_label": "Capex plan",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "15",
+   "bbox": [
+    499.7,
+    386.1,
+    510.3,
+    398.8
+   ],
+   "role": "cell",
+   "row_label": "Dividend policy",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "16",
+   "bbox": [
+    499.5,
+    408.1,
+    510.5,
+    420.8
+   ],
+   "role": "cell",
+   "row_label": "Triple Bottom Line",
+   "col_label": "Page No."
+  },
+  {
+   "page": 1,
+   "raw": "17",
+   "bbox": [
+    499.9,
+    430.1,
+    510.1,
+    442.8
+   ],
+   "role": "cell",
+   "row_label": "Digital journey",
+   "col_label": "Page No."
+  },
+  {
+   "page": 2,
+   "raw": "Rs.8.0",
+   "bbox": [
+    149.2,
+    86.5,
+    176.6,
+    97.4
+   ]
+  },
+  {
+   "page": 2,
+   "raw": "Rs.14.35",
+   "bbox": [
+    314.6,
+    86.5,
+    350.2,
+    97.4
+   ]
+  },
+  {
+   "page": 2,
+   "raw": "2.1x",
+   "bbox": [
+    444.1,
+    86.5,
+    460.8,
+    97.4
+   ]
+  },
+  {
+   "page": 2,
+   "raw": "30th",
+   "bbox": [
+    276.9,
+    99.5,
+    296.8,
+    110.4
+   ]
+  },
+  {
+   "page": 2,
+   "raw": "2026",
+   "bbox": [
+    346.8,
+    99.5,
+    368.6,
+    110.4
+   ]
+  }
+ ]
+}

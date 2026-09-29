@@ -1,0 +1,57 @@
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "react-router-dom";
+import { api, formatDateTime } from "../api";
+
+interface Entry {
+  id: number;
+  at: string;
+  actor: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+const fmt = (v: Record<string, unknown> | null) => (v ? JSON.stringify(v) : "");
+
+export default function AuditLog() {
+  const { tenantId } = useParams();
+  const q = useQuery({
+    queryKey: ["audit", tenantId],
+    queryFn: () => api<{ entries: Entry[] }>(`/api/tenants/${tenantId}/audit?limit=200`),
+  });
+  return (
+    <>
+      <h1>Audit log</h1>
+      <p className="muted">Every upload, figure edit, approval, publish, and team, domain and analytics change. Entries can't be edited or deleted.</p>
+      {q.isPending && <p className="muted">Loading…</p>}
+      {q.isError && <p className="error">{q.error.message}</p>}
+      {q.data && q.data.entries.length === 0 && <p className="muted">No activity yet.</p>}
+      {q.data && q.data.entries.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Who</th>
+              <th scope="col">Action</th>
+              <th scope="col">Before</th>
+              <th scope="col">After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {q.data.entries.map((e) => (
+              <tr key={e.id}>
+                <td className="nowrap">{formatDateTime(e.at)}</td>
+                <td>{e.actor ?? "System"}</td>
+                <td><code>{e.action}</code></td>
+                <td className="mono small">{fmt(e.before)}</td>
+                <td className="mono small">{fmt(e.after)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}

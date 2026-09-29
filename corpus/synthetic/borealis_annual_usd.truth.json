@@ -1,0 +1,195 @@
+{
+ "file": "borealis_annual_usd.pdf",
+ "synthetic": true,
+ "figures": [
+  {
+   "page": 1,
+   "raw": "31,",
+   "bbox": [
+    365.1,
+    124.3,
+    377.3,
+    134.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 1,
+   "raw": "2025",
+   "bbox": [
+    304.3,
+    138.3,
+    326.0,
+    148.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 1,
+   "raw": "2024",
+   "bbox": [
+    393.9,
+    138.3,
+    416.0,
+    148.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 1,
+   "raw": "45,210.4",
+   "bbox": [
+    293.7,
+    152.3,
+    326.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Net revenue",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "41,876.9",
+   "bbox": [
+    384.0,
+    152.3,
+    416.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Net revenue",
+   "col_label": "Year ended March 31, 2024"
+  },
+  {
+   "page": 1,
+   "raw": "(27,120.8)",
+   "bbox": [
+    287.3,
+    166.3,
+    326.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of revenue",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "(25,310.2)",
+   "bbox": [
+    377.5,
+    166.3,
+    416.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of revenue",
+   "col_label": "Year ended March 31, 2024"
+  },
+  {
+   "page": 1,
+   "raw": "18,089.6",
+   "bbox": [
+    292.8,
+    180.3,
+    326.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Gross profit",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "16,566.7",
+   "bbox": [
+    384.6,
+    180.3,
+    416.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Gross profit",
+   "col_label": "Year ended March 31, 2024"
+  },
+  {
+   "page": 1,
+   "raw": "(9,820.5)",
+   "bbox": [
+    290.7,
+    194.3,
+    326.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Operating expenses",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "(9,410.3)",
+   "bbox": [
+    381.9,
+    194.3,
+    416.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Operating expenses",
+   "col_label": "Year ended March 31, 2024"
+  },
+  {
+   "page": 1,
+   "raw": "8,269.1",
+   "bbox": [
+    298.3,
+    208.3,
+    326.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Operating income",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "7,156.4",
+   "bbox": [
+    389.4,
+    208.3,
+    416.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Operating income",
+   "col_label": "Year ended March 31, 2024"
+  },
+  {
+   "page": 1,
+   "raw": "18.3%",
+   "bbox": [
+    303.4,
+    222.3,
+    326.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Operating margin",
+   "col_label": "Year ended March 31, 2025"
+  },
+  {
+   "page": 1,
+   "raw": "17.1%",
+   "bbox": [
+    395.2,
+    222.3,
+    416.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Operating margin",
+   "col_label": "Year ended March 31, 2024"
+  }
+ ]
+}

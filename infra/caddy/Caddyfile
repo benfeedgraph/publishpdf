@@ -1,0 +1,49 @@
+# PublishPDF edge (PLAN D5): Caddy with on-demand TLS.
+# Clients CNAME their subdomain to PLATFORM_TARGET_HOSTNAME, which resolves to this server.
+# Caddy obtains a certificate the first time a verified hostname is requested and renews it
+# automatically. The `ask` hook lets it issue ONLY for hostnames the platform has verified.
+#
+# Placeholders (set in the environment of the Caddy process):
+#   ACME_EMAIL            contact for the CA account
+#   INTERNAL_API_TOKEN    same value as the app's INTERNAL_API_TOKEN
+#   PUBLIC_APP            upstream of `uvicorn app.public:app`, e.g. 127.0.0.1:8080
+#   PREVIEW_WILDCARD      e.g. *.preview.publishpdf.ai (needs a DNS-01 wildcard cert; see docs)
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://{$PUBLIC_APP}/internal/tls-ask?token={$INTERNAL_API_TOKEN}
+	}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# Client custom subdomains (any hostname the ask hook approves)
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	reverse_proxy {$PUBLIC_APP} {
+		header_up Host {host}
+	}
+	log {
+		output file /var/log/caddy/sites.log
+		format json
+	}
+}
+
+# Platform preview hosts: <tenant>.preview.<platform domain>
+{$PREVIEW_WILDCARD} {
+	tls {
+		on_demand
+	}
+	reverse_proxy {$PUBLIC_APP} {
+		header_up Host {host}
+	}
+}
+
+# Plain HTTP -> HTTPS (ACME HTTP-01 challenges are answered by Caddy itself)
+http:// {
+	redir https://{host}{uri} 308
+}

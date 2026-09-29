@@ -1,0 +1,219 @@
+"""Pipeline stage handlers.
+
+    extract  ->  render  ->  validate
+    (text layer + OCR, schema)   (static bundle)   (all checks incl. rendered page)
+
+Each stage reads its inputs from the version row + storage, writes its outputs, and
+enqueues the next stage with an idempotency key derived from its inputs. Re-running
+a stage with the same inputs produces the same outputs.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from typing import Any
+
+from sqlalchemy import select
+
+from app import audit, db, storage
+from app.config import get_settings
+from app.extraction import classify
+from app.extraction.pdf import PdfError
+from app.extraction.schema_builder import extract, schema_sha256
+from app.jobs import UserFacingError, handler
+from app.models import Report, ReportVersion, ValidationIssue
+from app.render import site
+from app.reports import (
+    bundle_prefix,
+    effective_disclaimer,
+    effective_theme,
+    enqueue_stage,
+    extraction_key,
+    latest_run_no,
+    logo_src,
+    settings_for,
+    source_key,
+)
+from app.tenancy import Context
+from app import validation
+
+
+@handler("system.ping")
+def ping(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"tenant_id": str(ctx.tenant_id), "echo": payload.get("echo")}
+
+
+def _version(s, payload) -> ReportVersion:
+    v = s.get(ReportVersion, uuid.UUID(payload["version_id"]))
+    if v is None:
+        raise UserFacingError("This report version no longer exists.")
+    return v
+
+
+def _set_stage(ctx: Context, vid: uuid.UUID, stage: str) -> None:
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        if v is not None and v.published_at is None:
+            v.stage, v.status = stage, "processing"
+
+
+def _fail(ctx: Context, vid: uuid.UUID, message: str) -> None:
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        if v is not None and v.published_at is None:
+            v.status, v.error_plain = "failed", message
+
+
+def _llm_for(ctx: Context) -> classify.LlmCall | None:
+    """Only when the tenant opted in AND a key is configured (PLAN D4)."""
+    cfg = get_settings()
+    if not cfg.anthropic_api_key:
+        return None
+    with db.session(ctx) as s:
+        if not settings_for(s, ctx).llm_assist_enabled:
+            return None
+
+    def call(prompt: str) -> str:
+        import httpx
+
+        r = httpx.post("https://api.anthropic.com/v1/messages", timeout=60, headers={
+            "x-api-key": cfg.anthropic_api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            json={"model": cfg.llm_model, "max_tokens": 1024, "system":
+                  "Classify each report section. Reply with JSON only: {\"<id>\": \"<type>\"} using allowed_types. "
+                  "Never output numbers or dates.", "messages": [{"role": "user", "content": prompt}]})
+        r.raise_for_status()
+        return "".join(b.get("text", "") for b in r.json().get("content", []))
+    return call
+
+
+# ------------------------------------------------------------------ extract
+
+
+@handler("pipeline.extract")
+def stage_extract(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    with db.session(ctx) as s:
+        v = _version(s, payload)
+        report = s.get(Report, v.report_id)
+        assert report is not None
+        vid, sha, version_no = v.id, v.source_sha256, v.version_no
+        meta = {"company_name": report.company_name, "report_type": report.report_type,
+                "fiscal_year": report.fiscal_year, "period": report.period, "currency": report.currency,
+                "reporting_unit": report.reporting_unit, "version": version_no}
+        from app.models import SourceFile
+        src = s.get(SourceFile, v.source_file_id)
+        meta["filename"] = src.original_filename if src else None
+    _set_stage(ctx, vid, "extract")
+    pdf = storage.get(ctx, source_key(sha))
+    try:
+        last = {"t": 0.0}
+
+        def on_page(done: int, total: int) -> None:
+            import time
+            if done == total or time.monotonic() - last["t"] > 1.5:
+                last["t"] = time.monotonic()
+                _set_stage(ctx, vid, f"extract: reading page {done} of {total}")
+
+        schema, artifact = extract(pdf, meta, llm=_llm_for(ctx), max_pages=get_settings().max_pages, progress=on_page)
+    except PdfError as e:
+        _fail(ctx, vid, str(e))
+        raise UserFacingError(str(e)) from e
+    storage.put(ctx, extraction_key(vid), json.dumps(artifact).encode(), "application/json")
+    methods = sorted(set(schema["metadata"]["extraction"]["methods"].values()))
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        assert v is not None
+        v.extraction_key = extraction_key(vid)
+        v.schema_json = schema
+        v.schema_sha256 = schema_sha256(schema)
+        audit.record(s, ctx, "pipeline.extracted", target_type="report_version", target_id=vid,
+                     after={"figures": len(schema["figures"]), "sections": len(schema["sections"]),
+                            "methods": methods, "schema_sha256": v.schema_sha256})
+        enqueue_stage(s, ctx, v, "render")
+    return {"figures": len(schema["figures"]), "sections": len(schema["sections"]), "methods": methods}
+
+
+# ------------------------------------------------------------------ render
+
+
+@handler("pipeline.render")
+def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    with db.session(ctx) as s:
+        v = _version(s, payload)
+        if v.published_at is not None:
+            return {"skipped": "published"}
+        report = s.get(Report, v.report_id)
+        st = settings_for(s, ctx)
+        theme, adjustments = effective_theme(st, report)
+        disclaimer = effective_disclaimer(st)
+        schema, vid, v_sha = v.schema_json, v.id, v.source_sha256
+    _set_stage(ctx, vid, "render")
+    pdf = storage.get(ctx, source_key(v_sha))
+    files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf)
+    prefix = bundle_prefix(vid)
+    for rel, data in files.items():
+        ctype = "text/html" if rel.endswith(".html") else "text/markdown" if rel.endswith(".md") else \
+            "application/json" if rel.endswith(".json") else "image/png" if rel.endswith(".png") else "text/csv"
+        storage.put(ctx, prefix + rel, data, ctype)
+    storage.put(ctx, prefix + "_files.json", json.dumps(sorted(files)).encode(), "application/json")
+    bsha = site.bundle_sha256(files)
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        assert v is not None
+        v.bundle_key, v.bundle_sha256 = prefix, bsha
+        v.theme_snapshot = {"theme": theme, "contrast_adjustments": adjustments, "disclaimer": disclaimer}
+        enqueue_stage(s, ctx, v, "validate")
+    return {"files": len(files), "bundle_sha256": bsha}
+
+
+# ------------------------------------------------------------------ validate
+
+
+@handler("pipeline.validate")
+def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    with db.session(ctx) as s:
+        v = _version(s, payload)
+        if v.published_at is not None:
+            return {"skipped": "published"}
+        vid, schema, sha, bundle_key, bsha, sch_sha = v.id, v.schema_json, v.source_sha256, v.bundle_key, v.bundle_sha256, v.schema_sha256
+        ext_key = v.extraction_key
+    _set_stage(ctx, vid, "validate")
+    pdf = storage.get(ctx, source_key(sha))
+    artifact = json.loads(storage.get(ctx, ext_key))
+    names = json.loads(storage.get(ctx, bundle_key + "_files.json"))
+    files = {n: storage.get(ctx, bundle_key + n) for n in names}
+    issues, summary = validation.run_all(
+        schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
+        progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
+    validation.apply_reviews(issues, schema)
+    summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"]}
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        assert v is not None
+        if v.schema_sha256 != sch_sha or v.bundle_sha256 != bsha:
+            return {"skipped": "stale — a newer edit is being processed"}
+        run = latest_run_no(s, vid) + 1
+        # Reviewer flags stay open across runs until an admin resolves them.
+        flags = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == vid,
+                                                        ValidationIssue.check_name == "reviewer_flag",
+                                                        ValidationIssue.status == "open")).all()
+        for i in issues:
+            s.add(ValidationIssue(tenant_id=ctx.tenant_id, version_id=vid, run_no=run, check_name=i.check,
+                                  severity=i.severity, fid=i.fid, page=i.page, section_id=i.section_id, bbox=i.bbox,
+                                  message=i.message, expected=i.expected, actual=i.actual, status=i.status,
+                                  resolution=i.resolution))
+        for fl in flags:
+            fl.run_no = run
+            summary["blocking"] += 1
+            summary.setdefault("by_check", {})["reviewer_flag"] = summary["by_check"].get("reviewer_flag", 0) + 1
+        v.validation_summary = summary
+        v.validated_schema_sha256, v.validated_bundle_sha256 = sch_sha, bsha
+        v.status = "validation_issues" if summary["blocking"] else "needs_review"
+        v.stage = "done"
+        audit.record(s, ctx, "pipeline.validated", target_type="report_version", target_id=vid,
+                     after={"run": run, **{k: summary[k] for k in ("figures_checked", "passed", "warnings", "blocking")}})
+    return summary
+
+
+def mark_failed_versions() -> None:  # pragma: no cover - hook for operators
+    pass

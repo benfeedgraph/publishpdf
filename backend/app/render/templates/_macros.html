@@ -1,0 +1,53 @@
+{#- Figures render as their exact PDF string. value/datetime attributes carry the
+    normalised form for machines. Nothing here may format or compute a number. -#}
+{%- macro fig(f) -%}
+{%- if f.kind in ('number', 'percent', 'bps', 'multiple', 'nil') -%}
+<data value="{{ f.value or '' }}" data-fig="{{ f.id }}"{% if f.status != 'active' %} class="nf"{% elif f.negative %} class="neg"{% endif %}>{{ f.raw }}</data>
+{%- elif f.kind == 'date' -%}
+<time{% if f.iso %} datetime="{{ f.iso }}"{% endif %} data-fig="{{ f.id }}">{{ f.raw }}</time>
+{%- else -%}
+<span data-fig="{{ f.id }}" class="k-{{ f.kind }}">{{ f.raw }}</span>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro plain_runs(rs, figures) -%}
+{%- for r in rs -%}{%- if r.f is defined -%}{{ fig(figures[r.f]) }}{%- else -%}{{ r.t }}{%- endif -%}{%- endfor -%}
+{%- endmacro -%}
+
+{#- Web addresses printed in the PDF are links (see story.linkify); nothing else changes. -#}
+{%- macro runs(rs, figures) -%}
+{%- for r in linkify(rs, figures) -%}{%- if r.a is defined -%}<a class="ext" href="{{ r.a }}" rel="noopener">{{ plain_runs(r.runs, figures) }}</a>{%- elif r.f is defined -%}{{ fig(figures[r.f]) }}{%- else -%}{{ r.t }}{%- endif -%}{%- endfor -%}
+{%- endmacro -%}
+
+{%- macro meta(key, value) -%}<span data-meta="{{ key }}">{{ value }}</span>{%- endmacro -%}
+
+{%- macro table(b, figures, section, m) -%}
+{%- set long = b.rows|length > 12 %}
+{%- if long %}<input type="checkbox" class="rows-toggle" id="{{ b.id }}-all"><label class="rows-toggle-label" for="{{ b.id }}-all"><span class="show">Show all rows</span><span class="hide">Show fewer rows</span></label>{% endif %}
+<div class="table-wrap{% if long %} is-long{% endif %}" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0">
+<table id="{{ b.id }}">
+<caption id="{{ b.id }}-cap">
+  <span class="cap-title">{{ runs(section.heading, figures) or section_type_label(section.type) }}</span>
+  {%- if b.caption %}<span class="cap-note">{{ runs(b.caption, figures) }}</span>{% endif %}
+  <span class="cap-meta">Unit: {{ unit_label(b.unit) }} · Currency: {{ b.currency }}{% if b.header_rows %} · Periods: {% for row in b.header_rows[-1:] %}{% for c in row %}{{ runs(c.runs, figures) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}{% endif %}</span>
+</caption>
+<thead>
+{%- for row in b.header_rows %}
+<tr>{% if loop.first %}<th scope="col" rowspan="{{ b.header_rows|length }}"><span class="sr-only">Line item</span></th>{% endif %}{% for c in row %}<th scope="col"{% if c.colspan > 1 %} colspan="{{ c.colspan }}"{% endif %}>{{ runs(c.runs, figures) }}</th>{% endfor %}</tr>
+{%- endfor %}
+{%- if not b.header_rows %}<tr><th scope="col"><span class="sr-only">Line item</span></th>{% for col in b.columns %}<th scope="col"><span class="sr-only">Column</span></th>{% endfor %}</tr>{% endif %}
+</thead>
+<tbody>
+{%- for row in b.rows %}
+<tr{% if loop.index > 10 and long %} class="extra"{% endif %}{% if row.label_text and ('total' in row.label_text|lower or 'profit' in row.label_text|lower) %} data-emph{% endif %}><th scope="row">{{ runs(row.label, figures) }}</th>{% for c in row.cells %}<td>{{ runs(c.runs, figures) }}</td>{% endfor %}</tr>
+{%- endfor %}
+</tbody>
+</table>
+</div>
+{%- endmacro -%}
+
+{%- macro toc_label(s, figures) -%}
+{%- set qp = (qparts or {}).get(s.id) -%}
+{%- if qp -%}<span class="tq">{{ runs(qp[0], figures) }}</span><span>{{ runs(qp[1], figures) }}</span>
+{%- else -%}<span>{{ runs(s.heading, figures) or section_type_label(s.type) }}</span>{%- endif -%}
+{%- endmacro -%}

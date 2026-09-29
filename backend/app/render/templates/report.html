@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import runs, meta, toc_label with context %}
+{% from "_document.html" import doc_block, doc_section with context %}
+{% block content %}
+{%- set front = sections[0] if sections and not sections[0].heading else none %}
+<div class="doc-shell">
+  <nav class="doc-rail" aria-label="Contents">
+    <p class="toc-title">Contents</p>
+    <ol>{% for s in sections %}{% if s.heading %}<li><a href="#{{ s.slug }}">{{ toc_label(s, figures) }}</a></li>{% endif %}{% endfor %}</ol>
+  </nav>
+  <article class="doc"{% if faq %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
+    {#- Cover: the PDF's first page, in its own order — its art, then its title. -#}
+    <header class="sheet cover-sheet{% if cover_is_art %} cover-page{% endif %}">
+      {%- set cover_blocks = front.blocks|selectattr("source.page", "equalto", 1)|list if front else [] %}
+      {%- if cover_is_art %}
+      {#- A cover that is all artwork (no text of its own) is shown as the PDF's cover page itself. #}
+      <img class="cover-img" src="{{ cover.href }}" width="{{ cover.w }}" height="{{ cover.h }}" alt="Cover of the {{ report_type_label }}" fetchpriority="high">
+      {%- endif %}
+      <p class="cover-eyebrow">{{ meta("company", m.company) }}</p>
+      <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
+      {%- if not cover_is_art %}
+      {%- for b in cover_blocks %}
+      {{ doc_block(b, figures, front) }}
+      {%- endfor %}
+      {%- endif %}
+      <p class="cover-actions"><a class="btn btn-primary" href="{{ pdf_href }}">Download the PDF</a>{% if first_q %}<a class="btn" href="#{{ first_q.slug }}">Start reading <span class="arr" aria-hidden="true">↓</span></a>{% endif %}</p>
+    </header>
+    <div class="sheet">
+      {%- if front %}
+      {%- set rest = front.blocks|rejectattr("source.page", "equalto", 1)|list %}
+      {%- if rest %}<section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in rest %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>{% endif %}
+      {%- endif %}
+      {%- for s in sections if not (front and s.id == front.id) %}
+      {{ doc_section(s, figures) }}
+      {%- endfor %}
+    </div>
+    <p class="doc-note fine">This page is the web edition of the PDF: same content, same order. Every figure is copied unchanged from the PDF, which remains the official document.</p>
+  </article>
+</div>
+{% endblock %}

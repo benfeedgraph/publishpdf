@@ -1,0 +1,24 @@
+/* PublishPDF brand tokens v1.0 */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+:root {
+  /* Primary */
+  --pp-indigo: #3B37C8;        /* Ledger Indigo — buttons, links, mark (white text 8.2:1) */
+  --pp-indigo-press: #2E2AA3;  /* hover / pressed */
+  --pp-midnight: #17153B;      /* dark surfaces */
+  --pp-indigo-wash: #ECEBFD;   /* selected / info tint */
+  --pp-indigo-glow: #A5A3F5;   /* primary on dark (7.6:1 on midnight) */
+  --pp-focus: #DDE3FF;         /* focus-ring halo */
+  /* Verified */
+  --pp-verified: #0B7A5C;      /* success text/fill (5.3:1 on white) */
+  --pp-verified-wash: #E3F5EE; /* badge fill (verified text 4.7:1) */
+  --pp-verified-glow: #3DD6A3; /* verified on dark */
+  /* Neutrals */
+  --pp-ink: #14151F; --pp-graphite: #3D4152; --pp-slate: #5F6477;
+  --pp-mist: #C9CCD6; --pp-rule: #E4E6EC; --pp-cloud: #EEF0F4;
+  --pp-paper: #F8F8FA; --pp-white: #FFFFFF;
+  /* Type */
+  --pp-font-heading: 'Manrope', system-ui, sans-serif;
+  --pp-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --pp-font-figures: 'IBM Plex Mono', ui-monospace, monospace;
+  --pp-radius-button: 10px; --pp-radius-card: 14px;
+}

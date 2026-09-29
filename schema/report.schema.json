@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://PLATFORM_DOMAIN/schema/report/1.0.json",
+  "title": "PublishPDF report document",
+  "description": "Structured, source-traced representation of a company report PDF. Every figure (number, percent, date, period, identifier) lives once in `figures` with its exact raw string and PDF location; text and tables reference figures by id.",
+  "type": "object",
+  "required": ["schema_version", "metadata", "pages", "sections", "figures"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "metadata": {
+      "type": "object",
+      "required": ["company", "report_type", "fiscal_year", "period", "currency", "reporting_unit", "source_pdf", "extraction", "version"],
+      "properties": {
+        "company": { "type": "string", "minLength": 1 },
+        "report_type": { "enum": ["quarterly_results", "investor_presentation", "annual_report", "other"] },
+        "fiscal_year": { "type": "integer", "minimum": 1990, "maximum": 2100 },
+        "period": { "enum": ["q1", "q2", "q3", "q4", "h1", "h2", "9m", "fy"] },
+        "period_label": { "type": "string" },
+        "fiscal_year_label": { "type": "string" },
+        "period_start": { "type": ["string", "null"], "format": "date" },
+        "period_end": { "type": ["string", "null"], "format": "date" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "reporting_unit": { "type": "string" },
+        "reporting_unit_canonical": { "type": "string" },
+        "source_pdf": {
+          "type": "object",
+          "required": ["sha256", "page_count"],
+          "properties": {
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "filename": { "type": ["string", "null"] },
+            "page_count": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "extraction": {
+          "type": "object",
+          "required": ["timestamp", "pipeline_version", "methods"],
+          "properties": {
+            "timestamp": { "type": "string" },
+            "pipeline_version": { "type": "string" },
+            "methods": { "type": "object", "additionalProperties": { "enum": ["text_layer", "ocr"] } },
+            "llm_assist": { "type": "boolean" }
+          }
+        },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["page", "width", "height", "method"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 1 },
+          "width": { "type": "number" },
+          "height": { "type": "number" },
+          "method": { "enum": ["text_layer", "ocr"] },
+          "method_reason": { "type": "string" },
+          "ocr_mean_confidence": { "type": ["number", "null"] },
+          "excluded_header_footer": { "type": "array" }
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "heading", "blocks", "order", "slug"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^s[0-9]+$" },
+          "type": { "enum": ["highlights", "profit_and_loss", "balance_sheet", "cash_flow", "segment_results", "management_commentary", "outlook", "notes", "other"] },
+          "heading": { "$ref": "#/$defs/runs" },
+          "heading_text": { "type": "string" },
+          "order": { "type": "integer" },
+          "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "source": { "type": "object" },
+          "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } }
+        }
+      }
+    },
+    "figures": {
+      "type": "object",
+      "propertyNames": { "pattern": "^p[0-9]+f[0-9]+$" },
+      "additionalProperties": { "$ref": "#/$defs/figure" }
+    },
+    "units_mentioned": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "runs": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "object", "required": ["t"], "properties": { "t": { "type": "string", "not": { "pattern": "[0-9]" } } }, "additionalProperties": false },
+          { "type": "object", "required": ["f"], "properties": { "f": { "type": "string" } }, "additionalProperties": false }
+        ]
+      },
+      "description": "Text runs never contain digits: every digit is a figure reference."
+    },
+    "source": {
+      "type": "object",
+      "required": ["page", "bbox"],
+      "properties": {
+        "page": { "type": "integer", "minimum": 1 },
+        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+      }
+    },
+    "figure": {
+      "type": "object",
+      "required": ["id", "kind", "raw", "source", "method", "confidence", "status", "section_id"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["number", "percent", "bps", "multiple", "nil", "date", "period", "identifier"] },
+        "raw": { "type": "string", "minLength": 1, "description": "Exact characters as printed in the PDF." },
+        "value": { "type": ["string", "null"], "pattern": "^-?[0-9]+(\\.[0-9]+)?$", "description": "Normalised decimal, as a string (never a float)." },
+        "iso": { "type": ["string", "null"] },
+        "unit": { "type": ["string", "null"] },
+        "currency": { "type": ["string", "null"] },
+        "period": { "type": ["object", "null"] },
+        "row_label": { "type": ["string", "null"] },
+        "col_label": { "type": ["string", "null"] },
+        "table_id": { "type": ["string", "null"] },
+        "section_id": { "type": "string" },
+        "role": { "enum": ["text", "heading", "cell", "header", "caption", "row_label", "chart_label", "chart_axis"] },
+        "source": { "$ref": "#/$defs/source" },
+        "method": { "enum": ["text_layer", "ocr"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "status": { "enum": ["active", "not_a_figure"] },
+        "review": { "type": ["object", "null"] },
+        "edited": { "type": ["object", "null"] }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "type", "source"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["paragraph", "table", "chart", "stat"] },
+        "source": { "$ref": "#/$defs/source" },
+        "runs": { "$ref": "#/$defs/runs" },
+        "caption": { "$ref": "#/$defs/runs" },
+        "unit": { "type": "string" },
+        "currency": { "type": "string" },
+        "columns": { "type": "array" },
+        "header_rows": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "object", "required": ["colspan", "runs"], "properties": { "colspan": { "type": "integer", "minimum": 1 }, "runs": { "$ref": "#/$defs/runs" } } } }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "cells"],
+            "properties": {
+              "label": { "$ref": "#/$defs/runs" },
+              "cells": { "type": "array", "items": { "type": "object", "required": ["runs"], "properties": { "runs": { "$ref": "#/$defs/runs" } } } }
+            }
+          }
+        },
+        "label": { "$ref": "#/$defs/runs" },
+        "value": { "$ref": "#/$defs/runs" },
+        "extracted": { "type": "boolean" },
+        "points": { "type": "array" },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

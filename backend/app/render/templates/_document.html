@@ -1,0 +1,73 @@
+{#- "Same as the PDF" layout: blocks in the PDF's order, visuals at their PDF size and
+    side, restyled for reading. Text is real HTML throughout (search and answer engines
+    read it); figures still render only through fig(). -#}
+{%- from "_macros.html" import fig, runs, table, meta with context -%}
+
+{%- macro visual(b, figures) -%}
+{%- set v = visuals[b.id] %}{%- set d = doclayout.get(b.id, {"w": 100, "float": none}) %}
+<figure class="dv{% if d.float %} fl-{{ d.float }}{% endif %}" id="{{ b.id }}" style="--w:{{ d.w }}%">
+  <a class="dv-img" href="{{ v.href }}" target="_blank" rel="noopener" title="Open the full-size image"><img src="{{ v.href }}" width="{{ v.w }}" height="{{ v.h }}" loading="lazy" decoding="async" alt="{{ 'Chart' if b.extracted else 'Graphic' }} from the original {{ report_type_label }} PDF"></a>
+  <figcaption><a href="{{ pdf_href }}#page={{ v.page }}">View in the PDF <span aria-hidden="true">↗</span></a></figcaption>
+</figure>
+{%- if b.extracted %}
+<details class="chart-data dv-data"><summary>Chart values</summary>
+<div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0">
+<table id="{{ b.id }}-data" class="chart-data">
+<caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption>
+<thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead>
+<tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+</details>
+{%- endif %}
+{%- endmacro -%}
+
+{%- macro index_table(b, figures, links) -%}
+<div class="table-wrap toc-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0">
+<table id="{{ b.id }}" class="toc-table">
+<caption id="{{ b.id }}-cap" class="sr-only">Contents of the report</caption>
+<thead><tr><th scope="col">Content</th>{% for row in b.header_rows[-1:] %}{% for c in row %}<th scope="col">{{ runs(c.runs, figures) }}</th>{% endfor %}{% endfor %}{% if not b.header_rows %}<th scope="col">Page</th>{% endif %}</tr></thead>
+<tbody>
+{%- for row in b.rows %}
+<tr><th scope="row">{% if links.get(loop.index0) %}<a href="#{{ links[loop.index0] }}">{{ runs(row.label, figures) }}</a>{% else %}{{ runs(row.label, figures) }}{% endif %}</th>{% for c in row.cells %}<td>{{ runs(c.runs, figures) }}</td>{% endfor %}</tr>
+{%- endfor %}
+</tbody>
+</table>
+</div>
+{%- endmacro -%}
+
+{%- macro doc_block(b, figures, section) -%}
+{%- if b.type == 'paragraph' -%}
+  {%- set li = bullet_runs(b) -%}
+  {%- set ll = lead_label(b.runs) -%}
+  {%- if b.id in heading_ids -%}<h3 class="doc-h">{{ runs(b.runs, figures) }}</h3>
+  {%- elif li is not none -%}<p class="li">{{ runs(li, figures) }}</p>
+  {%- elif ll -%}<p><strong class="lead-label">{{ ll[0] }}</strong> {{ runs(ll[1], figures) }}</p>
+  {%- else -%}<p>{{ runs(b.runs, figures) }}</p>{%- endif -%}
+{%- elif b.type == 'chart' and visuals.get(b.id) -%}{{ visual(b, figures) }}
+{%- elif b.type == 'chart' and b.extracted -%}
+<div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div>
+{%- elif b.type == 'chart' -%}
+<figure class="chart-missing"><figcaption>This chart is an image in the PDF. <a href="{{ pdf_href }}#page={{ b.source.page }}">See it in the original PDF</a>.</figcaption></figure>
+{%- elif b.type == 'table' and index_links.get(b.id) -%}{{ index_table(b, figures, index_links[b.id]) }}
+{%- elif b.type == 'table' -%}{{ table(b, figures, section, m) }}
+{%- elif b.type == 'stat' -%}<div class="stat-tile"><span class="stat-label">{{ runs(b.label, figures) }}</span><span class="stat-value">{{ runs(b.value, figures) }}</span></div>
+{%- endif -%}
+{%- endmacro -%}
+
+{#- One section; a numbered question carries FAQ microdata so search and answer engines
+    read it as a question with its accepted answer — the answer IS the visible text. -#}
+{%- macro doc_section(s, figures, hlevel='h2', show_heading=true) -%}
+{%- set qp = qparts.get(s.id) %}
+<section id="{{ s.slug }}" class="doc-sec sec sec-{{ s.type }}{% if qp %} is-q{% endif %}" data-section="{{ s.id }}"{% if show_heading and (qp or s.heading) %} aria-labelledby="{{ s.slug }}-h"{% endif %}{% if qp %} itemscope itemprop="mainEntity" itemtype="https://schema.org/Question"{% endif %}>
+  {%- if show_heading and (qp or s.heading or hlevel == 'h1') %}
+  <{{ hlevel }} id="{{ s.slug }}-h" class="doc-q"{% if qp %} itemprop="name"{% endif %}>{% if qp %}<span class="q-mark">{{ runs(qp[0], figures) }}{% if not (qp[0]|last).t is defined or not (qp[0]|last).t.endswith(')') %}.{% endif %}</span><span class="q-text">{{ runs(qp[1], figures) }}</span>{% else %}{{ runs(s.heading, figures) or section_type_label(s.type) }}{% endif %}</{{ hlevel }}>
+  {%- endif %}
+  {%- if s.subheading %}<p class="subheading doc-sub">{{ runs(s.subheading, figures) }}</p>{% endif %}
+  <div class="doc-body"{% if qp %} itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer"{% endif %}><div{% if qp %} itemprop="text"{% endif %}>
+  {%- for b in doc_order.get(s.id, s.blocks) %}
+  {{ doc_block(b, figures, s) }}
+  {%- endfor %}
+  </div></div>
+</section>
+{%- endmacro -%}

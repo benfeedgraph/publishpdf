@@ -1,0 +1,236 @@
+{
+ "file": "acme_q2fy26_presentation.pdf",
+ "synthetic": true,
+ "figures": [
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    40,
+    63.8,
+    66.0,
+    84.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY26",
+   "bbox": [
+    70.6,
+    63.8,
+    118.8,
+    84.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹1,234.56",
+   "bbox": [
+    52,
+    163.8,
+    143.6,
+    184.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "19.9%",
+   "bbox": [
+    302,
+    163.8,
+    355.9,
+    184.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹142.35",
+   "bbox": [
+    552,
+    163.8,
+    626.1,
+    184.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "1,098.30",
+   "bbox": [
+    69.4,
+    317.8,
+    100.6,
+    327.0
+   ],
+   "role": "chart_label",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    69.6,
+    506.8,
+    80.0,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "FY25",
+   "bbox": [
+    82.0,
+    506.8,
+    100.4,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "1,120.85",
+   "bbox": [
+    160.2,
+    314.4,
+    189.8,
+    323.6
+   ],
+   "role": "chart_label",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "Q3",
+   "bbox": [
+    159.6,
+    506.8,
+    170.0,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "FY25",
+   "bbox": [
+    171.9,
+    506.8,
+    190.4,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "1,162.40",
+   "bbox": [
+    250.2,
+    308.0,
+    279.8,
+    317.2
+   ],
+   "role": "chart_label",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "Q4",
+   "bbox": [
+    249.6,
+    506.8,
+    260.1,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "FY25",
+   "bbox": [
+    262.0,
+    506.8,
+    280.4,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "1,180.40",
+   "bbox": [
+    339.9,
+    305.2,
+    370.1,
+    314.4
+   ],
+   "role": "chart_label",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "Q1",
+   "bbox": [
+    340.0,
+    506.8,
+    349.4,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "FY26",
+   "bbox": [
+    351.3,
+    506.8,
+    370.0,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "1,234.56",
+   "bbox": [
+    430.0,
+    296.9,
+    460.0,
+    306.1
+   ],
+   "role": "chart_label",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    429.5,
+    506.8,
+    439.9,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  },
+  {
+   "page": 1,
+   "raw": "FY26",
+   "bbox": [
+    441.8,
+    506.8,
+    460.5,
+    516.0
+   ],
+   "role": "chart_axis",
+   "chart": "quarterly_revenue"
+  }
+ ]
+}

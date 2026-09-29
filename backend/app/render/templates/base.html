@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ page_title }}</title>
+<meta name="description" content="{{ description }}">
+<link rel="canonical" href="{{ origin }}{{ canonical_path }}">
+<meta property="og:title" content="{{ page_title }}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ origin }}{{ canonical_path }}">
+<meta property="og:description" content="{{ description }}">
+{%- if cover %}
+<meta property="og:image" content="{{ cover.href }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if cover else 'summary' }}">
+{%- if alternates %}{% for a in alternates %}
+<link rel="alternate" type="{{ a.type }}" href="{{ a.href }}" title="{{ a.title }}">{% endfor %}{% endif %}
+{%- if fonts_href %}
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="{{ fonts_href }}">{% endif %}
+<style>{{ css|safe }}</style>
+{%- if jsonld %}
+<script type="application/ld+json">{{ jsonld|safe }}</script>{% endif %}
+</head>
+<body class="header-{{ theme.header.style }} layout-document">
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="{{ origin }}/">
+      {%- if logo_src %}<img src="{{ logo_src }}" alt="{{ company }}" height="36">{% endif -%}
+      {%- if theme.header.show_company_name or not logo_src %}<span class="brand-name">{{ company }}</span>{% endif -%}
+    </a>
+    <nav aria-label="Site"><a href="{{ origin }}/latest/">Latest results</a><a href="{{ origin }}/archive/">Archive</a>{% if pdf_href %}<a class="nav-cta" href="{{ pdf_href }}">Download PDF</a>{% endif %}</nav>
+  </div>
+</header>
+<main id="main">
+{% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    {%- if pdf_href %}<p class="official">The PDF filing is the official document. <a href="{{ pdf_href }}">Download the original PDF</a>.</p>{% endif %}
+    {%- if disclaimer_html %}<div class="disclaimer" data-nocheck="disclaimer">{{ disclaimer_html|safe }}</div>{% endif %}
+    {%- if downloads %}<p class="downloads">Machine-readable: {% for d in downloads %}<a href="{{ d.href }}">{{ d.title }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {{- powered_by }}
+  </div>
+</footer>
+</body>
+</html>

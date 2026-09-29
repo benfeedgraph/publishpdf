@@ -1,0 +1,1993 @@
+{
+ "file": "acme_q2fy26_broken_text_layer.pdf",
+ "synthetic": true,
+ "figures": [
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    40,
+    52.0,
+    68.9,
+    75.0
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY26",
+   "bbox": [
+    74.0,
+    52.0,
+    127.6,
+    75.0
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "30.09.2025",
+   "bbox": [
+    106.6,
+    83.0,
+    158.0,
+    94.5
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "12.4%",
+   "bbox": [
+    170.9,
+    141.4,
+    196.0,
+    152.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹1,234.56",
+   "bbox": [
+    40,
+    154.4,
+    82.2,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    119.3,
+    154.4,
+    131.6,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY26,",
+   "bbox": [
+    133.9,
+    154.4,
+    158.7,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "9.8%",
+   "bbox": [
+    40,
+    167.4,
+    61.4,
+    178.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹245.10",
+   "bbox": [
+    239.8,
+    167.4,
+    274.6,
+    178.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "19.9%,",
+   "bbox": [
+    135.1,
+    180.4,
+    162.9,
+    191.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "110",
+   "bbox": [
+    178.3,
+    180.4,
+    192.3,
+    191.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹142.35",
+   "bbox": [
+    432.8,
+    141.4,
+    467.0,
+    152.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹118.20",
+   "bbox": [
+    307.6,
+    154.4,
+    341.8,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "Q2",
+   "bbox": [
+    378.9,
+    154.4,
+    391.3,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY25.",
+   "bbox": [
+    393.6,
+    154.4,
+    418.0,
+    165.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹3.50",
+   "bbox": [
+    357.3,
+    167.4,
+    382.6,
+    178.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "24.10.2025.",
+   "bbox": [
+    439.3,
+    167.4,
+    489.1,
+    178.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹410.00",
+   "bbox": [
+    354.4,
+    180.4,
+    390.6,
+    191.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "30.09.2025",
+   "bbox": [
+    438.5,
+    180.4,
+    487.4,
+    191.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹502.75",
+   "bbox": [
+    512.4,
+    180.4,
+    547.6,
+    191.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "31.03.2025.",
+   "bbox": [
+    344.8,
+    193.4,
+    394.3,
+    204.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "H2",
+   "bbox": [
+    250.4,
+    276.4,
+    263.5,
+    287.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY26",
+   "bbox": [
+    265.8,
+    276.4,
+    288.0,
+    287.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "₹600",
+   "bbox": [
+    479.8,
+    276.4,
+    503.5,
+    287.4
+   ]
+  },
+  {
+   "page": 1,
+   "raw": "FY26.",
+   "bbox": [
+    40,
+    289.4,
+    64.8,
+    300.4
+   ]
+  },
+  {
+   "page": 2,
+   "raw": "Q2",
+   "bbox": [
+    230.8,
+    110.3,
+    243.1,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "FY26",
+   "bbox": [
+    245.2,
+    110.3,
+    268.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "Q1",
+   "bbox": [
+    293.9,
+    110.3,
+    305.1,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "FY26",
+   "bbox": [
+    307.2,
+    110.3,
+    330.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "Q2",
+   "bbox": [
+    355.2,
+    110.3,
+    367.5,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "FY25",
+   "bbox": [
+    369.7,
+    110.3,
+    392.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "H1",
+   "bbox": [
+    479.2,
+    110.3,
+    491.1,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "FY26",
+   "bbox": [
+    493.2,
+    110.3,
+    516.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "H1",
+   "bbox": [
+    541.6,
+    110.3,
+    553.5,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "FY25",
+   "bbox": [
+    555.7,
+    110.3,
+    578.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 2,
+   "raw": "1,234.56",
+   "bbox": [
+    236.2,
+    124.3,
+    268.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,180.40",
+   "bbox": [
+    297.8,
+    124.3,
+    330.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,098.30",
+   "bbox": [
+    358.8,
+    124.3,
+    392.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "12.4%",
+   "bbox": [
+    431.6,
+    124.3,
+    454.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "2,414.96",
+   "bbox": [
+    483.8,
+    124.3,
+    516.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "2,150.25",
+   "bbox": [
+    546.1,
+    124.3,
+    578.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Revenue from operations",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "48.20",
+   "bbox": [
+    245.9,
+    138.3,
+    268.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "41.75",
+   "bbox": [
+    310.5,
+    138.3,
+    330.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "39.10",
+   "bbox": [
+    371.3,
+    138.3,
+    392.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "23.3%",
+   "bbox": [
+    430.6,
+    138.3,
+    454.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "89.95",
+   "bbox": [
+    494.5,
+    138.3,
+    516.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "76.80",
+   "bbox": [
+    556.3,
+    138.3,
+    578.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Other income",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "1,282.76",
+   "bbox": [
+    231.6,
+    152.3,
+    268.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,222.15",
+   "bbox": [
+    295.0,
+    152.3,
+    330.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,137.40",
+   "bbox": [
+    356.6,
+    152.3,
+    392.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "12.8%",
+   "bbox": [
+    428.5,
+    152.3,
+    454.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "2,504.91",
+   "bbox": [
+    478.9,
+    152.3,
+    516.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "2,227.05",
+   "bbox": [
+    540.7,
+    152.3,
+    578.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Total income",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "612.40",
+   "bbox": [
+    242.5,
+    166.3,
+    268.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "590.10",
+   "bbox": [
+    304.3,
+    166.3,
+    330.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "560.20",
+   "bbox": [
+    365.2,
+    166.3,
+    392.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "9.3%",
+   "bbox": [
+    435.3,
+    166.3,
+    454.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "1,202.50",
+   "bbox": [
+    483.3,
+    166.3,
+    516.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,101.40",
+   "bbox": [
+    547.2,
+    166.3,
+    578.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Cost of materials consumed",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "145.80",
+   "bbox": [
+    242.5,
+    180.3,
+    268.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "142.30",
+   "bbox": [
+    304.6,
+    180.3,
+    330.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "131.50",
+   "bbox": [
+    368.0,
+    180.3,
+    392.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "10.9%",
+   "bbox": [
+    431.1,
+    180.3,
+    454.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "288.10",
+   "bbox": [
+    490.0,
+    180.3,
+    516.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "260.10",
+   "bbox": [
+    552.1,
+    180.3,
+    578.0,
+    190.1
+   ],
+   "role": "cell",
+   "row_label": "Employee benefits expense",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "22.15",
+   "bbox": [
+    248.1,
+    194.3,
+    268.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "23.40",
+   "bbox": [
+    308.3,
+    194.3,
+    330.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "25.60",
+   "bbox": [
+    370.4,
+    194.3,
+    392.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "-13.5%",
+   "bbox": [
+    428.7,
+    194.3,
+    454.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "45.55",
+   "bbox": [
+    495.4,
+    194.3,
+    516.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "50.20",
+   "bbox": [
+    556.0,
+    194.3,
+    578.0,
+    204.1
+   ],
+   "role": "cell",
+   "row_label": "Finance costs",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "48.90",
+   "bbox": [
+    245.8,
+    208.3,
+    268.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "47.70",
+   "bbox": [
+    309.1,
+    208.3,
+    330.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "45.30",
+   "bbox": [
+    370.5,
+    208.3,
+    392.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "7.9%",
+   "bbox": [
+    435.7,
+    208.3,
+    454.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "96.60",
+   "bbox": [
+    494.1,
+    208.3,
+    516.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "89.90",
+   "bbox": [
+    555.8,
+    208.3,
+    578.0,
+    218.1
+   ],
+   "role": "cell",
+   "row_label": "Depreciation and amortisation",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "218.26",
+   "bbox": [
+    242.7,
+    222.3,
+    268.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "214.85",
+   "bbox": [
+    304.9,
+    222.3,
+    330.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "199.70",
+   "bbox": [
+    366.9,
+    222.3,
+    392.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "9.3%",
+   "bbox": [
+    435.3,
+    222.3,
+    454.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "433.11",
+   "bbox": [
+    492.2,
+    222.3,
+    516.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "390.35",
+   "bbox": [
+    551.8,
+    222.3,
+    578.0,
+    232.1
+   ],
+   "role": "cell",
+   "row_label": "Other expenses",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "1,047.51",
+   "bbox": [
+    232.8,
+    236.3,
+    268.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,018.35",
+   "bbox": [
+    294.0,
+    236.3,
+    330.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "962.30",
+   "bbox": [
+    361.6,
+    236.3,
+    392.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "8.9%",
+   "bbox": [
+    432.5,
+    236.3,
+    454.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "2,065.86",
+   "bbox": [
+    477.3,
+    236.3,
+    516.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "1,891.95",
+   "bbox": [
+    542.2,
+    236.3,
+    578.0,
+    246.1
+   ],
+   "role": "cell",
+   "row_label": "Total expenses",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "(12.30)",
+   "bbox": [
+    241.0,
+    250.3,
+    268.0,
+    260.1
+   ],
+   "role": "cell",
+   "row_label": "Exceptional items",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "(12.30)",
+   "bbox": [
+    489.0,
+    250.3,
+    516.0,
+    260.1
+   ],
+   "role": "cell",
+   "row_label": "Exceptional items",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "222.95",
+   "bbox": [
+    238.6,
+    264.4,
+    268.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "203.80",
+   "bbox": [
+    298.9,
+    264.4,
+    330.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "175.10",
+   "bbox": [
+    365.1,
+    264.4,
+    392.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "27.3%",
+   "bbox": [
+    428.4,
+    264.4,
+    454.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "426.75",
+   "bbox": [
+    487.1,
+    264.4,
+    516.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "335.10",
+   "bbox": [
+    549.4,
+    264.4,
+    578.0,
+    274.1
+   ],
+   "role": "cell",
+   "row_label": "Profit before tax",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "55.00",
+   "bbox": [
+    246.3,
+    278.4,
+    268.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "51.20",
+   "bbox": [
+    309.6,
+    278.4,
+    330.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "45.60",
+   "bbox": [
+    370.4,
+    278.4,
+    392.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "20.6%",
+   "bbox": [
+    430.0,
+    278.4,
+    454.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "106.20",
+   "bbox": [
+    490.1,
+    278.4,
+    516.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "88.10",
+   "bbox": [
+    556.7,
+    278.4,
+    578.0,
+    288.1
+   ],
+   "role": "cell",
+   "row_label": "Tax expense",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "167.95",
+   "bbox": [
+    240.2,
+    292.4,
+    268.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "152.60",
+   "bbox": [
+    301.2,
+    292.4,
+    330.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "129.50",
+   "bbox": [
+    363.2,
+    292.4,
+    392.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "29.7%",
+   "bbox": [
+    428.2,
+    292.4,
+    454.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "320.55",
+   "bbox": [
+    486.4,
+    292.4,
+    516.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "247.00",
+   "bbox": [
+    547.7,
+    292.4,
+    578.0,
+    302.1
+   ],
+   "role": "cell",
+   "row_label": "Profit for the period",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "4.13",
+   "bbox": [
+    252.6,
+    306.4,
+    268.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "3.75",
+   "bbox": [
+    314.3,
+    306.4,
+    330.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "3.18",
+   "bbox": [
+    376.3,
+    306.4,
+    392.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 2,
+   "raw": "29.7%",
+   "bbox": [
+    430.9,
+    306.4,
+    454.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "YoY"
+  },
+  {
+   "page": 2,
+   "raw": "7.88",
+   "bbox": [
+    499.3,
+    306.4,
+    516.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "H1 FY26"
+  },
+  {
+   "page": 2,
+   "raw": "6.07",
+   "bbox": [
+    561.4,
+    306.4,
+    578.0,
+    316.1
+   ],
+   "role": "cell",
+   "row_label": "Basic EPS (₹)",
+   "col_label": "H1 FY25"
+  },
+  {
+   "page": 3,
+   "raw": "30.09.2025",
+   "bbox": [
+    266.0,
+    116.3,
+    316.0,
+    126.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 3,
+   "raw": "31.03.2025",
+   "bbox": [
+    348.0,
+    116.3,
+    396.0,
+    126.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 3,
+   "raw": "1,850.40",
+   "bbox": [
+    283.0,
+    130.3,
+    316.0,
+    140.1
+   ],
+   "role": "cell",
+   "row_label": "Property, plant and equipment",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "1,790.10",
+   "bbox": [
+    364.6,
+    130.3,
+    396.0,
+    140.1
+   ],
+   "role": "cell",
+   "row_label": "Property, plant and equipment",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "210.35",
+   "bbox": [
+    290.9,
+    144.3,
+    316.0,
+    154.1
+   ],
+   "role": "cell",
+   "row_label": "Capital work-in-progress",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "185.00",
+   "bbox": [
+    370.1,
+    144.3,
+    396.0,
+    154.1
+   ],
+   "role": "cell",
+   "row_label": "Capital work-in-progress",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "420.00",
+   "bbox": [
+    288.5,
+    158.3,
+    316.0,
+    168.1
+   ],
+   "role": "cell",
+   "row_label": "Investments",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "402.50",
+   "bbox": [
+    369.2,
+    158.3,
+    396.0,
+    168.1
+   ],
+   "role": "cell",
+   "row_label": "Investments",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "612.75",
+   "bbox": [
+    291.7,
+    172.3,
+    316.0,
+    182.1
+   ],
+   "role": "cell",
+   "row_label": "Inventories",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "580.20",
+   "bbox": [
+    369.0,
+    172.3,
+    396.0,
+    182.1
+   ],
+   "role": "cell",
+   "row_label": "Inventories",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "498.60",
+   "bbox": [
+    289.0,
+    186.3,
+    316.0,
+    196.1
+   ],
+   "role": "cell",
+   "row_label": "Trade receivables",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "455.35",
+   "bbox": [
+    370.7,
+    186.3,
+    396.0,
+    196.1
+   ],
+   "role": "cell",
+   "row_label": "Trade receivables",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "188.90",
+   "bbox": [
+    289.9,
+    200.3,
+    316.0,
+    210.1
+   ],
+   "role": "cell",
+   "row_label": "Cash and cash equivalents",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "160.45",
+   "bbox": [
+    370.7,
+    200.3,
+    396.0,
+    210.1
+   ],
+   "role": "cell",
+   "row_label": "Cash and cash equivalents",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "3,781.00",
+   "bbox": [
+    278.6,
+    214.3,
+    316.0,
+    224.1
+   ],
+   "role": "cell",
+   "row_label": "Total assets",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "3,573.60",
+   "bbox": [
+    358.5,
+    214.3,
+    396.0,
+    224.1
+   ],
+   "role": "cell",
+   "row_label": "Total assets",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "40.67",
+   "bbox": [
+    294.6,
+    228.3,
+    316.0,
+    238.1
+   ],
+   "role": "cell",
+   "row_label": "Equity share capital",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "40.67",
+   "bbox": [
+    374.6,
+    228.3,
+    396.0,
+    238.1
+   ],
+   "role": "cell",
+   "row_label": "Equity share capital",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "2,588.63",
+   "bbox": [
+    282.5,
+    242.3,
+    316.0,
+    252.1
+   ],
+   "role": "cell",
+   "row_label": "Other equity",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "2,433.13",
+   "bbox": [
+    364.1,
+    242.3,
+    396.0,
+    252.1
+   ],
+   "role": "cell",
+   "row_label": "Other equity",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "598.90",
+   "bbox": [
+    289.3,
+    256.4,
+    316.0,
+    266.1
+   ],
+   "role": "cell",
+   "row_label": "Borrowings",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "663.20",
+   "bbox": [
+    369.4,
+    256.4,
+    396.0,
+    266.1
+   ],
+   "role": "cell",
+   "row_label": "Borrowings",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "402.80",
+   "bbox": [
+    288.7,
+    270.4,
+    316.0,
+    280.1
+   ],
+   "role": "cell",
+   "row_label": "Trade payables",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "380.60",
+   "bbox": [
+    368.7,
+    270.4,
+    396.0,
+    280.1
+   ],
+   "role": "cell",
+   "row_label": "Trade payables",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "150.00",
+   "bbox": [
+    289.9,
+    284.4,
+    316.0,
+    294.1
+   ],
+   "role": "cell",
+   "row_label": "Other liabilities",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "56.00",
+   "bbox": [
+    374.0,
+    284.4,
+    396.0,
+    294.1
+   ],
+   "role": "cell",
+   "row_label": "Other liabilities",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 3,
+   "raw": "3,781.00",
+   "bbox": [
+    278.6,
+    298.4,
+    316.0,
+    308.1
+   ],
+   "role": "cell",
+   "row_label": "Total equity and liabilities",
+   "col_label": "As at 30.09.2025"
+  },
+  {
+   "page": 3,
+   "raw": "3,573.60",
+   "bbox": [
+    358.5,
+    298.4,
+    396.0,
+    308.1
+   ],
+   "role": "cell",
+   "row_label": "Total equity and liabilities",
+   "col_label": "As at 31.03.2025"
+  },
+  {
+   "page": 4,
+   "raw": "Q2",
+   "bbox": [
+    248.8,
+    110.3,
+    261.1,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "FY26",
+   "bbox": [
+    263.2,
+    110.3,
+    286.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "Q1",
+   "bbox": [
+    329.9,
+    110.3,
+    341.1,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "FY26",
+   "bbox": [
+    343.2,
+    110.3,
+    366.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "Q2",
+   "bbox": [
+    409.2,
+    110.3,
+    421.5,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "FY25",
+   "bbox": [
+    423.7,
+    110.3,
+    446.0,
+    120.1
+   ],
+   "role": "header"
+  },
+  {
+   "page": 4,
+   "raw": "812.30",
+   "bbox": [
+    260.3,
+    124.3,
+    286.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Chemicals",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "790.15",
+   "bbox": [
+    341.3,
+    124.3,
+    366.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Chemicals",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "720.40",
+   "bbox": [
+    419.5,
+    124.3,
+    446.0,
+    134.1
+   ],
+   "role": "cell",
+   "row_label": "Chemicals",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 4,
+   "raw": "356.16",
+   "bbox": [
+    261.3,
+    138.3,
+    286.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Materials",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "331.10",
+   "bbox": [
+    341.8,
+    138.3,
+    366.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Materials",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "318.20",
+   "bbox": [
+    420.3,
+    138.3,
+    446.0,
+    148.1
+   ],
+   "role": "cell",
+   "row_label": "Materials",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 4,
+   "raw": "66.10",
+   "bbox": [
+    265.2,
+    152.3,
+    286.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Services",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "59.15",
+   "bbox": [
+    346.3,
+    152.3,
+    366.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Services",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "59.70",
+   "bbox": [
+    424.9,
+    152.3,
+    446.0,
+    162.1
+   ],
+   "role": "cell",
+   "row_label": "Services",
+   "col_label": "Q2 FY25"
+  },
+  {
+   "page": 4,
+   "raw": "1,234.56",
+   "bbox": [
+    249.5,
+    166.3,
+    286.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Total segment revenue",
+   "col_label": "Q2 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "1,180.40",
+   "bbox": [
+    328.9,
+    166.3,
+    366.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Total segment revenue",
+   "col_label": "Q1 FY26"
+  },
+  {
+   "page": 4,
+   "raw": "1,098.30",
+   "bbox": [
+    407.8,
+    166.3,
+    446.0,
+    176.1
+   ],
+   "role": "cell",
+   "row_label": "Total segment revenue",
+   "col_label": "Q2 FY25"
+  }
+ ],
+ "seeded_error": {
+  "page": 2,
+  "printed": "48.20",
+  "text_layer": "46.20"
+ }
+}

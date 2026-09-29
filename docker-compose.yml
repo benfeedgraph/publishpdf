@@ -1,0 +1,43 @@
+# Local stack for machines with Docker. (The macOS dev path without Docker is in README.md.)
+# Ports bind to 127.0.0.1 only. Credentials here are dev-only.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres_dev_pw
+    ports: ["127.0.0.1:54329:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio_dev
+      MINIO_ROOT_PASSWORD: minio_dev_pw
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: [miniodata:/data]
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_OWNER_URL: postgresql+psycopg://publishpdf_owner:owner_dev_pw@postgres:5432/publishpdf
+      DATABASE_APP_URL: postgresql+psycopg://publishpdf_app:app_dev_pw@postgres:5432/publishpdf
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on: [postgres]
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_OWNER_URL: postgresql+psycopg://publishpdf_owner:owner_dev_pw@postgres:5432/publishpdf
+      DATABASE_APP_URL: postgresql+psycopg://publishpdf_app:app_dev_pw@postgres:5432/publishpdf
+    command: python -m app.cli worker
+    depends_on: [postgres]
+
+volumes:
+  pgdata:
+  miniodata:
