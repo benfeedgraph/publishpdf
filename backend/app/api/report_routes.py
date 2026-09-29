@@ -333,6 +333,14 @@ def page_image(report_id: uuid.UUID, version_id: uuid.UUID, page: int, zoom: flo
     sha, count = row
     if not 1 <= page <= count:
         raise HTTPException(404, "No such page.")
+    # Normally the page was drawn once when the web page was built: serve that (fast, and
+    # light on serverless hosts). Older versions fall back to drawing it now.
+    from app.reports import pdf_page_key
+    try:
+        data = storage.get(ctx, pdf_page_key(sha, page))
+        return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
+    except Exception:  # noqa: BLE001 - not stored yet
+        pass
     return Response(_cached_png(ctx, sha, page, zoom), media_type="image/png",
                     headers={"Cache-Control": "private, max-age=86400"})
 
@@ -620,6 +628,13 @@ addEventListener('scroll',tick,{passive:true});addEventListener('load',tick);
 addEventListener('message',function(m){if(m.data&&m.data.ppdf==='goto'){var e=document.querySelector('[data-section="'+m.data.id+'"]');if(e)e.scrollIntoView()}});
 document.addEventListener('click',function(ev){var a=ev.target.closest('[data-fig]');if(a)parent.postMessage({ppdf:'figure',id:a.getAttribute('data-fig')},'*')});
 })();</script>"""
+
+
+@router.get("/{report_id}/versions/{version_id}/preview")
+def preview_root(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> Response:
+    """The preview's landing page without a trailing slash: some hosts' /api forwarding
+    drops paths that end in "/", so the dashboard links here."""
+    return preview(report_id, version_id, "", ctx)
 
 
 @router.get("/{report_id}/versions/{version_id}/preview/{path:path}")

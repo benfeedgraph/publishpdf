@@ -285,7 +285,8 @@ def page_css(theme: dict) -> str:
 
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
-                  pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None) -> dict[str, bytes]:
+                  pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None,
+                  pdf_page_sink=None) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
 
     With the PDF (always, in the pipeline) the report page is the page-faithful web
@@ -356,7 +357,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         reflow = {pg: story.reflow_order(items) for pg, items in reflow.items()
                   if _para_words(items) >= REFLOW_MIN_WORDS or any(it["kind"] == "table" for it in items)}
         page_list, art, link_menu = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                           max_pages=max_pages, skip_pages=skip, visuals=vis_boxes)
+                                                           max_pages=max_pages, skip_pages=skip, visuals=vis_boxes,
+                                                           pdf_page_sink=pdf_page_sink)
         kept = sorted(p["n"] for p in page_list)
         for it in menu:
             it["page"] = next((k for k in kept if k >= it["page"]), None)

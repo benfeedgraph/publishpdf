@@ -46,7 +46,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
   const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ effective_disclaimer: string | null; site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
 
   if (!version.bundle_sha256) return <p className="muted">The web page will appear here once it has been generated.</p>;
-  const previewUrl = `${base}/preview/`;
+  const previewUrl = `${base}/preview`;      // no trailing slash: the hosted /api forwarding drops those
   const count = (sid: string) => comments.data?.comments.filter((c) => c.section_id === sid && !c.resolved).length ?? 0;
 
   return (

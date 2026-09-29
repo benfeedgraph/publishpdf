@@ -62,6 +62,11 @@ def source_key(sha: str) -> str:
     return f"sources/{sha}.pdf"
 
 
+def pdf_page_key(sha: str, page: int) -> str:
+    """The page as printed, rendered once when the web page is built (review screen)."""
+    return f"sources/{sha}/pages/p{page:04d}.webp"
+
+
 def extraction_key(vid: uuid.UUID) -> str:
     return f"versions/{vid}/extraction.json"
 

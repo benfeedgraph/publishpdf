@@ -157,8 +157,13 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             last["t"] = time.monotonic()
             _set_stage(ctx, vid, f"render: building page {done} of {total}")
 
+    from app.reports import pdf_page_key
+
+    def keep_pdf_page(n: int, data: bytes) -> None:
+        storage.put(ctx, pdf_page_key(v_sha, n), data, "image/webp")
+
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page)
+                               progress=on_page, pdf_page_sink=keep_pdf_page)
     prefix = bundle_prefix(vid)
     for rel, data in files.items():
         ctype = site.content_type(rel)

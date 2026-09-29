@@ -325,9 +325,10 @@ class Artist:
                         if c["c"].isspace() or tuple(round(v, 1) for v in c["bbox"]) in emitted:
                             continue
                         keep.append(c["bbox"])
+        pa = self.printed[n - 1].get_pixmap(matrix=m, alpha=False)
+        printed = Image.frombytes("RGB", (pa.width, pa.height), pa.samples)
+        self.last_printed = printed           # the page as printed: kept for the review screen's PDF pane
         if keep:
-            pa = self.printed[n - 1].get_pixmap(matrix=m, alpha=False)
-            printed = Image.frombytes("RGB", (pa.width, pa.height), pa.samples)
             for x0, y0, x1, y1 in keep:
                 box = (max(0, int((x0 - 0.6) * BG_SCALE)), max(0, int((y0 - 0.6) * BG_SCALE)),
                        min(img.width, int((x1 + 0.6) * BG_SCALE) + 1), min(img.height, int((y1 + 0.6) * BG_SCALE) + 1))
@@ -594,12 +595,14 @@ def _build_page(n: int) -> dict:
     ocr = _W["methods"].get(n) == "ocr"
     pieces = [] if ocr else _merge_adjacent(page_pieces(page, schema, n))
     if not ocr and contents_page(page):
-        return {"n": n, "kind": "contents", "menu": contents_from_links(page, pieces, figures)}
+        return {"n": n, "kind": "contents", "menu": contents_from_links(page, pieces, figures),
+                "pdf_page": _pdf_page(page)}
     top, bottom = _W["bands"].get(n, (0.0, page.rect.height))
     img = _W["artist"].artwork(n, pieces)
+    printed = webp(_W["artist"].last_printed)
     ext = _content_rows(img, top, bottom, pieces)
     if ext is None:
-        return {"n": n, "kind": "blank"}
+        return {"n": n, "kind": "blank", "pdf_page": printed}
     c0, c1 = ext
     H = c1 - c0
     crop = img.crop((0, int(c0 * BG_SCALE), img.width, int(c1 * BG_SCALE)))
@@ -617,9 +620,14 @@ def _build_page(n: int) -> dict:
                      if x0 - 1 <= p.x0 and p.x1 <= x1 + 1 and y0 - 1 <= p.baseline - p.size and p.baseline <= y1 + 1)
         vis[bid] = {"w": rw, "h": rh, "img_w": _n(W / rw * 100), "left": _n((x0) / rw * 100),
                     "top": _n((y0 - c0) / rh * 100), "html": ov}
-    return {"n": n, "kind": "part", "W": W, "c0": c0, "c1": c1, "webp": webp(crop), "bg_w": crop.width,
+    return {"n": n, "kind": "part", "W": W, "c0": c0, "c1": c1, "webp": webp(crop), "pdf_page": printed, "bg_w": crop.width,
             "bg_h": crop.height, "body": "".join(piece_html(p, W, H, figures, c0) for p in inside), "ocr": ocr,
             "vis": vis}
+
+
+def _pdf_page(page: pymupdf.Page) -> bytes:
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(BG_SCALE, BG_SCALE), alpha=False)
+    return webp(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
 
 
 def _workers() -> int:
@@ -628,8 +636,8 @@ def _workers() -> int:
 
 
 def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str], progress=None,
-                 max_pages: int | None = None, skip_pages: set[int] | None = None, visuals: dict | None = None
-                 ) -> tuple[list[dict], dict[str, bytes], list[dict]]:
+                 max_pages: int | None = None, skip_pages: set[int] | None = None, visuals: dict | None = None,
+                 pdf_page_sink=None) -> tuple[list[dict], dict[str, bytes], list[dict]]:
     """Returns (parts, artwork files, contents menu). A part is one PDF page's content,
     trimmed so parts run together as one continuous page. `visuals` = {page: [(block id,
     bbox)]} for the phone view's chart/graphic crops."""
@@ -665,6 +673,10 @@ def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str]
                 _W["doc"].close()
                 _W["artist"].close()
                 _W.clear()
+        if pdf_page_sink:
+            for r in results:
+                if r.get("pdf_page"):
+                    pdf_page_sink(r["n"], r["pdf_page"])
         menu = [it for r in results if r["kind"] == "contents" for it in r["menu"]]
         built = [r for r in results if r["kind"] == "part"]
         kept = {r["n"] for r in built}

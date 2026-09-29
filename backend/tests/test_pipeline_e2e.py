@@ -66,6 +66,9 @@ def test_clean_pdf_goes_all_the_way_to_a_public_page(admin_client):
 
     preview = client.get(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview/")
     assert preview.status_code == 200 and "noindex" in preview.text and 'data-fig="' in preview.text
+    # the dashboard links without the trailing slash (hosted /api forwarding drops those)
+    bare = client.get(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview", follow_redirects=False)
+    assert bare.status_code == 200 and bare.text == preview.text
 
     # publish needs the review checkbox
     assert client.post(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/publish", json={}).status_code == 400

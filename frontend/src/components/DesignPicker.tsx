@@ -12,11 +12,13 @@ export interface ThemeT {
 interface Proposal { theme: ThemeT; logo_url?: string | null; fonts_seen?: string[]; source: string }
 type Source = "website" | "palette" | "file" | "current";
 
-const SOURCES: [Source, string, string][] = [
-  ["website", "Match a website", "Paste your website link — we'll take its colours, fonts and logo."],
-  ["palette", "Use a colour palette", "Enter your brand colours; we'll build a theme around them."],
-  ["file", "From a PDF or images", "Upload a brand PDF (e.g. last year's report) or screenshots you like."],
-  ["current", "Keep the current design", "Use your workspace's saved design."],
+// "Keep the current design" comes first and is the default: most reports should simply
+// reuse the workspace's saved look; the other sources are for changing it.
+const SOURCES: [Source, string, string, string][] = [
+  ["current", "Keep the current design", "Your workspace's saved colours, fonts and logo.", "✓"],
+  ["website", "Match a website", "Paste a link — we take its colours, fonts and logo.", "🌐"],
+  ["palette", "Use a colour palette", "Enter brand colours; we build a theme around them.", "🎨"],
+  ["file", "From a PDF or images", "Upload a brand PDF or screenshots you like.", "📄"],
 ];
 const FONTS = ["system", "serif", "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Source Sans 3", "Noto Sans", "Nunito Sans", "Libre Franklin",
   "Mulish", "Raleway", "Merriweather", "Playfair Display", "Poppins", "IBM Plex Sans", "Work Sans", "DM Sans", "Manrope", "Lora", "PT Serif"];
@@ -29,7 +31,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
   applyLabel?: string;
   busy?: boolean;
 }) {
-  const [source, setSource] = useState<Source>("website");
+  const [source, setSource] = useState<Source>("current");
   const [url, setUrl] = useState("");
   const [palette, setPalette] = useState<string[]>(["#1F4FD1", "#0F766E", "#FFFFFF", "#111827"]);
   const [files, setFiles] = useState<FileList | null>(null);
@@ -67,9 +69,22 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
     <div className="theme-layout">
       <div className="stack">
         <div className="design-sources" role="radiogroup" aria-label="Where should the design come from?">
-          {SOURCES.map(([k, title, desc]) => (
-            <button key={k} type="button" role="radio" aria-checked={source === k} className={`source-card ${source === k ? "active" : ""}`} onClick={() => setSource(k)}>
-              <strong>{title}</strong><span className="muted small">{desc}</span>
+          {SOURCES.map(([k, title, desc, icon]) => (
+            <button key={k} type="button" role="radio" aria-checked={source === k}
+              className={`source-card ${source === k ? "active" : ""} ${k === "current" ? "is-default" : ""}`} onClick={() => setSource(k)}>
+              <span className="source-top">
+                <span className="source-icon" aria-hidden>{icon}</span>
+                {k === "current" && <span className="badge ok">Default</span>}
+                <span className="source-radio" aria-hidden />
+              </span>
+              <strong>{title}</strong>
+              <span className="muted small">{desc}</span>
+              {k === "current" && (
+                <span className="source-swatches" aria-hidden>
+                  {(["primary", "secondary", "text", "background"] as const).map((c) => <i key={c} style={{ background: current.colors[c] }} />)}
+                  <em>{current.typography.heading_font}</em>
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -104,7 +119,18 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
               <button className="primary" disabled={loading || !files?.length}>{loading ? "Analysing…" : "Get design"}</button>
             </form>
           )}
-          {source === "current" && <p className="muted small" style={{ margin: 0 }}>Your workspace design is shown in the preview.</p>}
+          {source === "current" && (
+            <div className="current-summary">
+              <div className="current-swatches">
+                {(["primary", "secondary", "text", "background"] as const).map((c) => (
+                  <span key={c}><i style={{ background: current.colors[c] }} /><span className="small">{{ primary: "Primary", secondary: "Accent", text: "Text", background: "Background" }[c]}</span><code>{current.colors[c]}</code></span>
+                ))}
+              </div>
+              <p className="small muted" style={{ margin: "10px 0 0" }}>
+                Headings in <strong>{current.typography.heading_font}</strong>, body in <strong>{current.typography.body_font}</strong> · {current.header.style} header{current.logo ? " · logo included" : ""}. It's shown in the live preview — adjust anything below, or pick another source above to change it.
+              </p>
+            </div>
+          )}
           {err && <p className="error" role="alert" style={{ marginTop: 10 }}>{err}</p>}
           {proposal && <p className="small ok-text" style={{ marginTop: 10, marginBottom: 0 }}>Design taken from {proposal.source}{proposal.fonts_seen?.length ? ` · fonts seen: ${proposal.fonts_seen.slice(0, 3).join(", ")}` : ""}.</p>}
         </div>
