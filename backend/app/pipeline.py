@@ -14,7 +14,7 @@ import json
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app import audit, db, storage
 from app.config import get_settings
@@ -52,17 +52,17 @@ def _version(s, payload) -> ReportVersion:
 
 
 def _set_stage(ctx: Context, vid: uuid.UUID, stage: str) -> None:
+    # Progress ticks every couple of seconds. Update only the stage columns so a
+    # long report doesn't reload its whole extraction over the database link.
     with db.session(ctx) as s:
-        v = s.get(ReportVersion, vid)
-        if v is not None and v.published_at is None:
-            v.stage, v.status = stage, "processing"
+        s.execute(update(ReportVersion).where(ReportVersion.id == vid, ReportVersion.published_at.is_(None))
+                  .values(status="processing", stage=stage))
 
 
 def _fail(ctx: Context, vid: uuid.UUID, message: str) -> None:
     with db.session(ctx) as s:
-        v = s.get(ReportVersion, vid)
-        if v is not None and v.published_at is None:
-            v.status, v.error_plain = "failed", message
+        s.execute(update(ReportVersion).where(ReportVersion.id == vid, ReportVersion.published_at.is_(None))
+                  .values(status="failed", error_plain=message))
 
 
 def _llm_for(ctx: Context) -> classify.LlmCall | None:

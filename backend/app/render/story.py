@@ -287,3 +287,68 @@ def plain_excerpt(sec: dict, max_chars: int = 155) -> str:
             if len(text) >= 40 and not any(ch.isdigit() for ch in text):
                 return text if len(text) <= max_chars else text[:max_chars].rsplit(" ", 1)[0] + "…"
     return ""
+
+
+# ------------------------------------------------------------------ phone reading order
+
+
+def _bbox(it: dict) -> list[float] | None:
+    src = (it.get("b") or it.get("sec") or {}).get("source") or {}
+    return src.get("bbox")
+
+
+def _xy_cut(items: list[dict]) -> list[dict]:
+    """Reading order for one page's blocks, column by column: recursively split at the
+    widest clear gap — a vertical gap (between columns, preferred) or a horizontal one
+    (between rows) — so a three-column panel reads down each column in turn instead of
+    across the columns line by line."""
+    if len(items) <= 1:
+        return items
+    boxes = [_bbox(i) for i in items]
+
+    def best_gap(axis: int) -> tuple[float, float]:
+        spans = sorted((b[axis], b[axis + 2]) for b in boxes)
+        best, at, end = 0.0, 0.0, spans[0][1]
+        for a, b in spans[1:]:
+            if a - end > best:
+                best, at = a - end, (a + end) / 2
+            end = max(end, b)
+        return best, at
+
+    vgap, vx = best_gap(0)          # gap along x: columns
+    hgap, hy = best_gap(1)          # gap along y: rows
+    if vgap >= 6 and vgap * 1.5 >= hgap:
+        left = [i for i, b in zip(items, boxes) if (b[0] + b[2]) / 2 < vx]
+        right = [i for i, b in zip(items, boxes) if (b[0] + b[2]) / 2 >= vx]
+        if left and right:
+            return _xy_cut(left) + _xy_cut(right)
+    if hgap >= 1.5:
+        top = [i for i, b in zip(items, boxes) if (b[1] + b[3]) / 2 < hy]
+        bottom = [i for i, b in zip(items, boxes) if (b[1] + b[3]) / 2 >= hy]
+        if top and bottom:
+            return _xy_cut(top) + _xy_cut(bottom)
+    return sorted(items, key=lambda i: (_bbox(i)[1], _bbox(i)[0]))
+
+
+def reflow_order(items: list[dict]) -> list[dict]:
+    """A page's blocks for the phone view: column-aware order, then lines the PDF set as
+    separate blocks (centred text, narrow columns) joined back into their paragraph."""
+    placed = [i for i in items if _bbox(i)]
+    loose = [i for i in items if not _bbox(i)]
+    ordered = _xy_cut(placed) + loose
+    out: list[dict] = []
+    for it in ordered:
+        prev = out[-1] if out else None
+        if prev and prev["kind"] == it["kind"] == "paragraph" and prev.get("sec") is it.get("sec") \
+                and bullet_runs(it["b"]) is None and lead_label(it["b"]["runs"]) is None:
+            a, b = prev["_box"], _bbox(it)
+            overlap = min(a[2], b[2]) - max(a[0], b[0])
+            line = min(a[3] - a[1], b[3] - b[1], 16)
+            ends = "".join(r.get("t", "") for r in prev["b"]["runs"][-1:]).rstrip()
+            if overlap > 0.5 * min(a[2] - a[0], b[2] - b[0]) and 0 <= b[1] - a[3] <= line * 0.9 \
+                    and not ends.endswith((".", ":", "?", "!")):
+                prev["b"] = {**prev["b"], "runs": prev["b"]["runs"] + [{"t": " "}] + it["b"]["runs"]}
+                prev["_box"] = [min(a[0], b[0]), a[1], max(a[2], b[2]), b[3]]
+                continue
+        out.append({**it, "_box": _bbox(it)})
+    return out

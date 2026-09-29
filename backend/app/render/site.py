@@ -110,7 +110,7 @@ a:focus-visible,[tabindex]:focus-visible,summary:focus-visible,.rows-toggle:focu
 .btn-primary:hover{background:color-mix(in srgb,var(--c-primary) 88%,#000);border-color:transparent}
 .btn .arr{transition:transform .15s}.btn:hover .arr{transform:translateX(3px)}
 .toc-title{font-weight:700;text-transform:uppercase;letter-spacing:.1em;font-size:.76em;color:var(--c-muted);margin:0 0 10px 12px}
-.table-wrap{overflow-x:auto;margin:1.4em 0;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-background);box-shadow:var(--shadow-1)}
+.table-wrap{position:relative;overflow-x:auto;margin:1.4em 0;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-background);box-shadow:var(--shadow-1)}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.94em}
 caption{text-align:left;padding:16px 18px;background:var(--c-surface);border-bottom:1px solid var(--c-border)}
 caption>span{display:block}.cap-title{font-weight:750;font-size:1.05em;font-family:var(--font-heading)}.cap-note,.cap-meta{color:var(--c-muted);font-size:.86em}
@@ -200,6 +200,8 @@ details.chart-data{margin:-.6em 0 1.6em}details.chart-data summary{cursor:pointe
 """
 
 
+REFLOW_MIN_WORDS = 40     # below this a page is mostly pictures: phones see its design, not a text column
+
 PAGES_CSS = """
 .layout-document:has(.edition){background:var(--c-surface)}
 .edition-bar{background:var(--c-background);border-bottom:1px solid var(--c-border)}
@@ -233,7 +235,28 @@ PAGES_CSS = """
   .edition-rail{position:static;max-height:none;background:var(--c-background);border:1px solid var(--c-border);border-radius:10px;padding:12px}
   .edition-rail ol{columns:2 220px;border-left:0}.edition-rail a{border-left:0;padding:5px 4px}
   .edition-menu-btn{display:inline-flex}}
-@media (max-width:640px){.edition-body{padding:10px 0 0}.edition-bar-in{padding:12px 16px}}
+/* Phone view: the designed parts give way to the same content re-flowed into one column. */
+.reflow{display:none}
+@media (max-width:700px){
+  .edition-body{padding:0}.edition-bar-in{padding:12px 16px}
+  .flow{box-shadow:none;background:var(--c-background)}
+  .part:has(+ .reflow){display:none}
+  .reflow{display:block;padding:18px 16px 6px;border-bottom:1px solid var(--c-border);font-size:1.02em;line-height:1.65}
+  .reflow p{margin:0 0 .85em}
+  .reflow p.li{position:relative;padding-left:1.3em}
+  .reflow p.li::before{content:"";position:absolute;left:.25em;top:.7em;width:.4em;height:.4em;background:var(--c-primary);transform:rotate(45deg)}
+  .rf-h{font-size:1.2em;line-height:1.3;margin:.4em 0 .6em;color:var(--c-text)}
+  .rf-q{color:var(--c-primary)}
+  .rf-sub{font-weight:650}
+  .rf-stat{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--c-surface);border-radius:8px}
+  .rf-vis{position:relative;overflow:hidden;margin:14px auto 18px;container-type:inline-size;border-radius:6px;background:#fff;width:min(100%,var(--vw))}
+  .rf-vis img{position:absolute;max-width:none;height:auto}
+  .rf-vis-t{position:absolute;inset:0}
+  .rf-vis .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;transform-origin:0 0;transform:scaleX(var(--k,1));color:#000}
+  .reflow .table-wrap{margin:12px -16px;border-radius:0;border-left:0;border-right:0;font-size:.88em}
+  .part-text{display:none}
+  .edition-rail ol{columns:1}
+}
 @media print{.edition-bar,.edition-rail,.to-top{display:none}.flow{box-shadow:none}}
 """
 
@@ -310,8 +333,30 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 target = by_slug[slug].get("source", {}).get("page")
                 if target:
                     menu.append({"page": target, "label": _runs_html(t["rows"][ri]["label"], figures)})
+        # Phone view: each page's content re-flowed into one column — section headings,
+        # paragraphs, tables, and its charts/graphics as crops of the page artwork.
+        reflow: dict[int, list] = {}
+        vis_boxes: dict[int, list] = {}
+        for sec in sections:
+            sp = (sec.get("source") or {}).get("page")
+            if sec.get("heading") and sp:
+                reflow.setdefault(sp, []).append({"kind": "heading", "sec": sec})
+            for b in sec["blocks"]:
+                pg = (b.get("source") or {}).get("page")
+                if not pg:
+                    continue
+                if b["type"] == "chart" and b["source"].get("bbox"):
+                    vis_boxes.setdefault(pg, []).append((b["id"], b["source"]["bbox"]))
+                reflow.setdefault(pg, []).append({"kind": b["type"], "b": b, "sec": sec})
+        # Pages that are mostly pictures (a cover, a photo spread, a scanned page with a
+        # few words) keep their designed look on phones too; the rest re-flow.
+        def _para_words(items):
+            return sum(len(r.get("t", "").split()) + ("f" in r) for it in items if it["kind"] == "paragraph"
+                       for r in it["b"].get("runs") or [])
+        reflow = {pg: story.reflow_order(items) for pg, items in reflow.items()
+                  if _para_words(items) >= REFLOW_MIN_WORDS or any(it["kind"] == "table" for it in items)}
         page_list, art, link_menu = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                           max_pages=max_pages, skip_pages=skip)
+                                                           max_pages=max_pages, skip_pages=skip, visuals=vis_boxes)
         kept = sorted(p["n"] for p in page_list)
         for it in menu:
             it["page"] = next((k for k in kept if k >= it["page"]), None)
@@ -334,7 +379,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         files[base.lstrip("/") + "index.html"] = _ENV.get_template("pages.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
             jsonld=Markup(_jsonld(schema, base)), pages=page_list, scan_blocks=scan_blocks,
-            menu=[{"page": it["page"], "label": Markup(it["label"])} for it in menu],
+            menu=[{"page": it["page"], "label": Markup(it["label"])} for it in menu], reflow=reflow,
+            qparts={x["id"]: story.question_parts(schema, x) for x in sections},
             cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}

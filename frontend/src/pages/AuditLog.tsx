@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api, formatDateTime } from "../api";
@@ -13,7 +14,22 @@ interface Entry {
   after: Record<string, unknown> | null;
 }
 
-const fmt = (v: Record<string, unknown> | null) => (v ? JSON.stringify(v) : "");
+function Payload({ value }: { value: Record<string, unknown> | null }) {
+  const [open, setOpen] = useState(false);
+  if (!value) return <span className="muted">—</span>;
+  const text = JSON.stringify(value, null, 2);
+  const long = text.length > 180;
+  return (
+    <div className={`payload ${open ? "open" : ""}`}>
+      <pre>{text}</pre>
+      {long && (
+        <button type="button" className="link" onClick={() => setOpen((v) => !v)}>
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function AuditLog() {
   const { tenantId } = useParams();
@@ -29,28 +45,30 @@ export default function AuditLog() {
       {q.isError && <p className="error">{q.error.message}</p>}
       {q.data && q.data.entries.length === 0 && <p className="muted">No activity yet.</p>}
       {q.data && q.data.entries.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">When</th>
-              <th scope="col">Who</th>
-              <th scope="col">Action</th>
-              <th scope="col">Before</th>
-              <th scope="col">After</th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.data.entries.map((e) => (
-              <tr key={e.id}>
-                <td className="nowrap">{formatDateTime(e.at)}</td>
-                <td>{e.actor ?? "System"}</td>
-                <td><code>{e.action}</code></td>
-                <td className="mono small">{fmt(e.before)}</td>
-                <td className="mono small">{fmt(e.after)}</td>
+        <div className="table-scroll">
+          <table className="audit">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Who</th>
+                <th scope="col">Action</th>
+                <th scope="col">Before</th>
+                <th scope="col">After</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {q.data.entries.map((e) => (
+                <tr key={e.id}>
+                  <td className="nowrap">{formatDateTime(e.at)}</td>
+                  <td className="wrap">{e.actor ?? "System"}</td>
+                  <td className="wrap"><code>{e.action}</code></td>
+                  <td><Payload value={e.before} /></td>
+                  <td><Payload value={e.after} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   );

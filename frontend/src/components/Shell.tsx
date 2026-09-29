@@ -22,7 +22,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><img src="/brand/publishpdf-logo-full-color.svg" alt="PublishPDF" width="139" height="30" /></div>
+        <div className="brand"><img src="/brand/publishpdf-logo-full-on-dark.svg" alt="PublishPDF" width="148" height="32" /></div>
         {me.tenants.length > 1 && (
           <label className="ws-switch">
             <span className="sr-only">Workspace</span>
@@ -31,7 +31,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
             </select>
           </label>
         )}
-        {me.tenants.length === 1 && tenant && <div className="nav-label" style={{ paddingTop: 0 }}>{tenant.name}</div>}
+        {me.tenants.length === 1 && tenant && <div className="ws-name" title={tenant.name}>{tenant.name}</div>}
         {tenantId && (
           <nav className="nav" aria-label="Workspace">
             <NavLink end to={`/t/${tenantId}`}><IconReports /> Reports</NavLink>

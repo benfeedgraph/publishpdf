@@ -1,5 +1,31 @@
 {% extends "base.html" %}
 {% from "_macros.html" import runs, meta, table with context %}
+
+{#- Phone view of one part: its content re-flowed into a single readable column. -#}
+{%- macro reflow_part(p) -%}
+<div class="reflow" id="r{{ p.n }}">
+{%- for it in reflow.get(p.n, []) %}
+  {%- if it.kind == 'heading' %}
+    {%- set qp = qparts.get(it.sec.id) %}
+    <h2 class="rf-h">{% if qp %}<span class="rf-q">{{ runs(qp[0], figures) }}.</span> {{ runs(qp[1], figures) }}{% else %}{{ runs(it.sec.heading, figures) }}{% endif %}</h2>
+    {%- if it.sec.subheading %}<p class="rf-sub">{{ runs(it.sec.subheading, figures) }}</p>{% endif %}
+  {%- elif it.kind == 'paragraph' %}
+    {%- set li = bullet_runs(it.b) %}{%- set ll = lead_label(it.b.runs) %}
+    {%- if li is not none %}<p class="li">{{ runs(li, figures) }}</p>
+    {%- elif ll %}<p><strong class="lead-label">{{ ll[0] }}</strong> {{ runs(ll[1], figures) }}</p>
+    {%- else %}<p>{{ runs(it.b.runs, figures) }}</p>{% endif %}
+  {%- elif it.kind == 'table' %}{{ table(it.b, figures, it.sec, m) }}
+  {%- elif it.kind == 'stat' %}<p class="rf-stat"><span>{{ runs(it.b.label, figures) }}</span> <strong>{{ runs(it.b.value, figures) }}</strong></p>
+  {%- elif it.kind == 'chart' and p.vis.get(it.b.id) %}
+    {%- set v = p.vis[it.b.id] %}
+    <figure class="rf-vis" style="aspect-ratio:{{ v.w }}/{{ v.h }};--vw:{{ (v.w * 1.6)|round|int }}px">
+      <img src="{{ base_path }}{{ p.bg }}" alt="" loading="lazy" decoding="async" style="width:{{ v.img_w }}%;left:-{{ v.left }}%;top:-{{ v.top }}%">
+      <div class="rf-vis-t">{{ v.html|safe }}</div>
+    </figure>
+  {%- endif %}
+{%- endfor %}
+</div>
+{%- endmacro -%}
 {#- The web edition: the report's own design and order as ONE continuous page. Each part
     is a PDF page's content with its running header/footer and blank margins trimmed, so
     parts run into each other; the words and figures are real text laid over the artwork.
@@ -32,6 +58,7 @@
         <img class="part-bg" src="{{ base_path }}{{ p.bg }}" width="{{ p.bg_w }}" height="{{ p.bg_h }}" alt="{{ 'Scanned page of the ' ~ report_type_label if p.ocr else '' }}"{% if loop.index > 2 %} loading="lazy"{% endif %} decoding="async">
         <div class="part-t">{{ p.html|safe }}</div>
       </section>
+      {%- if reflow.get(p.n) %}{{ reflow_part(p) }}{% endif %}
       {%- if p.ocr and scan_blocks.get(p.n) %}
       <details class="part-text">
         <summary>Text of the scanned part above</summary>

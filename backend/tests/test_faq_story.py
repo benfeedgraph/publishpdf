@@ -184,3 +184,31 @@ def test_continuous_page_drops_page_furniture_contents_and_blank_pages():
     nav = html_[html_.index('class="edition-rail"'):html_.index("</nav>", html_.index('class="edition-rail"'))]
     assert 'href="#p3"' in nav and "Chairman" in nav and "Governance" not in nav   # its target page was blank
     assert validation.check_bundle(schema, files) == []
+
+
+def test_parallel_and_serial_builds_are_identical(monkeypatch):
+    doc = pymupdf.open()
+    for n in range(12):
+        p = doc.new_page()
+        assert p.insert_textbox(pymupdf.Rect(72, 120, 520, 300), f"Q{n + 1}. " + BODY, fontname="helv", fontsize=11) >= 0
+    pdf = doc.tobytes()
+    schema, _ = extract(pdf, META)
+    theme = theming.validate({})
+    par = site.render_report(schema, theme=theme, disclaimer="d", pdf_bytes=pdf)
+    from app.render import pages as pages_mod
+    monkeypatch.setattr(pages_mod, "_workers", lambda: 1)
+    ser = site.render_report(schema, theme=theme, disclaimer="d", pdf_bytes=pdf)
+    assert par.keys() == ser.keys() and all(par[k] == ser[k] for k in par)
+    assert validation.check_bundle(schema, par) == []
+
+
+def test_phone_view_reads_a_three_column_panel_column_by_column():
+    def para(bid, x0, y0, text):
+        return {"kind": "paragraph", "sec": None,
+                "b": {"id": bid, "type": "paragraph", "runs": [{"t": text}], "source": {"page": 1, "bbox": [x0, y0, x0 + 150, y0 + 10]}}}
+    cols = [para(f"{c}{r}", 50 + c * 170, 200 + r * 12, f"col{c} line{r}") for r in range(3) for c in range(3)]
+    title = {**para("t", 50, 150, "Title"), "b": {**para("t", 50, 150, "Title")["b"], "source": {"page": 1, "bbox": [50, 150, 540, 170]}}}
+    out = story.reflow_order([title] + cols)
+    texts = ["".join(r["t"] for r in o["b"]["runs"]) for o in out]
+    assert texts == ["Title", "col0 line0 col0 line1 col0 line2", "col1 line0 col1 line1 col1 line2",
+                     "col2 line0 col2 line1 col2 line2"]

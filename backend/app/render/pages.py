@@ -268,32 +268,77 @@ def _merge_adjacent(pieces: list[Piece]) -> list[Piece]:
     return out
 
 
-def artwork(page: pymupdf.Page, pieces: list[Piece]) -> Image.Image:
-    """The page with the laid-over text lifted out, as WebP. Only glyphs we re-set as
-    HTML are removed; images and vector art are untouched."""
-    for p in pieces:
-        if not p.chars:
-            continue
-        # One area per piece: its characters' extent, pulled in from every side so no
-        # neighbouring glyph (a number we leave in the artwork) is touched.
-        first, last = p.chars[0]["bbox"], p.chars[-1]["bbox"]
-        y0 = min(c["bbox"][1] for c in p.chars)
-        y1 = max(c["bbox"][3] for c in p.chars)
-        h = y1 - y0
-        x0 = first[0] + (first[2] - first[0]) * 0.3
-        x1 = last[2] - (last[2] - last[0]) * 0.3
-        if x1 > x0 and h > 0:
-            page.add_redact_annot(pymupdf.Rect(x0, y0 + h * 0.3, x1, y1 - h * 0.3))
-    if pieces:
-        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE, graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-                              text=pymupdf.PDF_REDACT_TEXT_REMOVE)
-    pix = page.get_pixmap(matrix=pymupdf.Matrix(BG_SCALE, BG_SCALE), alpha=False)
-    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+_BT = re.compile(rb"(?<![A-Za-z0-9_])BT(?![A-Za-z0-9_])")
+_INLINE_IMAGE = re.compile(rb"(?<![A-Za-z])BI(?![A-Za-z]).*?(?<![A-Za-z])EI(?![A-Za-z])", re.S)
+
+
+def _hide_text(stream: bytes) -> bytes:
+    """Make every text object invisible (render mode 3) — outside inline image data."""
+    out, last = [], 0
+    for m in _INLINE_IMAGE.finditer(stream):
+        out.append(_BT.sub(b"BT 3 Tr", stream[last:m.start()]))
+        out.append(m.group(0))
+        last = m.end()
+    out.append(_BT.sub(b"BT 3 Tr", stream[last:]))
+    return b"".join(out)
+
+
+class Artist:
+    """Page artwork with the re-set text lifted out, made from two renders: the page as
+    printed, and the page with its text made invisible. Text we don't re-set as HTML
+    (numbers that aren't captured figures, symbol glyphs, rotated text) is copied back
+    from the as-printed render, so it stays exactly as printed. Only page and form
+    content streams are touched — never images, fonts or colour profiles."""
+
+    def __init__(self, pdf_bytes: bytes):
+        self.printed = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        self.blank = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        done: set[int] = set()
+        for page in self.blank:
+            refs = list(page.get_contents()) + [x[0] for x in page.get_xobjects()
+                                                 if self.blank.xref_get_key(x[0], "Subtype")[1] == "/Form"]
+            for xref in refs:
+                if xref in done:
+                    continue
+                done.add(xref)
+                data = self.blank.xref_stream(xref)
+                if data and b"BT" in data:
+                    self.blank.update_stream(xref, _hide_text(data))
+
+    def close(self) -> None:
+        self.printed.close()
+        self.blank.close()
+
+    def artwork(self, n: int, pieces: list[Piece]) -> Image.Image:
+        m = pymupdf.Matrix(BG_SCALE, BG_SCALE)
+        pb = self.blank[n - 1].get_pixmap(matrix=m, alpha=False)
+        img = Image.frombytes("RGB", (pb.width, pb.height), pb.samples)
+        emitted = {tuple(round(v, 1) for v in c["bbox"]) for p in pieces for c in p.chars}
+        keep = []
+        raw = self.printed[n - 1].get_text("rawdict", flags=pymupdf.TEXT_MEDIABOX_CLIP)
+        for block in raw["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if span["size"] < MIN_PT or span.get("alpha", 255) == 0:
+                        continue
+                    for c in span["chars"]:
+                        if c["c"].isspace() or tuple(round(v, 1) for v in c["bbox"]) in emitted:
+                            continue
+                        keep.append(c["bbox"])
+        if keep:
+            pa = self.printed[n - 1].get_pixmap(matrix=m, alpha=False)
+            printed = Image.frombytes("RGB", (pa.width, pa.height), pa.samples)
+            for x0, y0, x1, y1 in keep:
+                box = (max(0, int((x0 - 0.6) * BG_SCALE)), max(0, int((y0 - 0.6) * BG_SCALE)),
+                       min(img.width, int((x1 + 0.6) * BG_SCALE) + 1), min(img.height, int((y1 + 0.6) * BG_SCALE) + 1))
+                if box[2] > box[0] and box[3] > box[1]:
+                    img.paste(printed.crop(box), box[:2])
+        return img
 
 
 def webp(img: Image.Image) -> bytes:
     buf = io.BytesIO()
-    img.save(buf, "WEBP", quality=BG_QUALITY, method=4)
+    img.save(buf, "WEBP", quality=BG_QUALITY, method=2)
     return buf.getvalue()
 
 
@@ -312,7 +357,7 @@ def face_class(fam: str, weight: int, italic: bool) -> str:
     return f"f{FAMILY_CODE[fam]}{weight // 100}{'i' if italic else ''}"
 
 
-def piece_html(p: Piece, W: float, H: float, figures: dict, y0: float = 0.0) -> str:
+def piece_html(p: Piece, W: float, H: float, figures: dict, y0: float = 0.0, x0: float = 0.0) -> str:
     asc, desc = _metrics(p.stem, p.weight)
     top = p.baseline - p.size * (1 + asc - desc) / 2          # line-height:1 box top
     target = max(0.1, p.x1 - p.x0)
@@ -320,7 +365,7 @@ def piece_html(p: Piece, W: float, H: float, figures: dict, y0: float = 0.0) -> 
     k = target / natural if natural > 0 else 1.0
     k = min(1.6, max(0.55, k))
     cls = face_class(p.family, p.weight, p.italic)
-    style = f"--x:{_n(p.x0 / W * 100)};--y:{_n((top - y0) / H * 100)};--s:{_n(p.size / W * 100)}"
+    style = f"--x:{_n((p.x0 - x0) / W * 100)};--y:{_n((top - y0) / H * 100)};--s:{_n(p.size / W * 100)}"
     if abs(k - 1) > 0.004:
         style += f";--k:{_n(k)}"
     if p.color:
@@ -374,9 +419,11 @@ def _norm(t: str) -> str:
 
 def _band_lines(page: pymupdf.Page) -> list[tuple[str, float, float, str, float]]:
     """(band, y0, y1, normalised text, size) for text lines near the top or bottom edge."""
-    H = page.rect.height
+    H, W = page.rect.height, page.rect.width
     out = []
-    for b in page.get_text("dict")["blocks"]:
+    edge = [b for clip in (pymupdf.Rect(0, 0, W, H * BAND), pymupdf.Rect(0, H * (1 - BAND), W, H))
+            for b in page.get_text("dict", clip=clip)["blocks"]]
+    for b in edge:
         for ln in b.get("lines", []):
             t = "".join(sp["text"] for sp in ln["spans"]).strip()
             if not t:
@@ -395,8 +442,8 @@ def _band_art(page: pymupdf.Page) -> list[tuple[str, tuple, float, float]]:
     headers and footers are often drawn as outlines rather than text."""
     H = page.rect.height
     out = []
-    for d in page.get_drawings():
-        r = d["rect"]
+    for d in page.get_cdrawings():
+        r = pymupdf.Rect(d["rect"])
         if r.y1 <= H * BAND:
             band = "top"
         elif r.y0 >= H * (1 - BAND):
@@ -528,56 +575,107 @@ def contents_from_links(page: pymupdf.Page, pieces: list["Piece"], figures: dict
     return items
 
 
+# ------------------------------------------------------------------ building pages in parallel
+# Pages are independent once the running header/footer bands are known, so they're built
+# across CPU cores. Each worker opens its own copy of the PDF.
+
+_W: dict = {}
+
+
+def _worker_init(pdf_bytes: bytes, schema: dict, bands: dict, methods: dict, visuals: dict) -> None:
+    _W.update(doc=pymupdf.open(stream=pdf_bytes, filetype="pdf"), artist=Artist(pdf_bytes), schema=schema,
+              bands=bands, methods=methods, visuals=visuals)
+
+
+def _build_page(n: int) -> dict:
+    doc, schema, figures = _W["doc"], _W["schema"], _W["schema"]["figures"]
+    page = doc[n - 1]
+    W = page.rect.width
+    ocr = _W["methods"].get(n) == "ocr"
+    pieces = [] if ocr else _merge_adjacent(page_pieces(page, schema, n))
+    if not ocr and contents_page(page):
+        return {"n": n, "kind": "contents", "menu": contents_from_links(page, pieces, figures)}
+    top, bottom = _W["bands"].get(n, (0.0, page.rect.height))
+    img = _W["artist"].artwork(n, pieces)
+    ext = _content_rows(img, top, bottom, pieces)
+    if ext is None:
+        return {"n": n, "kind": "blank"}
+    c0, c1 = ext
+    H = c1 - c0
+    crop = img.crop((0, int(c0 * BG_SCALE), img.width, int(c1 * BG_SCALE)))
+    inside = [p for p in pieces if p.baseline - p.size * 0.8 >= c0 - 1 and p.baseline <= c1 + 1]
+    # Phone view: each chart/graphic of this page as a crop of the same artwork, with
+    # its own labels laid over it (positions relative to the crop).
+    vis = {}
+    for bid, (x0, y0, x1, y1) in _W["visuals"].get(n, []):
+        y0, y1 = max(y0, c0), min(y1, c1)
+        if x1 - x0 < 20 or y1 - y0 < 20:
+            continue
+        rw, rh = x1 - x0, y1 - y0
+        # Only labels wholly inside the crop: a heading that merely touches it would be cut.
+        ov = "".join(piece_html(p, rw, rh, figures, y0, x0) for p in inside
+                     if x0 - 1 <= p.x0 and p.x1 <= x1 + 1 and y0 - 1 <= p.baseline - p.size and p.baseline <= y1 + 1)
+        vis[bid] = {"w": rw, "h": rh, "img_w": _n(W / rw * 100), "left": _n((x0) / rw * 100),
+                    "top": _n((y0 - c0) / rh * 100), "html": ov}
+    return {"n": n, "kind": "part", "W": W, "c0": c0, "c1": c1, "webp": webp(crop), "bg_w": crop.width,
+            "bg_h": crop.height, "body": "".join(piece_html(p, W, H, figures, c0) for p in inside), "ocr": ocr,
+            "vis": vis}
+
+
+def _workers() -> int:
+    import os
+    return max(1, min(8, (os.cpu_count() or 2) - 1))
+
+
 def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str], progress=None,
-                 max_pages: int | None = None, skip_pages: set[int] | None = None
+                 max_pages: int | None = None, skip_pages: set[int] | None = None, visuals: dict | None = None
                  ) -> tuple[list[dict], dict[str, bytes], list[dict]]:
     """Returns (parts, artwork files, contents menu). A part is one PDF page's content,
-    trimmed so parts run together as one continuous page."""
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")      # a private copy: redactions never persist
-    links_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    figures = schema["figures"]
-    total = min(doc.page_count, max_pages or doc.page_count)
-    bands = running_bands(links_doc, range(1, doc.page_count + 1))
-    skip = set(skip_pages or ())
-    menu: list[dict] = []
-    staged = []
+    trimmed so parts run together as one continuous page. `visuals` = {page: [(block id,
+    bbox)]} for the phone view's chart/graphic crops."""
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
-        for i in range(total):
-            n = i + 1
-            page, lpage = doc[i], links_doc[i]
-            W = page.rect.width
-            ocr = page_methods.get(n) == "ocr"
-            pieces = [] if ocr else _merge_adjacent(page_pieces(page, schema, n))
-            if not ocr and contents_page(lpage):
-                menu += contents_from_links(lpage, pieces, figures)
-                skip.add(n)
-            if n in skip:
-                if progress:
-                    progress(n, total)
-                continue
-            top, bottom = bands.get(n, (0.0, page.rect.height))
-            img = artwork(page, pieces)
-            ext = _content_rows(img, top, bottom, pieces)
-            if ext is None:
-                skip.add(n)                    # a blank page ("Notes")
-                if progress:
-                    progress(n, total)
-                continue
-            staged.append((n, W, ext, img, pieces, ocr))
-            if progress:
-                progress(n, total)
-        kept = {s[0] for s in staged}
+        total = min(doc.page_count, max_pages or doc.page_count)
+        bands = running_bands(doc, range(1, doc.page_count + 1))
+        skip = set(skip_pages or ())
+        todo = [n for n in range(1, total + 1) if n not in skip]
+        args = (pdf_bytes, schema, bands, page_methods, visuals or {})
+        results: list[dict] = []
+        workers = _workers() if len(todo) > 8 else 1
+        if workers > 1:
+            import multiprocessing as mp
+            from concurrent.futures import ProcessPoolExecutor
+            try:
+                with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn"),
+                                         initializer=_worker_init, initargs=args) as pool:
+                    for k, r in enumerate(pool.map(_build_page, todo, chunksize=4), start=1):
+                        results.append(r)
+                        if progress:
+                            progress(k, len(todo))
+            except Exception:  # noqa: BLE001 - no process pool here (sandbox, serverless): build serially
+                results, workers = [], 1
+        if workers == 1:
+            _worker_init(*args)
+            try:
+                for k, n in enumerate(todo, start=1):
+                    results.append(_build_page(n))
+                    if progress:
+                        progress(k, len(todo))
+            finally:
+                _W["doc"].close()
+                _W["artist"].close()
+                _W.clear()
+        menu = [it for r in results if r["kind"] == "contents" for it in r["menu"]]
+        built = [r for r in results if r["kind"] == "part"]
+        kept = {r["n"] for r in built}
         parts, files = [], {}
-        for n, W, (c0, c1), img, pieces, ocr in staged:
-            H = c1 - c0
-            crop = img.crop((0, int(c0 * BG_SCALE), img.width, int(c1 * BG_SCALE)))
+        for r in built:
+            n, W, c0, c1 = r["n"], r["W"], r["c0"], r["c1"]
             name = f"pages/p{n:04d}.webp"
-            files[name] = webp(crop)
-            inside = [p for p in pieces if p.baseline - p.size * 0.8 >= c0 - 1 and p.baseline <= c1 + 1]
-            body = "".join(piece_html(p, W, H, figures, c0) for p in inside)
-            links = links_html(links_doc[n - 1], W, H, doc.page_count, c0, c1, kept)
-            parts.append({"n": n, "w": W, "h": H, "bg": name, "bg_w": crop.width, "bg_h": crop.height,
-                          "html": body + links, "ocr": ocr})
+            files[name] = r["webp"]
+            links = links_html(doc[n - 1], W, c1 - c0, doc.page_count, c0, c1, kept)
+            parts.append({"n": n, "w": W, "h": c1 - c0, "bg": name, "bg_w": r["bg_w"], "bg_h": r["bg_h"],
+                          "html": r["body"] + links, "ocr": r["ocr"], "vis": r["vis"]})
         # Menu entries point at the part that holds their page (or the next one kept).
         ks = sorted(kept)
         for it in menu:
@@ -585,7 +683,6 @@ def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str]
         menu = [it for it in menu if it["page"]]
     finally:
         doc.close()
-        links_doc.close()
     return parts, files, menu
 
 

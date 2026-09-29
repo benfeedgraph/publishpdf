@@ -282,3 +282,37 @@ def test_rendered_html_is_identical_across_themes(admin_client):
     assert outs[0] == outs[1] == outs[2]
     used, changes = theming.enforce(themes[2])
     assert changes and theming.contrast(used["colors"]["primary"], used["colors"]["background"]) >= 4.5
+
+
+def test_admin_can_delete_a_live_report_and_file_that_period_again(admin_client, client):
+    admin, t, _ = admin_client
+    up = upload(admin, t, "acme_q2fy26_results.pdf", period="h2", report_type="annual_report")
+    rid, vid = up["report_id"], up["version"]["id"]
+    reviewer = make_user()
+    add_member(t, reviewer, Role.client_reviewer)
+    rc = TestClient(client.app)
+    rc.headers["x-ppdf-csrf"] = "1"
+    sign_in(rc, reviewer)
+    assert rc.delete(f"/api/tenants/{t.id}/reports/{rid}").status_code == 403
+
+    drain()
+    assert admin.post(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/publish",
+                      json={"confirm_reviewed": True}).status_code == 200
+    assert admin.get(f"/api/tenants/{t.id}/reports/{rid}").json()["status"] == "Live"
+    from app.public import app as public_app, clear_caches
+    clear_caches()
+    pub = TestClient(public_app)
+    host = f"{t.slug}.preview.platform.example.com"
+    assert pub.get("/fy2026/h2/annual-report/", headers={"host": host}).status_code == 200
+
+    assert admin.delete(f"/api/tenants/{t.id}/reports/{rid}").status_code == 204
+    assert admin.get(f"/api/tenants/{t.id}/reports/{rid}").status_code == 404
+    assert all(r["id"] != rid for r in admin.get(f"/api/tenants/{t.id}/reports").json()["reports"])
+    clear_caches()
+    assert pub.get("/fy2026/h2/annual-report/", headers={"host": host}).status_code == 404
+    audit = admin.get(f"/api/tenants/{t.id}/audit").json()["entries"]
+    assert any(e["action"] == "report.deleted" and e["target_id"] == rid for e in audit)
+
+    again = upload(admin, t, "acme_q2fy26_results.pdf", period="h2", report_type="annual_report")
+    assert again["report_id"] != rid
+    assert admin.get(f"/api/tenants/{t.id}/reports/{again['report_id']}").status_code == 200

@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, defer
 
 from app import audit, jobs, storage
 from app.config import get_settings
@@ -172,7 +172,8 @@ def create_version(s: Session, ctx: Context, src: SourceFile, raw_meta: dict[str
     tenant_id = ctx.require_tenant()
     report = s.scalars(select(Report).where(Report.fiscal_year == meta["fiscal_year"],
                                             Report.period == meta["period"],
-                                            Report.report_type == meta["report_type"])).first()
+                                            Report.report_type == meta["report_type"],
+                                            Report.deleted_at.is_(None))).first()
     if report is None:
         report = Report(tenant_id=tenant_id, created_by=ctx.user_id, **{k: meta[k] for k in (
             "company_name", "report_type", "fiscal_year", "period", "currency", "reporting_unit")})
@@ -423,6 +424,24 @@ def publish(s: Session, ctx: Context, v: ReportVersion, *, confirm_reviewed: boo
     return v
 
 
+def delete_report(s: Session, ctx: Context, report: Report) -> None:
+    """Hide a report from the workspace and, if it was live, from the public site.
+
+    Published versions are immutable, so the rows stay. The audit log records who
+    removed the report. The same period can be uploaded again afterwards.
+    """
+    was_live = report.live_version_id is not None
+    audit.record(s, ctx, "report.deleted", target_type="report", target_id=report.id,
+                 before={"company_name": report.company_name, "report_type": report.report_type,
+                         "fiscal_year": report.fiscal_year, "period": report.period,
+                         "live_version_id": str(report.live_version_id) if report.live_version_id else None})
+    report.live_version_id = None
+    report.deleted_at = _now()
+    s.flush()
+    if was_live:
+        rebuild_site(s, ctx)
+
+
 def rollback(s: Session, ctx: Context, report: Report, target: ReportVersion) -> None:
     if target.report_id != report.id or target.published_at is None:
         raise ReportError("You can only roll back to a version that was published before.", 409)
@@ -480,7 +499,8 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
     assert tenant is not None
     st = settings_for(s, ctx)
     theme, _ = effective_theme(st)
-    reports = s.scalars(select(Report).where(Report.live_version_id.is_not(None))).all()
+    reports = s.scalars(select(Report).where(Report.deleted_at.is_(None),
+                                             Report.live_version_id.is_not(None))).all()
     entries = []
     paths: dict[str, dict] = {}
     for r in reports:
@@ -532,14 +552,38 @@ STATUS_LABEL = {"processing": "Processing", "failed": "Failed", "needs_review": 
                 "validation_issues": "Validation issues", "published": "Live", "superseded": "Superseded"}
 
 
-def report_status(report: Report, latest: ReportVersion | None, live: ReportVersion | None) -> str:
+def report_status(report: Report, latest: ReportVersion | None) -> str:
     if latest is None:
         return "Processing"
-    if live is not None and latest.id != live.id and latest.status not in ("superseded",):
+    live_id = report.live_version_id
+    if live_id is not None and latest.id != live_id and latest.status not in ("superseded",):
         return "Draft changes"
-    if live is not None and latest.id == live.id:
+    if live_id is not None and latest.id == live_id:
         return "Live"
     return STATUS_LABEL.get(latest.status, latest.status)
+
+
+def versions_for(s: Session, report_id: uuid.UUID) -> list[ReportVersion]:
+    """Every version of one report, newest first, without the extracted document."""
+    return list(s.scalars(
+        select(ReportVersion).where(ReportVersion.report_id == report_id)
+        .options(defer(ReportVersion.schema_json))
+        .order_by(ReportVersion.version_no.desc())))
+
+
+def latest_versions(s: Session) -> dict[uuid.UUID, ReportVersion]:
+    """The newest version of each report in this tenant, without the extracted document.
+
+    The home page only needs status and a summary. `schema_json` is the whole
+    extraction (every figure and section) and is what made the list slow.
+    """
+    rows = s.scalars(
+        select(ReportVersion)
+        .options(defer(ReportVersion.schema_json))
+        .distinct(ReportVersion.report_id)
+        .order_by(ReportVersion.report_id, ReportVersion.version_no.desc())
+    ).all()
+    return {v.report_id: v for v in rows}
 
 
 def decimal_str(v: Decimal) -> str:

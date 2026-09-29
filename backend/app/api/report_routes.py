@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import defer
 
 from app import audit, db, storage
 from app.api.deps import require
 from app.api.tenant_routes import job_json
 from app.config import get_settings
 from app.extraction.schema_builder import render_page_png
-from app.models import Comment, FigureReview, Job, Report, ReportVersion, User, ValidationIssue
+from app.models import Comment, FigureReview, Job, Report, ReportVersion, SourceFile, User, ValidationIssue
 from app.render.site import ORIGIN_PLACEHOLDER
 from app.reports import (
     ReportError,
@@ -24,16 +26,19 @@ from app.reports import (
     apply_figure_action,
     create_upload,
     create_version,
+    delete_report,
     store_source,
     enqueue_stage,
     flag_figure,
     latest_run_no,
+    latest_versions,
     new_draft_from,
     open_blocking,
     publish,
     report_status,
     rollback,
     source_key,
+    versions_for,
 )
 from app.tenancy import Context
 
@@ -50,14 +55,16 @@ def _iso(d) -> str | None:
 
 def _get_report(s, report_id: uuid.UUID) -> Report:
     r = s.get(Report, report_id)
-    if r is None:
+    if r is None or r.deleted_at is not None:
         raise HTTPException(404, "Report not found.")
     return r
 
 
 def _get_version(s, report_id: uuid.UUID, version_id: uuid.UUID) -> ReportVersion:
-    v = s.get(ReportVersion, version_id)
-    if v is None or v.report_id != report_id:
+    # schema_json is the full extraction. Load it only when a handler reads it.
+    v = s.scalars(select(ReportVersion).options(defer(ReportVersion.schema_json))
+                  .where(ReportVersion.id == version_id, ReportVersion.report_id == report_id)).first()
+    if v is None:
         raise HTTPException(404, "Version not found.")
     return v
 
@@ -75,12 +82,11 @@ def version_json(v: ReportVersion, *, live_id: uuid.UUID | None = None) -> dict:
 
 def report_json(r: Report, versions: list[ReportVersion]) -> dict:
     latest = versions[0] if versions else None
-    live = next((v for v in versions if v.id == r.live_version_id), None)
     from app.render.site import report_base_path
     from app.extraction.schema_builder import period_label
     return {"id": str(r.id), "company_name": r.company_name, "report_type": r.report_type,
             "fiscal_year": r.fiscal_year, "period": r.period, "period_label": period_label(r.period, r.fiscal_year),
-            "currency": r.currency, "reporting_unit": r.reporting_unit, "status": report_status(r, latest, live),
+            "currency": r.currency, "reporting_unit": r.reporting_unit, "status": report_status(r, latest),
             "live_version_id": str(r.live_version_id) if r.live_version_id else None,
             "latest_version": version_json(latest, live_id=r.live_version_id) if latest else None,
             "path": report_base_path({"fiscal_year": r.fiscal_year, "period": r.period, "report_type": r.report_type}),
@@ -161,24 +167,30 @@ def create_from_source(body: CreateIn, ctx: Context = Depends(require("report.up
 @router.get("")
 def list_reports(ctx: Context = Depends(require("report.view"))) -> dict:
     with db.session(ctx) as s:
-        reports = s.scalars(select(Report).order_by(Report.fiscal_year.desc(), Report.created_at.desc())).all()
-        out = []
-        for r in reports:
-            versions = s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
-                                 .order_by(ReportVersion.version_no.desc())).all()
-            out.append(report_json(r, list(versions)))
-        return {"reports": out}
+        reports = s.scalars(select(Report).where(Report.deleted_at.is_(None))
+                            .order_by(Report.fiscal_year.desc(), Report.created_at.desc())).all()
+        latest = latest_versions(s)
+        return {"reports": [report_json(r, [latest[r.id]] if r.id in latest else []) for r in reports]}
 
 
 @router.get("/{report_id}")
 def get_report(report_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
-        versions = list(s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
-                                  .order_by(ReportVersion.version_no.desc())).all())
+        versions = versions_for(s, r.id)
         out = report_json(r, versions)
         out["versions"] = [version_json(v, live_id=r.live_version_id) for v in versions]
         return out
+
+
+@router.delete("/{report_id}", status_code=204)
+def remove_report(report_id: uuid.UUID, ctx: Context = Depends(require("report.delete"))) -> None:
+    with db.session(ctx) as s:
+        r = _get_report(s, report_id)
+        try:
+            delete_report(s, ctx, r)
+        except ReportError as e:
+            raise _err(e) from e
 
 
 class ThemeOverrideIn(BaseModel):
@@ -216,28 +228,57 @@ def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context =
 # ------------------------------------------------------------------ version detail
 
 
+_SCHEMA_BITS = text("""
+    SELECT
+      (schema_json #>> '{metadata,source_pdf,page_count}')::int AS page_count,
+      (
+        SELECT COALESCE(jsonb_agg(jsonb_build_object(
+          'page', p->'page', 'width', p->'width', 'height', p->'height',
+          'method', p->'method', 'method_reason', p->'method_reason'
+        ) ORDER BY ord), '[]'::jsonb)
+        FROM jsonb_array_elements(COALESCE(schema_json->'pages', '[]'::jsonb)) WITH ORDINALITY AS t(p, ord)
+      ) AS pages,
+      (
+        SELECT COALESCE(jsonb_agg(jsonb_build_object(
+          'id', sec->>'id', 'slug', sec->>'slug', 'type', sec->>'type',
+          'heading_text', sec->>'heading_text',
+          'page', COALESCE((sec->'source'->>'page')::int, (sec->'blocks'->0->'source'->>'page')::int)
+        ) ORDER BY ord), '[]'::jsonb)
+        FROM jsonb_array_elements(COALESCE(schema_json->'sections', '[]'::jsonb)) WITH ORDINALITY AS t(sec, ord)
+      ) AS sections
+    FROM report_versions
+    WHERE id = :id
+""")
+
+
+def _as_list(value) -> list:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return json.loads(value)
+    return list(value)
+
+
+def _schema_bits(s, version_id: uuid.UUID) -> tuple[int | None, list, list]:
+    """Page and section summaries without loading figures or section bodies."""
+    row = s.execute(_SCHEMA_BITS, {"id": version_id}).one()
+    return row.page_count, _as_list(row.pages), _as_list(row.sections)
+
+
 @router.get("/{report_id}/versions/{version_id}")
 def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
         v = _get_version(s, report_id, version_id)
         jobs = s.scalars(select(Job).where(Job.version_id == v.id).order_by(Job.created_at)).all()
+        page_count, pages, sections = _schema_bits(s, v.id)
         out = version_json(v, live_id=r.live_version_id)
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
-        out["page_count"] = (v.schema_json or {}).get("metadata", {}).get("source_pdf", {}).get("page_count")
-        out["pages"] = [{"page": p["page"], "width": p["width"], "height": p["height"], "method": p["method"],
-                         "method_reason": p.get("method_reason")} for p in (v.schema_json or {}).get("pages", [])]
-        out["sections"] = [{"id": sec["id"], "slug": sec["slug"], "type": sec["type"], "heading_text": sec["heading_text"],
-                            "page": (sec.get("source") or {}).get("page") or _first_page(sec)}
-                           for sec in (v.schema_json or {}).get("sections", [])]
+        out["page_count"] = page_count
+        out["pages"] = pages
+        out["sections"] = sections
         return out
-
-
-def _first_page(sec: dict) -> int | None:
-    for b in sec.get("blocks", []):
-        return b["source"]["page"]
-    return None
 
 
 @router.get("/{report_id}/versions/{version_id}/schema")
@@ -261,17 +302,39 @@ def get_source(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depen
                     headers={"Content-Disposition": "inline", "Cache-Control": "private, max-age=300"})
 
 
+_PNG_CACHE: OrderedDict[tuple[str, int, float], bytes] = OrderedDict()
+_PNG_CACHE_MAX = 96
+
+
+def _cached_png(ctx, sha: str, page: int, zoom: float) -> bytes:
+    key = (sha, page, round(float(zoom), 2))
+    hit = _PNG_CACHE.get(key)
+    if hit is not None:
+        _PNG_CACHE.move_to_end(key)
+        return hit
+    png = render_page_png(storage.get(ctx, source_key(sha)), page, key[2])
+    _PNG_CACHE[key] = png
+    while len(_PNG_CACHE) > _PNG_CACHE_MAX:
+        _PNG_CACHE.popitem(last=False)
+    return png
+
+
 @router.get("/{report_id}/versions/{version_id}/pages/{page}.png")
 def page_image(report_id: uuid.UUID, version_id: uuid.UUID, page: int, zoom: float = Query(1.5, ge=0.5, le=3),
                ctx: Context = Depends(require("report.view"))) -> Response:
     with db.session(ctx) as s:
-        v = _get_version(s, report_id, version_id)
-        sha = v.source_sha256
-        count = (v.schema_json or {}).get("metadata", {}).get("source_pdf", {}).get("page_count")
-    if count and not 1 <= page <= count:
+        row = s.execute(
+            select(ReportVersion.source_sha256, SourceFile.page_count)
+            .join(SourceFile, SourceFile.id == ReportVersion.source_file_id)
+            .where(ReportVersion.id == version_id, ReportVersion.report_id == report_id)
+        ).one_or_none()
+    if row is None:
+        raise HTTPException(404, "Version not found.")
+    sha, count = row
+    if not 1 <= page <= count:
         raise HTTPException(404, "No such page.")
-    png = render_page_png(storage.get(ctx, source_key(sha)), page, zoom)
-    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    return Response(_cached_png(ctx, sha, page, zoom), media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/{report_id}/versions/{version_id}/rerun")

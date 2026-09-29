@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, put, REPORT_TYPE_LABEL, useTenantRole, VERSION_STATUS_LABEL, type Report, type VersionDetail } from "../../api";
+import { api, del, put, REPORT_TYPE_LABEL, useTenantRole, VERSION_STATUS_LABEL, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import DesignPicker, { type ThemeT } from "../../components/DesignPicker";
 import PreviewTab, { PublishPanel } from "./PreviewTab";
@@ -18,8 +18,19 @@ export const STATUS_CLASS: Record<string, string> = {
 export default function ReportPage() {
   const { tenantId, reportId } = useParams();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const me = useMe().data;
   const { isAdmin } = useTenantRole(me, tenantId);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: () => del(`/api/tenants/${tenantId}/reports/${reportId}`),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["reports", tenantId] });
+      navigate(`/t/${tenantId}`);
+    },
+    onError: (e: Error) => setDeleteError(e.message),
+  });
   const report = useQuery({
     queryKey: ["report", reportId],
     queryFn: () => api<Report>(`/api/tenants/${tenantId}/reports/${reportId}`),
@@ -57,15 +68,27 @@ export default function ReportPage() {
           <h1>{r.period_label} {REPORT_TYPE_LABEL[r.report_type]}</h1>
           <p className="muted small">{r.company_name} · {r.currency} · {r.reporting_unit}{v?.page_count ? ` · ${v.page_count} pages` : ""}</p>
         </div>
-        {r.versions && r.versions.length > 1 && (
-          <label className="field inline">
-            <span className="label">Version</span>
-            <select value={versionId} onChange={(e) => { const n = new URLSearchParams(params); n.set("v", e.target.value); n.delete("step"); setParams(n); }}>
-              {r.versions.map((x) => <option key={x.id} value={x.id}>v{x.version_no} · {VERSION_STATUS_LABEL[x.status]}{x.is_live ? " (live)" : ""}</option>)}
-            </select>
-          </label>
-        )}
+        <div className="btn-row">
+          {r.versions && r.versions.length > 1 && (
+            <label className="field inline">
+              <span className="label">Version</span>
+              <select value={versionId} onChange={(e) => { const n = new URLSearchParams(params); n.set("v", e.target.value); n.delete("step"); setParams(n); }}>
+                {r.versions.map((x) => <option key={x.id} value={x.id}>v{x.version_no} · {VERSION_STATUS_LABEL[x.status]}{x.is_live ? " (live)" : ""}</option>)}
+              </select>
+            </label>
+          )}
+          {isAdmin && (
+            <button className="secondary danger" type="button" disabled={remove.isPending} onClick={() => {
+              const name = `${r.period_label} ${REPORT_TYPE_LABEL[r.report_type]}`;
+              const live = r.live_version_id ? " It will also come off your public site." : "";
+              if (confirm(`Delete ${name}?${live} The audit log keeps a record of this.`)) remove.mutate();
+            }}>
+              {remove.isPending ? "Deleting…" : "Delete report"}
+            </button>
+          )}
+        </div>
       </div>
+      {deleteError && <p className="error" role="alert">{deleteError}</p>}
 
       <nav className="stepper" aria-label="Steps">
         {steps.map((s, i) => (

@@ -1,0 +1,119 @@
+id,section,table_id,row_label,col_label,period,raw,value,kind,unit,currency,source_page,source_bbox,method,confidence
+p2f1,other,b4,Vision & Mission,Page No.,,3,3,number,crore,INR,2,520.06 124.94 526.14 136.94,text_layer,1.0
+p2f2,other,b4,Core Values of ITC,Page No.,,3,3,number,crore,INR,2,520.06 147.5 526.14 159.5,text_layer,1.0
+p2f3,other,b4,ITC’s Corporate Governance structure,Page No.,,3,3,number,crore,INR,2,520.06 169.94 526.14 181.94,text_layer,1.0
+p2f4,other,b4,Key elements of ITC’s strategy,Page No.,,4,4,number,crore,INR,2,520.06 192.26 526.14 204.26,text_layer,1.0
+p2f6,other,b4,Overview of Q1 FY27 results,Page No.,,4,4,number,crore,INR,2,520.06 214.58 526.14 226.58,text_layer,1.0
+p2f7,other,b4,Impact of unprecedented increase in taxes on cigarettes,Page No.,,5,5,number,crore,INR,2,520.06 236.81 526.14 248.81,text_layer,1.0
+p2f8,other,b4,Financial Performance Track Record,Page No.,,6,6,number,crore,INR,2,520.06 258.89 526.14 270.89,text_layer,1.0
+p2f9,other,b4,Company’s transformation in the FMCG-Others segment,Page No.,,7,7,number,crore,INR,2,520.06 281.57 526.14 293.57,text_layer,1.0
+p2f10,other,b4,Company’s distribution channel,Page No.,,7,7,number,crore,INR,2,520.06 304.37 526.14 316.37,text_layer,1.0
+p2f11,other,b4,"Scale, offerings, Brands & market standing in FMCG-Others segment",Page No.,,9,9,number,crore,INR,2,520.06 326.45 526.14 338.45,text_layer,1.0
+p2f12,other,b4,Foray into new categories in the FMCG space,Page No.,,10,10,number,crore,INR,2,517.06 348.89 529.26 360.89,text_layer,1.0
+p2f13,other,b4,Leveraging inorganic growth in the FMCG space,Page No.,,10,10,number,crore,INR,2,517.06 371.81 529.26 383.81,text_layer,1.0
+p2f14,other,b4,Update on the margin expansion trajectory in the FMCG-Others segment,Page No.,,11,11,number,percent,INR,2,517.06 394.85 529.26 406.85,text_layer,1.0
+p2f15,other,b4,Overview of other Operating segments,Page No.,,12,12,number,crore,INR,2,517.06 417.79 529.26 429.79,text_layer,1.0
+p2f16,other,b4,Overview of Fresh Food Business,Page No.,,13,13,number,crore,INR,2,517.06 440.71 529.26 452.71,text_layer,1.0
+p2f17,other,b4,Overview of the capex plan of the Company,Page No.,,14,14,number,crore,INR,2,517.06 463.63 529.26 475.63,text_layer,1.0
+p2f18,other,b4,Leveraging inorganic growth in the Other Segment,Page No.,,14,14,number,crore,INR,2,517.06 486.67 529.26 498.67,text_layer,1.0
+p2f19,other,b4,Dividend policy: Trend of dividend pay-outs in recent years,Page No.,,15,15,number,crore,INR,2,517.06 508.87 529.26 520.87,text_layer,1.0
+p2f20,other,b4,The Triple Bottom Line philosophy,Page No.,,16,16,number,crore,INR,2,517.06 530.95 529.26 542.95,text_layer,1.0
+p2f21,other,b4,ITC’s Digital Journey,Page No.,,17,17,number,crore,INR,2,517.06 553.39 529.26 565.39,text_layer,1.0
+p4f5,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,28%,28,percent,percent,,4,517.06 743.76 537.87 755.76,text_layer,1.0
+p5f1,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,14%,14,percent,percent,,5,256.37 75.5 277.18 87.5,text_layer,1.0
+p5f2,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,6%,6,percent,percent,,5,302.59 75.5 320.77 87.5,text_layer,1.0
+p5f3,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,28%,28,percent,percent,,5,161.54 92.3 182.24 104.3,text_layer,1.0
+p5f4,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,27%,27,percent,percent,,5,205.97 92.3 226.78 104.3,text_layer,1.0
+p5f5,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,12%,12,percent,percent,,5,358.07 115.22 378.77 127.22,text_layer,1.0
+p5f6,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,16%,16,percent,percent,,5,472.38 115.22 493.19 127.22,text_layer,1.0
+p5f7,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,21%,21,percent,percent,,5,178.14 132.02 198.95 144.02,text_layer,1.0
+p5f8,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,9%,9,percent,percent,,5,149.36 148.82 164.03 160.82,text_layer,1.0
+p5f9,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,38%,38,percent,percent,,5,302.47 148.82 323.17 160.82,text_layer,1.0
+p5f10,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,9%,9,percent,percent,,5,234.41 165.74 249.07 177.74,text_layer,1.0
+p5f11,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,1,1,number,,,5,71.78 269.81 80.93 281.81,text_layer,1.0
+p5f13,q5-please-provide-a-brief-overview-of-q1-fy27-results,,,,,2,2,number,,,5,71.78 313.73 80.93 325.73,text_layer,1.0
+p5f17,q6-how-has-the-cigarettes-business-responded-to-the-unpreced,,,,,30,30,number,,,5,117.48 503.95 129.65 515.95,text_layer,1.0
+p6f3,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY14 * Market capitalisation # before extra-ordinary,,"53,889",53889,number,crore,INR,6,103.1 204.1 126.18 212.32,text_layer,1.0
+p6f6,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY24 capitalisation for FY24 as at extra-ordinary income,,"1,08,425",108425,number,crore,INR,6,146.99 177.54 176.4 185.77,text_layer,1.0
+p6f9,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY14 as at 31st Mar,,"12,659",12659,number,crore,INR,6,212.0 194.12 235.07 202.34,text_layer,1.0
+p6f10,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,,,2024,2024,number,crore,INR,6,231.27 257.44 245.13 264.27,text_layer,1.0
+p6f12,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY24,FY24,"26,323",26323,number,crore,INR,6,258.23 154.44 281.3 162.66,text_layer,1.0
+p6f14,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY14,FY14,"8,785",8785,number,crore,INR,6,321.8 195.93 340.7 204.15,text_layer,1.0
+p6f16,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY24,FY24,"20,422",20422,number,crore,INR,6,364.8 157.65 387.93 165.89,text_layer,1.0
+p6f18,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY14,FY14,"2,80,708",280708,number,crore,INR,6,436.97 187.58 466.38 195.8,text_layer,1.0
+p6f20,q7-what-has-been-the-financial-performance-track-record-of-t,b22,,FY24,FY24,"5,35,033",535033,number,crore,INR,6,478.81 153.6 508.22 161.82,text_layer,1.0
+p6f24,q8-what-has-been-the-performance-track-record-of-the-company,,,,,11%,11,percent,percent,,6,445.93 574.9 466.63 586.9,text_layer,1.0
+p6f25,q8-what-has-been-the-performance-track-record-of-the-company,,,,,27%,27,percent,percent,,6,245.33 589.54 266.15 601.54,text_layer,1.0
+p6f26,q8-what-has-been-the-performance-track-record-of-the-company,,,,,7%,7,percent,percent,,6,456.94 610.18 471.64 622.18,text_layer,1.0
+p6f27,q8-what-has-been-the-performance-track-record-of-the-company,,,,,6%,6,percent,percent,,6,245.2 624.82 259.87 636.82,text_layer,1.0
+p6f28,q8-what-has-been-the-performance-track-record-of-the-company,,,,,12%,12,percent,percent,,6,472.87 645.46 493.6 657.46,text_layer,1.0
+p6f29,q8-what-has-been-the-performance-track-record-of-the-company,,,,,11%,11,percent,percent,,6,517.16 645.46 537.88 657.46,text_layer,1.0
+p6f30,q8-what-has-been-the-performance-track-record-of-the-company,,,,,6%,6,percent,percent,,6,470.38 724.78 487.92 736.78,text_layer,1.0
+p8f1,q10-please-provide-some-insights-on-how-the-company-is-stren,,,,,2.1x,2.1,multiple,x,,8,226.61 234.65 246.93 246.65,text_layer,1.0
+p8f2,q10-please-provide-some-insights-on-how-the-company-is-stren,,,,,34%,34,percent,percent,,8,504.7 368.81 525.4 380.81,text_layer,1.0
+p8f4,q10-please-provide-some-insights-on-how-the-company-is-stren,,,,,17%,17,percent,percent,,8,293.39 385.61 314.2 397.61,text_layer,1.0
+p8f7,q10-please-provide-some-insights-on-how-the-company-is-stren,,,,,8,8,number,lakh,,8,273.29 459.07 279.37 471.07,text_layer,1.0
+p8f8,q10-please-provide-some-insights-on-how-the-company-is-stren,,,,,2,2,number,,,8,57.62 778.86 60.67 784.86,text_layer,1.0
+p9f2,q11-in-the-fmcg-others-segment-please-provide-an-overview-of,,,,,30,30,number,,,9,292.61 389.57 304.81 401.57,text_layer,1.0
+p9f3,q11-in-the-fmcg-others-segment-please-provide-an-overview-of,,,,,Rs. 37000,37000,number,crore,INR,9,212.94 423.19 260.17 435.19,text_layer,1.0
+p9f5,q11-in-the-fmcg-others-segment-please-provide-an-overview-of,b44,,,,-,,nil,crore,INR,9,165.5 496.39 169.17 508.39,text_layer,1.0
+p10f2,q12-how-does-the-company-choose-new-categories-in-the-fmcg-s,,,,,40,40,number,,,10,273.68 283.97 288.94 295.97,text_layer,1.0
+p10f5,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,100%,100,percent,percent,,10,89.18 483.79 116.24 495.79,text_layer,1.0
+p10f6,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,"45,000",45000,number,crore,,10,232.42 519.07 265.84 531.07,text_layer,1.0
+p10f8,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,47.5%,47.5,percent,percent,,10,217.49 577.66 247.43 589.66,text_layer,1.0
+p10f9,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,100%,100,percent,percent,,10,403.15 577.66 429.93 589.66,text_layer,1.0
+p10f10,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,2026,2026,number,,,10,89.18 592.3 116.68 604.3,text_layer,1.0
+p10f11,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,24,24,number,,,10,362.99 642.22 378.79 654.22,text_layer,1.0
+p10f13,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,100%,100,percent,percent,,10,262.13 671.5 288.94 683.5,text_layer,1.0
+p10f14,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,"1st April,2026",2026-04-01,date,,,10,175.85 705.91 241.39 718.9,text_layer,1.0
+p11f1,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,24,24,number,,,11,155.62 90.14 167.78 102.14,text_layer,1.0
+p11f3,q13-is-the-company-open-to-making-acquisitions-in-order-to-a,,,,,"₹1,500",1500,number,crore,INR,11,113.9 104.78 147.33 116.78,text_layer,1.0
+p11f10,q14-a-please-update-on-the-margin-expansion-trajectory-in-th,b59,,,,10.2%,10.2,percent,percent,,11,354.67 377.66 379.7 387.62,text_layer,1.0
+p11f12,q14-a-please-update-on-the-margin-expansion-trajectory-in-th,,,,,55 bps,55,bps,bps,,11,301.63 590.38 333.89 602.38,text_layer,1.0
+p11f13,q14-a-please-update-on-the-margin-expansion-trajectory-in-th,,,,,10%,10,percent,percent,,11,370.29 590.38 390.99 602.38,text_layer,1.0
+p11f14,q14-a-please-update-on-the-margin-expansion-trajectory-in-th,,,,,9.7%,9.7,percent,percent,,11,459.48 625.87 479.53 635.83,text_layer,1.0
+p11f15,q14-a-please-update-on-the-margin-expansion-trajectory-in-th,,,,,3,3,number,,,11,57.62 778.86 60.67 784.86,text_layer,1.0
+p13f3,q16-please-provide-an-update-on-the-performance-of-the-other,,,,,9%,9,percent,percent,,13,501.28 112.94 515.86 124.94,text_layer,1.0
+p13f4,q16-please-provide-an-update-on-the-performance-of-the-other,,,,,2,2,number,,,13,131.98 306.29 138.06 318.29,text_layer,1.0
+p13f5,q16-please-provide-an-update-on-the-performance-of-the-other,,,,,9%,9,percent,percent,,13,202.25 362.69 216.83 374.69,text_layer,1.0
+p13f6,q16-please-provide-an-update-on-the-performance-of-the-other,,,,,38%,38,percent,percent,,13,351.79 362.69 372.49 374.69,text_layer,1.0
+p13f7,q16-please-provide-an-update-on-the-performance-of-the-other,,,,,30th September 2026,2026-09-30,date,,,13,114.26 487.15 537.88 513.79,text_layer,1.0
+p13f9,q17-please-provide-an-overview-of-fresh-food-business,,,,,4,4,number,,,13,320.89 686.98 326.98 698.98,text_layer,1.0
+p13f13,q17-please-provide-an-overview-of-fresh-food-business,,,,,Rs.105,105,number,crore,INR,13,260.98 745.56 293.45 757.56,text_layer,1.0
+p13f14,q17-please-provide-an-overview-of-fresh-food-business,,,,,90%,90,percent,percent,,13,210.17 760.2 230.98 772.2,text_layer,1.0
+p13f16,q17-please-provide-an-overview-of-fresh-food-business,,,,,300,300,number,crore,,13,379.75 760.2 397.92 772.2,text_layer,1.0
+p14f2,q17-please-provide-an-overview-of-fresh-food-business,,,,,5,5,number,,,14,406.41 75.5 412.49 87.5,text_layer,1.0
+p15f2,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,"18th March, 2020",2020-03-18,date,,,15,165.2 181.34 268.07 193.34,text_layer,1.0
+p15f4,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,80%,80,percent,percent,,15,89.3 239.93 110.11 251.93,text_layer,1.0
+p15f5,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,85%,85,percent,percent,,15,125.98 239.93 146.64 251.93,text_layer,1.0
+p15f6,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs.8.0,8.0,number,,INR,15,89.3 313.25 118.65 325.25,text_layer,1.0
+p15f7,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,"31st March, 2026",2026-03-31,date,,,15,314.82 313.25 405.21 325.25,text_layer,1.0
+p15f8,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs. 6.50,6.50,number,,INR,15,152.34 327.89 192.61 339.89,text_layer,1.0
+p15f9,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,"27th February, 2026",2026-02-27,date,,,15,294.29 327.89 400.51 339.89,text_layer,1.0
+p15f10,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,"31st March, 2026",2026-03-31,date,,,15,189.32 342.53 273.73 354.53,text_layer,1.0
+p15f11,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs. 14.5,14.5,number,,INR,15,333.75 342.53 371.52 354.53,text_layer,1.0
+p15f12,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs.14.35,14.35,number,,INR,15,496.18 342.53 537.88 354.53,text_layer,1.0
+p15f13,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs. 8144,8144,number,crore,INR,15,496.52 357.17 537.78 369.17,text_layer,1.0
+p15f14,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,February 2026,2026-02,date,,,15,158.18 371.81 232.53 383.81,text_layer,1.0
+p15f15,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,Rs.18167.57,18167.57,number,crore,INR,15,269.77 371.81 329.67 383.81,text_layer,1.0
+p15f16,q20-what-is-the-dividend-policy-of-the-company-what-has-been,,,,,7,7,number,,,15,337.27 392.96 344.39 407.0,text_layer,1.0
+p16f1,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,24,24,number,,,16,445.75 134.06 458.34 146.06,text_layer,1.0
+p16f2,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,21,21,number,,,16,162.5 148.7 174.58 160.7,text_layer,1.0
+p16f3,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,19,19,number,,,16,421.66 148.7 433.74 160.7,text_layer,1.0
+p16f4,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2.0,2.0,number,,,16,162.44 163.34 177.64 175.34,text_layer,1.0
+p16f7,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,9,9,number,,,16,271.18 424.39 277.26 436.39,text_layer,1.0
+p16f9,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2.0,2.0,number,,,16,400.91 563.35 416.1 575.35,text_layer,1.0
+p16f10,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2.0,2.0,number,,,16,522.66 607.3 537.74 619.3,text_layer,1.0
+p16f11,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2.0,2.0,number,,,16,250.94 671.98 266.14 683.98,text_layer,1.0
+p16f12,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2.0,2.0,number,,,16,211.63 745.2 226.82 757.2,text_layer,1.0
+p17f1,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2030,2030,number,,,17,189.02 110.78 213.31 122.78,text_layer,1.0
+p17f2,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2050,2050,number,,,17,325.56 125.42 349.73 137.42,text_layer,1.0
+p17f3,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,1,1,number,,,17,125.16 140.06 131.24 152.06,text_layer,1.0
+p17f4,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,2,2,number,,,17,187.14 140.06 193.22 152.06,text_layer,1.0
+p17f5,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,3,3,number,,,17,531.41 169.34 537.49 181.34,text_layer,1.0
+p17f6,q21-please-explain-the-company-s-triple-bottom-line-philosop,,,,,3,3,number,,,17,415.8 183.98 421.88 195.98,text_layer,1.0
+p17f11,q22-please-provide-a-brief-on-itc-s-digital-journey,,,,,52,52,number,,,17,390.74 483.79 402.99 495.79,text_layer,1.0
+p17f12,q22-please-provide-a-brief-on-itc-s-digital-journey,,,,,"3,500",3500,number,,,17,510.46 483.79 537.78 495.79,text_layer,1.0
+p17f14,q22-please-provide-a-brief-on-itc-s-digital-journey,,,,,4.0,4.0,number,,,17,397.93 613.06 413.17 625.06,text_layer,1.0
+p18f1,q22-please-provide-a-brief-on-itc-s-digital-journey,,,,,11,11,number,,,18,301.75 90.14 313.83 102.14,text_layer,1.0
+p18f2,q22-please-provide-a-brief-on-itc-s-digital-journey,,,,,"2,218",2218,number,,,18,181.37 104.78 208.68 116.78,text_layer,1.0

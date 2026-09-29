@@ -121,7 +121,8 @@ def _seed_demo(admin_email: str) -> int:
     for name, meta, do_publish in samples:
         with db.session(ctx) as s:
             exists = s.scalars(select(Report).where(Report.fiscal_year == 2026, Report.period == meta["period"],
-                                                    Report.report_type == meta["report_type"])).first()
+                                                    Report.report_type == meta["report_type"],
+                                                    Report.deleted_at.is_(None))).first()
             if exists:
                 print(f"  {name}: already seeded")
                 continue

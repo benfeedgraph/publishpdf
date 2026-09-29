@@ -26,6 +26,7 @@ PERMISSIONS: dict[str, set[Role]] = {
     "report.flag_issue": {Role.client_admin, Role.client_reviewer},
     "report.edit_figure": {Role.client_admin},
     "report.publish": {Role.client_admin},
+    "report.delete": {Role.client_admin},
     "theme.manage": {Role.client_admin},
     "domain.manage": {Role.client_admin},
     "analytics.manage": {Role.client_admin},

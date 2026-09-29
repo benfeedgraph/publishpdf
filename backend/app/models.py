@@ -159,6 +159,7 @@ class Report(Base):
     title: Mapped[str | None] = mapped_column(Text)
     theme_override: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     live_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(TZ)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = _now()
 

@@ -99,18 +99,20 @@ def rerun_job(job_id: uuid.UUID, ctx: Context = Depends(admin_context)) -> dict:
 @router.get("/tenants/{tenant_id}")
 def tenant_detail(tenant_id: uuid.UUID, ctx: Context = Depends(admin_context)) -> dict:
     from app.api.report_routes import report_json
-    from app.models import Domain, Report, ReportVersion, User
+    from app.models import Domain, Report, User
 
     tctx = tenant_context(ctx.user_id, tenant_id, None, platform_admin=True)
     with db.session(tctx) as s:
         t = s.get(Tenant, tenant_id)
         if t is None:
             raise HTTPException(404, "Tenant not found.")
+        from app.reports import latest_versions
+        latest = latest_versions(s)
         reports = []
-        for r in s.scalars(select(Report).where(Report.tenant_id == tenant_id).order_by(Report.created_at.desc())):
-            versions = list(s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
-                                      .order_by(ReportVersion.version_no.desc())))
-            reports.append(report_json(r, versions))
+        for r in s.scalars(select(Report).where(Report.tenant_id == tenant_id, Report.deleted_at.is_(None))
+                           .order_by(Report.created_at.desc())):
+            v = latest.get(r.id)
+            reports.append(report_json(r, [v] if v else []))
         members = s.execute(select(Membership, User).join(User, User.id == Membership.user_id)
                             .where(Membership.tenant_id == tenant_id)).all()
         jobs_ = s.scalars(select(Job).where(Job.tenant_id == tenant_id).order_by(Job.created_at.desc()).limit(50)).all()
