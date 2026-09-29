@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, post, ROLE_LABEL, type Role } from "../api";
+import { enterApp } from "../enter";
 
 export default function InviteAccept() {
   const [params] = useSearchParams();
@@ -21,8 +22,7 @@ export default function InviteAccept() {
   async function accept() {
     try {
       await post("/api/auth/invites/accept", { token });
-      await qc.invalidateQueries({ queryKey: ["me"] });
-      navigate("/", { replace: true });
+      await enterApp(qc, navigate);
     } catch (e) {
       setError((e as Error).message);
     }

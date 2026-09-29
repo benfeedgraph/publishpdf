@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { post } from "../api";
+import { enterApp } from "../enter";
 
 /** Magic-link landing. The token is exchanged by an explicit POST (not on GET by the
  * server), so email link scanners that prefetch the URL can't burn the token. */
@@ -18,8 +19,7 @@ export default function Verify() {
     started.current = true;
     post("/api/auth/verify", { token })
       .then(async () => {
-        await qc.invalidateQueries({ queryKey: ["me"] });
-        navigate("/", { replace: true });
+        await enterApp(qc, navigate);
       })
       .catch((e: Error) => setError(e.message));
   }, [token, navigate, qc]);

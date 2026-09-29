@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { post } from "../api";
 import { useMe } from "../App";
+import { enterApp, workspacePath } from "../enter";
 
 export default function Mfa() {
   const me = useMe();
@@ -15,7 +16,7 @@ export default function Mfa() {
 
   if (me.isPending) return <p className="center muted">Loading…</p>;
   if (!me.data) return <Navigate to="/login" replace />;
-  if (me.data.fully_authenticated) return <Navigate to="/" replace />;
+  if (me.data.fully_authenticated) return <Navigate to={workspacePath(me.data)} replace />;
   const enrolled = me.data.mfa.enrolled;
 
   async function start() {
@@ -33,8 +34,7 @@ export default function Mfa() {
     setError(null);
     try {
       await post(enrolled ? "/api/auth/mfa/verify" : "/api/auth/mfa/confirm", { code });
-      await qc.invalidateQueries({ queryKey: ["me"] });
-      navigate("/", { replace: true });
+      await enterApp(qc, navigate);
     } catch (err) {
       const msg = (err as Error).message;
       setError(msg);

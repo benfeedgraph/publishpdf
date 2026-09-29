@@ -1,5 +1,6 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useMe } from "../App";
+import { workspacePath } from "../enter";
 
 const POINTS = [
   {
@@ -18,18 +19,18 @@ const POINTS = [
 
 export default function Landing() {
   const me = useMe();
-  const workspace = me.data?.fully_authenticated ? me.data.tenants[0] : null;
+  if (me.isPending) return <p className="center muted">Loading…</p>;
+  if (me.data?.fully_authenticated) {
+    const path = workspacePath(me.data);
+    if (path !== "/") return <Navigate to={path} replace />;
+  }
 
   return (
     <div className="landing">
       <header className="landing-bar">
         <img src="/brand/publishpdf-logo-full-color.svg" alt="PublishPDF" width="148" height="32" />
         <nav className="landing-nav">
-          {workspace ? (
-            <Link className="button primary" to={`/t/${workspace.id}`}>Open workspace</Link>
-          ) : (
-            <Link className="button primary" to="/login">Sign in</Link>
-          )}
+          <Link className="button primary" to="/login">Sign in</Link>
         </nav>
       </header>
       <main className="landing-main">
@@ -39,11 +40,7 @@ export default function Landing() {
           Upload a results PDF, annual report or investor deck. We extract every figure, check each one against the PDF, and build a clear, on-brand page for you to approve.
         </p>
         <div className="landing-actions">
-          {workspace ? (
-            <Link className="button primary lg" to={`/t/${workspace.id}`}>Open workspace</Link>
-          ) : (
-            <Link className="button primary lg" to="/login">Sign in</Link>
-          )}
+          <Link className="button primary lg" to="/login">Sign in</Link>
           <Link className="button secondary lg" to="/login">Use the demo account</Link>
         </div>
         <ul className="landing-points">

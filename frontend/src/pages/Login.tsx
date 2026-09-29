@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { post } from "../api";
+import { enterApp } from "../enter";
 
 type Step = "email" | "code" | "profile";
 
@@ -81,8 +82,7 @@ export default function Login() {
   }
 
   async function done() {
-    await qc.invalidateQueries({ queryKey: ["me"] });
-    navigate("/", { replace: true });
+    await enterApp(qc, navigate);
   }
 
   async function useDemo() {
