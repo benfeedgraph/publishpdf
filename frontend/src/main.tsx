@@ -6,6 +6,7 @@ import { ApiError } from "./api";
 import App from "./App";
 import "./brand/brand-tokens.css";
 import "./styles.css";
+import "./theme-lavender.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

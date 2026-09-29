@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { post, upload } from "../api";
+import { IconCheckCircle, IconClose, IconDesign, IconDocument, IconGlobe } from "./Icons";
 
 export interface ThemeT {
   colors: Record<string, string>;
@@ -14,11 +16,11 @@ type Source = "website" | "palette" | "file" | "current";
 
 // "Keep the current design" comes first and is the default: most reports should simply
 // reuse the workspace's saved look; the other sources are for changing it.
-const SOURCES: [Source, string, string, string][] = [
-  ["current", "Keep the current design", "Your workspace's saved colours, fonts and logo.", "✓"],
-  ["website", "Match a website", "Paste a link — we take its colours, fonts and logo.", "🌐"],
-  ["palette", "Use a colour palette", "Enter brand colours; we build a theme around them.", "🎨"],
-  ["file", "From a PDF or images", "Upload a brand PDF or screenshots you like.", "📄"],
+const SOURCES: [Source, string, string, ReactNode][] = [
+  ["current", "Keep the current design", "Your workspace's saved colours, fonts and logo.", <IconCheckCircle size={20} />],
+  ["website", "Match a website", "Paste a link — we take its colours, fonts and logo.", <IconGlobe size={20} />],
+  ["palette", "Use a colour palette", "Enter brand colours; we build a theme around them.", <IconDesign size={20} />],
+  ["file", "From a PDF or images", "Upload a brand PDF or screenshots you like.", <IconDocument size={20} />],
 ];
 const FONTS = ["system", "serif", "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Source Sans 3", "Noto Sans", "Nunito Sans", "Libre Franklin",
   "Mulish", "Raleway", "Merriweather", "Playfair Display", "Poppins", "IBM Plex Sans", "Work Sans", "DM Sans", "Manrope", "Lora", "PT Serif"];
@@ -74,7 +76,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
               className={`source-card ${source === k ? "active" : ""} ${k === "current" ? "is-default" : ""}`} onClick={() => setSource(k)}>
               <span className="source-top">
                 <span className="source-icon" aria-hidden>{icon}</span>
-                {k === "current" && <span className="badge ok">Default</span>}
+                {k === "current" && <span className="badge info">Default</span>}
                 <span className="source-radio" aria-hidden />
               </span>
               <strong>{title}</strong>
@@ -104,7 +106,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
                   <span key={i} className="palette-swatch">
                     <input type="color" value={/^#[0-9a-f]{6}$/i.test(c) ? c : "#000000"} onChange={(e) => setPalette((p) => p.map((x, j) => (j === i ? e.target.value.toUpperCase() : x)))} aria-label={`Colour ${i + 1}`} />
                     <input className="hex" value={c} onChange={(e) => setPalette((p) => p.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Colour ${i + 1} hex`} />
-                    {palette.length > 1 && <button type="button" className="link small" onClick={() => setPalette((p) => p.filter((_, j) => j !== i))} aria-label="Remove colour">✕</button>}
+                    {palette.length > 1 && <button type="button" className="link small" onClick={() => setPalette((p) => p.filter((_, j) => j !== i))} aria-label="Remove colour"><IconClose size={14} /></button>}
                   </span>
                 ))}
                 {palette.length < 8 && <button type="button" className="secondary" onClick={() => setPalette((p) => [...p, "#888888"])}>+ Add</button>}

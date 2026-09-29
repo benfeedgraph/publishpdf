@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type 
 import { useNavigate } from "react-router-dom";
 import { post } from "../api";
 import { enterApp } from "../enter";
+import { IconCheckCircle } from "../components/Icons";
 
 type Step = "email" | "code" | "profile";
 
@@ -122,14 +123,14 @@ export default function Login() {
   return (
     <div className="auth">
       <aside className="auth-art">
-        <div className="brand"><img src="/brand/publishpdf-logo-full-on-dark.svg" alt="PublishPDF" width="157" height="34" /></div>
+        <div className="brand"><img src="/brand/publishpdf-logo-full-color.svg" alt="PublishPDF" width="157" height="34" /></div>
         <div>
           <h1>Turn dense report PDFs into web pages people actually read.</h1>
           <p>Upload a results PDF, annual report or investor deck. We extract every figure, check each one against the PDF with independent validation agents, and build a clear, on-brand page for you to approve.</p>
           <ul>
-            <li><span className="tick">✓</span><span><b>Zero-tolerance figures.</b> Every number traced to its place in the PDF and re-checked independently.</span></li>
-            <li><span className="tick">✓</span><span><b>Your brand.</b> Match your website, a palette, or a brand PDF.</span></li>
-            <li><span className="tick">✓</span><span><b>Readable by people and AI.</b> Clean pages, tables, Markdown and data downloads.</span></li>
+            <li><span className="tick"><IconCheckCircle size={18} /></span><span><b>Zero-tolerance figures.</b> Every number traced to its place in the PDF and re-checked independently.</span></li>
+            <li><span className="tick"><IconCheckCircle size={18} /></span><span><b>Your brand.</b> Match your website, a palette, or a brand PDF.</span></li>
+            <li><span className="tick"><IconCheckCircle size={18} /></span><span><b>Readable by people and AI.</b> Clean pages, tables, Markdown and data downloads.</span></li>
           </ul>
         </div>
         <p className="small foot">The PDF stays the official document; your page links back to it.</p>

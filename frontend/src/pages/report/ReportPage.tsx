@@ -9,6 +9,7 @@ import SchemaTab from "./SchemaTab";
 import ValidationTab from "./ValidationTab";
 import VerifyStep from "./VerifyStep";
 import VersionsTab from "./VersionsTab";
+import { IconCheck } from "../../components/Icons";
 
 type Step = "verify" | "design" | "review" | "publish";
 export const STATUS_CLASS: Record<string, string> = {
@@ -93,7 +94,7 @@ export default function ReportPage() {
       <nav className="stepper" aria-label="Steps">
         {steps.map((s, i) => (
           <button key={s.key} className={`step ${step === s.key ? "active" : ""} ${s.state}`} onClick={() => go(s.key)} aria-current={step === s.key ? "step" : undefined}>
-            <span className="step-n">{s.state === "done" ? "✓" : s.state === "blocked" ? "!" : i + 1}</span>
+            <span className="step-n">{s.state === "done" ? <IconCheck size={14} /> : s.state === "blocked" ? "!" : i + 1}</span>
             <span><span className="step-t">{s.title}</span><br /><span className="step-s">{s.sub}</span></span>
           </button>
         ))}

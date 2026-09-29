@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState, type DragEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { PERIOD_OPTIONS, post, REPORT_TYPE_LABEL, upload, type ReportType } from "../api";
-import { IconUpload } from "./Icons";
+import { IconCheck, IconClose, IconUpload } from "./Icons";
 
 interface Inspected {
   source_file_id: string;
@@ -87,7 +87,7 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
       setBusy(false);
     }
   }
-  const Tag = ({ k }: { k: string }) => (found(k) ? <span className="detected">✓ detected</span> : null);
+  const Tag = ({ k }: { k: string }) => (found(k) ? <span className="detected"><IconCheck size={12} /> detected</span> : null);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-h" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -97,7 +97,7 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
             <h2 id="confirm-h">Confirm report details</h2>
             <p className="muted small" style={{ margin: 0 }}>{data.filename} · {data.page_count} pages · {(data.size_bytes / 1024 / 1024).toFixed(1)} MB. We filled these in from the PDF — check them before we start.</p>
           </div>
-          <button type="button" className="link" onClick={onClose} aria-label="Close">✕</button>
+          <button type="button" className="link" onClick={onClose} aria-label="Close"><IconClose /></button>
         </div>
         <div className="form-grid">
           <label className="field span2"><span className="label">Company <Tag k="company_name" /></span><input required value={company} onChange={(e) => setCompany(e.target.value)} /></label>

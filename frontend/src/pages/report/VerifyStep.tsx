@@ -3,6 +3,7 @@ import { useState } from "react";
 import type React from "react";
 import { api, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
+import { IconAlert, IconCheck, IconSparkle } from "../../components/Icons";
 import ValidationTab from "./ValidationTab";
 
 interface Agent { key: string; name: string; description: string; ran: boolean; confirmed: number; blocking: number; warnings: number }
@@ -93,7 +94,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
                   const state = !a.ran ? "idle" : a.blocking ? "bad" : a.warnings ? "warn" : "ok";
                   return (
                     <div key={a.key} className={`agent ${state}`}>
-                      <span className="agent-dot" aria-hidden>{state === "ok" ? "✓" : state === "bad" ? "!" : state === "warn" ? "•" : "–"}</span>
+                      <span className="agent-dot" aria-hidden>{state === "ok" ? <IconCheck size={14} /> : state === "bad" ? <IconAlert size={16} /> : state === "warn" ? "•" : "–"}</span>
                       <div>
                         <div className="agent-name">{a.name}</div>
                         <div className="agent-desc">{a.description}</div>
@@ -163,7 +164,7 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
   const done = last?.status === "succeeded" && last.result;
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>AI double-check</h2>
+      <h2 style={{ marginTop: 0, display: "flex", alignItems: "center", gap: 8 }}><span className="icon-chip"><IconSparkle /></span>AI double-check</h2>
       <p className="muted small">The AI reads a small crop of the PDF for each flagged figure. It can only confirm the value we extracted — it never types a number. A match turns the item into a warning; a mismatch stays for you to decide.</p>
       {e.items > 0 && (
         <div className="ai-estimate">

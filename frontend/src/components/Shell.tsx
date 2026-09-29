@@ -22,7 +22,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><img src="/brand/publishpdf-logo-full-on-dark.svg" alt="PublishPDF" width="148" height="32" /></div>
+        <div className="brand"><img src="/brand/publishpdf-logo-full-color.svg" alt="PublishPDF" width="148" height="32" /></div>
         {me.tenants.length > 1 && (
           <label className="ws-switch">
             <span className="sr-only">Workspace</span>

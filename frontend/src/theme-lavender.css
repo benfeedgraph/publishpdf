@@ -1,0 +1,165 @@
+/* PublishPDF dashboard — "Lavender" theme layer.
+ * Soft lavender surfaces, rounded pill controls, violet gradient actions and duotone
+ * icons. Loaded after styles.css: it re-points the design tokens and restyles
+ * components; layout and structure are unchanged. */
+:root {
+  --lv-50: #F6F4FF;
+  --lv-100: #EEEAFE;
+  --lv-200: #E0D9FD;
+  --lv-300: #C9BEFA;
+  --lv-500: #7B61F2;
+  --lv-600: #6246EA;          /* primary: white text 5.4:1 */
+  --lv-700: #4F35D2;
+  --lv-ink: #17132E;
+  --lv-grad: linear-gradient(135deg, #6D4DF2 0%, #8B63F6 55%, #A77BF8 100%);
+  --lv-grad-soft: linear-gradient(135deg, #F3EEFF 0%, #ECE6FF 45%, #F8F1FF 100%);
+  --lv-glow: 0 10px 24px -10px rgba(98, 70, 234, .55);
+
+  --bg: #F7F6FC;
+  --surface: #FFFFFF;
+  --surface-2: #F5F3FD;
+  --text: var(--lv-ink);
+  --text-2: #3E3A57;
+  --muted: #6B6887;
+  --border: #ECE9F7;
+  --border-strong: #DDD8F0;
+  --accent: var(--lv-600);
+  --accent-600: var(--lv-700);
+  --accent-50: var(--lv-100);
+  --accent-200: var(--lv-300);
+  --focus: rgba(98, 70, 234, .18);
+  --info: var(--lv-600); --info-bg: var(--lv-50);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --control-h: 38px;
+  --shadow-sm: 0 1px 2px rgba(23, 19, 46, .04), 0 2px 8px -4px rgba(98, 70, 234, .10);
+  --shadow: 0 1px 2px rgba(23, 19, 46, .04), 0 18px 40px -24px rgba(98, 70, 234, .28);
+}
+
+body {
+  background:
+    radial-gradient(900px 480px at 100% -10%, rgba(167, 123, 248, .16), transparent 60%),
+    radial-gradient(700px 420px at -10% 110%, rgba(109, 77, 242, .10), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+h1 { letter-spacing: -.035em; }
+
+/* ---- sidebar: light and airy ---- */
+.sidebar { background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); border-right: 1px solid var(--border); color: var(--text-2); }
+.ws-name, .ws-switch { border-bottom-color: var(--border); color: var(--muted); }
+.ws-switch select, .sidebar select { color: var(--text); background-color: var(--surface-2); border-color: var(--border-strong); border-radius: 12px; }
+.nav-label { color: #9C98B8; }
+.nav { padding: 0 10px; gap: 2px; }
+.nav a { color: var(--text-2); border-radius: 12px; padding: 9px 12px; }
+.nav a:hover { background: var(--lv-50); color: var(--lv-700); }
+.nav a.active { background: var(--lv-100); color: var(--lv-700); box-shadow: inset 0 0 0 1px var(--lv-200); font-weight: 650; }
+.nav svg { opacity: 1; color: #8E88B0; }
+.nav a:hover svg, .nav a.active svg { color: var(--lv-600); }
+.sidebar-foot { border-top-color: var(--border); }
+.who .email { color: var(--text); }
+.sidebar .muted { color: var(--muted); }
+.avatar { border-radius: 50%; background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+.sidebar-foot button.link { color: var(--muted); border-radius: 50%; }
+.sidebar-foot button.link:hover { background: var(--lv-100); color: var(--lv-700); }
+.sidebar :focus-visible { outline-color: var(--lv-600); box-shadow: 0 0 0 3px var(--focus); }
+@media (max-width: 860px) {
+  .nav { padding: 0; }
+  .nav a.active { background: var(--lv-100); color: var(--lv-700); }
+}
+
+/* ---- buttons: pills, violet gradient ---- */
+button.primary, a.button.primary, .button.primary {
+  background: var(--lv-grad); border: 0; border-radius: 999px; padding: 0 18px; color: #fff;
+  box-shadow: var(--lv-glow), inset 0 1px 0 rgba(255, 255, 255, .25); transition: transform .15s, box-shadow .15s, filter .15s;
+}
+button.primary:hover:not(:disabled), a.button.primary:hover { background: var(--lv-grad); filter: brightness(1.06) saturate(1.05); transform: translateY(-1px); box-shadow: 0 14px 28px -12px rgba(98, 70, 234, .65), inset 0 1px 0 rgba(255, 255, 255, .25); }
+button.primary:active:not(:disabled) { transform: translateY(0); filter: brightness(.97); }
+button.secondary, a.button.secondary, .button.secondary, label.button {
+  border-radius: 999px; padding: 0 16px; background: rgba(255, 255, 255, .9); border: 1px solid var(--border-strong); color: var(--text); box-shadow: var(--shadow-sm);
+}
+button.secondary:hover:not(:disabled), a.button.secondary:hover { background: var(--lv-50); border-color: var(--lv-300); color: var(--lv-700); }
+button.lg, a.button.lg, .button.lg { min-height: 46px; padding: 0 22px; }
+button.link { color: var(--lv-600); }
+a { color: var(--lv-600); }
+
+/* ---- controls ---- */
+input, select, textarea { border-radius: 12px; border-color: var(--border-strong); background: #fff; }
+input:focus, select:focus, textarea:focus { border-color: var(--lv-500); box-shadow: 0 0 0 4px var(--focus); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--lv-600); }
+.seg { border-radius: 999px; border-color: var(--border-strong); background: rgba(255, 255, 255, .8); padding: 3px; }
+.seg button { border-radius: 999px; padding: 5px 14px; }
+.seg button.active, .seg button.on { background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+
+/* ---- surfaces ---- */
+.card { border-radius: 20px; border-color: var(--border); box-shadow: var(--shadow); }
+.card.flat { box-shadow: var(--shadow-sm); }
+.callout { border-radius: 14px; border-left-width: 1px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.callout.info { background: var(--lv-50); border-color: var(--lv-200); color: var(--text-2); }
+.callout.ok { background: #F1FBF7; border-color: #CDEBDD; }
+.callout.bad { background: #FFF6F6; border-color: #F1D2D2; }
+.callout.warn { background: #FFFAF0; border-color: #F0DFB9; }
+.badge { border-radius: 999px; padding: 2px 9px; }
+.badge.info { background: var(--lv-100); color: var(--lv-700); border-color: var(--lv-200); }
+.modal { border-radius: 22px; box-shadow: 0 30px 60px -20px rgba(23, 19, 46, .35); }
+.modal-backdrop { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.dropzone { border-radius: 20px; border: 1.5px dashed var(--lv-300); background: var(--lv-grad-soft); }
+.dropzone:hover, .dropzone.over { border-color: var(--lv-500); background: var(--lv-grad-soft); box-shadow: var(--lv-glow); }
+.report-card { border-radius: 20px; box-shadow: var(--shadow-sm); transition: transform .18s, box-shadow .18s, border-color .18s; }
+.report-card:hover { border-color: var(--lv-300); transform: translateY(-2px); box-shadow: var(--shadow); }
+.stat { border-radius: 18px; box-shadow: var(--shadow-sm); }
+.tabs { border-bottom: 0; gap: 4px; background: rgba(255, 255, 255, .7); border: 1px solid var(--border); border-radius: 999px; padding: 4px; width: fit-content; max-width: 100%; }
+.tabs button { border: 0; border-radius: 999px; margin: 0; padding: 7px 16px; }
+.tabs button.active { background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+.tabs button:hover:not(.active) { background: var(--lv-50); color: var(--lv-700); }
+.progress { border-radius: 999px; }
+.issue-list { border-radius: 18px; }
+.issue.sel { background: var(--lv-50); }
+.review-bar { border-radius: 18px; }
+.review-tile { border-radius: 16px; }
+.pdf-crop { border-radius: 10px; }
+
+/* ---- stepper ---- */
+.stepper { border-radius: 22px; padding: 6px; box-shadow: var(--shadow-sm); }
+.step { border-radius: 16px; }
+.step:hover { background: var(--lv-50); color: var(--lv-700); }
+.step.active { background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+.step.active .step-s { color: rgba(255, 255, 255, .8); }
+.step-n { border-width: 1.5px; font-family: var(--font-heading); font-weight: 700; }
+.step.active .step-n { background: rgba(255, 255, 255, .22); border-color: rgba(255, 255, 255, .6); }
+
+/* ---- design picker ---- */
+.source-card { border-radius: 18px; box-shadow: var(--shadow-sm); }
+.source-card:hover { border-color: var(--lv-300); }
+.source-card.active { background: var(--lv-grad-soft); border-color: var(--lv-500); box-shadow: inset 0 0 0 1px var(--lv-500), var(--lv-glow); }
+.source-icon { width: 38px; height: 38px; border-radius: 12px; background: var(--lv-100); color: var(--lv-600); font-size: 0; }
+.source-card.active .source-icon { background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+.source-card.active .source-radio { border-color: var(--lv-600); background: radial-gradient(circle, var(--lv-600) 45%, #fff 50%); }
+.current-swatches > span { border-radius: 14px; }
+
+/* ---- duotone icon chips ---- */
+.icon-chip { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 11px; background: var(--lv-100); color: var(--lv-600); flex: none; }
+.agent-dot { border-radius: 50%; }
+
+/* ---- sign-in / landing: light lavender hero ---- */
+.auth-art { background: var(--lv-grad-soft); color: var(--text); position: relative; overflow: hidden; }
+.auth-art::before { content: ""; position: absolute; right: -120px; top: -120px; width: 420px; height: 420px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(167, 123, 248, .55), rgba(109, 77, 242, .15) 60%, transparent 70%); filter: blur(10px); pointer-events: none; }
+.auth-art > * { position: relative; }
+.auth-art h1 { color: var(--lv-ink); }
+.auth-art p { color: var(--text-2); }
+.auth-art li { color: var(--text-2); }
+.auth-art li b { color: var(--lv-ink); }
+.auth-art .foot { color: var(--lv-600); }
+.auth-art .tick { background: #fff; color: var(--lv-600); box-shadow: var(--shadow-sm); width: 28px; height: 28px; }
+.auth-card { border-radius: 22px; }
+.landing { background: transparent; }
+
+/* ---- remaining dark accents, re-pointed to the lavender system ---- */
+.dz-icon { width: 48px; height: 48px; border-radius: 14px; background: var(--lv-grad); color: #fff; box-shadow: var(--lv-glow); }
+.stat { border-top: 1px solid var(--border); position: relative; overflow: hidden; }
+.stat::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--lv-grad); }
+ol.steps li.current { background: var(--lv-grad); color: #fff; border-color: transparent; }
+pre.json, pre.email { background: #1C1838; border-radius: 16px; }
+.tabs, .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.tabs button, .seg button { white-space: nowrap; flex: none; }
