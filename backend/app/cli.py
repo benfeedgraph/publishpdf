@@ -18,7 +18,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("migrate", help="apply database migrations (owner role)")
     p = sub.add_parser("create-platform-admin", help="create or promote a platform admin")
     p.add_argument("email")
-    sub.add_parser("worker", help="run a background job worker")
+    w = sub.add_parser("worker", help="run background job workers")
+    w.add_argument("--concurrency", type=int, default=None, help="jobs at once (default JOB_CONCURRENCY)")
     sub.add_parser("gen-secret", help="print a new APP_SECRET_KEY")
     d = sub.add_parser("seed-demo", help="development: demo workspace with the synthetic sample reports")
     d.add_argument("--admin", default="admin@example.com")
@@ -60,9 +61,10 @@ def main(argv: list[str] | None = None) -> int:
         import logging
 
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-        from app import domain_jobs, jobs, pipeline  # noqa: F401 - registers handlers
+        from app import jobs
+        from app.config import get_settings
 
-        jobs.work_forever()
+        jobs.supervise(args.concurrency or get_settings().job_concurrency)
         return 0
 
     if args.cmd == "gen-secret":

@@ -36,7 +36,7 @@ from app.reports import (
     source_key,
 )
 from app.tenancy import Context
-from app import validation
+from app import ai_check, validation
 
 
 @handler("system.ping")
@@ -194,6 +194,7 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
         progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
     validation.apply_reviews(issues, schema)
+    ai_check.apply_confirmations(issues, schema)
     summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"]}
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
@@ -225,3 +226,39 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
 
 def mark_failed_versions() -> None:  # pragma: no cover - hook for operators
     pass
+
+
+# ------------------------------------------------------------------ AI double-check (opt-in)
+
+
+@handler("pipeline.ai_check")
+def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    """Runs only when an admin asked for it after seeing the estimate. Reads the flagged
+    figures' crops, records each outcome on the figure, then re-renders and re-checks."""
+    from app.reports import _save_schema
+
+    if not get_settings().gemini_api_key:
+        raise UserFacingError("AI double-check isn't set up on this platform (no Gemini key).")
+    with db.session(ctx) as s:
+        v = _version(s, payload)
+        if v.published_at is not None:
+            return {"skipped": "published"}
+        run = latest_run_no(s, v.id)
+        issues = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == v.id,
+                                                          ValidationIssue.run_no == run)).all()
+        schema = json.loads(json.dumps(v.schema_json))
+        fids = ai_check.eligible(issues, schema)
+        sha, vid = v.source_sha256, v.id
+    if not fids:
+        return {"items": 0}
+    pdf = storage.get(ctx, source_key(sha))
+    out = ai_check.run(schema, pdf, fids, ai_check.transport())
+    with db.session(ctx) as s:
+        v = s.get(ReportVersion, vid)
+        assert v is not None
+        _save_schema(s, ctx, v, schema)
+        result = {"items": len(fids), "confirmed": out.confirmed, "disagreed": out.disagreed,
+                  "input_tokens": out.input_tokens, "output_tokens": out.output_tokens,
+                  "usd": out.usd, "credits": out.credits, "model": get_settings().gemini_model}
+        audit.record(s, ctx, "report.ai_check", target_type="report_version", target_id=vid, after=result)
+    return result

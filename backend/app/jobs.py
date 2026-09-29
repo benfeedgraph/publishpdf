@@ -35,7 +35,10 @@ Handler = Callable[[Context, dict[str, Any]], dict[str, Any] | None]
 _HANDLERS: dict[str, Handler] = {}
 
 GENERIC_FAILURE = "Something went wrong while processing this step. Our team has been notified; you can retry."
-STALE_LOCK = timedelta(minutes=30)
+# A running job's lock is refreshed every HEARTBEAT; a lock older than STALE_LOCK means its
+# worker died, and any other worker takes the job back.
+HEARTBEAT = 30.0
+STALE_LOCK = timedelta(minutes=3)
 
 
 class UserFacingError(Exception):
@@ -109,6 +112,14 @@ def run_one(worker_id: str) -> bool:
         return False
 
     job_id: uuid.UUID = row["id"]
+    _CURRENT.update(id=job_id, since=time.monotonic(), worker=worker_id)
+    try:
+        return _run_claimed(row, job_id)
+    finally:
+        _CURRENT.clear()
+
+
+def _run_claimed(row, job_id: uuid.UUID) -> bool:
     ctx = worker_context(row["tenant_id"])
     fn = _HANDLERS.get(row["kind"])
     log.info("running %s (job %s, attempt %s)", row["kind"], job_id, row["attempts"])
@@ -169,9 +180,51 @@ def periodic(interval: float) -> Callable[[Callable[[], object]], Callable[[], o
     return register
 
 
+_CURRENT: dict[str, Any] = {}          # the job this worker slot is running: {"id", "since", "worker"}
+
+
+def _watchdog() -> None:  # pragma: no cover - runs in the worker process
+    """Keeps the running job's lock fresh, and stops a job that runs past the time limit:
+    it's recorded as failed (so its report shows why) and the slot exits to be restarted."""
+    import os
+    import threading
+
+    limit = get_settings().job_timeout_seconds
+
+    def loop() -> None:
+        while True:
+            time.sleep(HEARTBEAT)
+            cur = dict(_CURRENT)
+            if not cur:
+                continue
+            try:
+                with db.session(system_context()) as s:
+                    s.execute(text("UPDATE jobs SET locked_at = now() WHERE id = :id AND locked_by = :w"),
+                              {"id": cur["id"], "w": cur["worker"]})
+            except Exception:  # noqa: BLE001
+                log.exception("heartbeat failed")
+            if time.monotonic() - cur["since"] > limit:
+                log.error("job %s exceeded %ss; stopping this worker slot", cur["id"], limit)
+                try:
+                    with db.session(system_context()) as s:
+                        s.execute(text("""UPDATE jobs SET status = 'failed', finished_at = now(), locked_at = NULL,
+                                          locked_by = NULL, error_plain = :plain, last_error = :err WHERE id = :id"""),
+                                  {"id": cur["id"], "plain": "This step took too long and was stopped. Retry it; "
+                                   "if it happens again, contact support.", "err": f"timeout after {limit}s"})
+                        s.execute(text("""UPDATE report_versions v SET status = 'failed',
+                                          error_plain = 'Processing took too long and was stopped. Try again.'
+                                          FROM jobs j WHERE j.id = :id AND v.id = j.version_id
+                                          AND v.published_at IS NULL AND v.status = 'processing'"""), {"id": cur["id"]})
+                finally:
+                    os._exit(3)
+
+    threading.Thread(target=loop, daemon=True, name="job-watchdog").start()
+
+
 def work_forever() -> None:  # pragma: no cover - process entrypoint
     worker_id = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
     poll = get_settings().job_poll_seconds
+    _watchdog()
     log.info("worker %s started; handlers: %s", worker_id, sorted(_HANDLERS))
     last: dict[int, float] = {}
     while True:
@@ -185,3 +238,42 @@ def work_forever() -> None:  # pragma: no cover - process entrypoint
                     log.exception("periodic task %s failed", getattr(fn, "__name__", fn))
         if not run_one(worker_id):
             time.sleep(poll)
+
+
+def _slot() -> None:  # pragma: no cover - child process entrypoint
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    from app import domain_jobs, pipeline  # noqa: F401 - registers handlers
+    work_forever()
+
+
+def supervise(concurrency: int) -> None:  # pragma: no cover - process entrypoint
+    """Runs `concurrency` worker slots, each its own process, and restarts any slot that
+    exits (a crash, or a job stopped for running too long). Slots are not daemonic, so a
+    slot can still build a large report's pages in parallel."""
+    import multiprocessing as mp
+    import signal
+
+    spawn = mp.get_context("spawn")
+    slots: list = []
+
+    def start():
+        p = spawn.Process(target=_slot, name="job-slot")
+        p.start()
+        return p
+
+    def stop(*_a):
+        for p in slots:
+            p.terminate()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    slots = [start() for _ in range(max(1, concurrency))]
+    log.info("supervising %s worker slots", len(slots))
+    while True:
+        time.sleep(2)
+        for i, p in enumerate(slots):
+            if not p.is_alive():
+                log.warning("worker slot %s exited (code %s); restarting", p.pid, p.exitcode)
+                slots[i] = start()

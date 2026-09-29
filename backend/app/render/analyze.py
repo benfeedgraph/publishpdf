@@ -8,6 +8,7 @@ or edits it, and validate() + enforce() apply before anything is rendered.
 
 from __future__ import annotations
 
+
 import colorsys
 import io
 import ipaddress

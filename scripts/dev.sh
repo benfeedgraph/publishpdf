@@ -15,7 +15,8 @@ cleanup() { kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 run api      backend  uv run uvicorn app.main:app --reload --port 8000
-run worker   backend  uv run python -m app.cli worker
+# The worker restarts itself whenever backend code changes (the API does the same via --reload).
+run worker   backend  uv run watchfiles --filter python "python -m app.cli worker" app
 run sites    backend  uv run uvicorn app.public:app --reload --port 8080
 run web      frontend npm run dev -- --strictPort
 echo "PublishPDF is starting: dashboard http://localhost:5173 · sites http://<slug>.preview.localhost:8080"

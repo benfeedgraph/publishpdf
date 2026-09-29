@@ -6,7 +6,7 @@ placeholders the operator must confirm.
 
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Hosts that exist on a laptop or inside Railway, and nowhere Vercel can dial.
@@ -135,9 +135,21 @@ class Settings(BaseSettings):
     # --- LLM assist (PLAN D4; off per tenant by default) ----------------------------
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     llm_model: str = Field(default="claude-sonnet-5", alias="LLM_MODEL")
+    # AI double-check of flagged figures (opt-in per report, estimate shown first).
+    gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "GEMINI_KEY"))
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    # Your plan's prices, USD per million tokens — confirm against Google's current price list.
+    gemini_price_in_per_m: float = Field(default=0.30, alias="GEMINI_PRICE_IN_PER_M")
+    gemini_price_out_per_m: float = Field(default=2.50, alias="GEMINI_PRICE_OUT_PER_M")
+    # What one credit is worth in USD; estimates and usage are shown in credits.
+    ai_credit_usd: float = Field(default=0.01, alias="AI_CREDIT_USD")
 
     # --- Jobs -----------------------------------------------------------------
     job_max_attempts: int = Field(default=3, alias="JOB_MAX_ATTEMPTS")
+    # Several jobs at once, so one long report never holds up a new upload.
+    job_concurrency: int = Field(default=3, alias="JOB_CONCURRENCY")
+    # A job running longer than this is stopped and recorded as failed (the worker slot restarts).
+    job_timeout_seconds: int = Field(default=1200, alias="JOB_TIMEOUT_SECONDS")
     job_poll_seconds: float = Field(default=1.0, alias="JOB_POLL_SECONDS")
 
     @property

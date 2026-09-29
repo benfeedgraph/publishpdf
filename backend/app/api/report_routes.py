@@ -337,6 +337,61 @@ def page_image(report_id: uuid.UUID, version_id: uuid.UUID, page: int, zoom: flo
                     headers={"Cache-Control": "private, max-age=86400"})
 
 
+# ------------------------------------------------------------------ AI double-check
+
+
+def _ai_state(s, v: ReportVersion) -> tuple[list[str], dict | None]:
+    from app import ai_check
+    run = latest_run_no(s, v.id)
+    issues = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == v.id,
+                                                      ValidationIssue.run_no == run)).all()
+    fids = ai_check.eligible(issues, v.schema_json or {"figures": {}})
+    last = s.scalars(select(Job).where(Job.version_id == v.id, Job.kind == "pipeline.ai_check")
+                     .order_by(Job.created_at.desc())).first()
+    last_json = {"status": last.status, "result": last.result, "error": last.error_plain,
+                 "at": _iso(last.finished_at or last.created_at)} if last else None
+    return fids, last_json
+
+
+@router.get("/{report_id}/versions/{version_id}/ai-check")
+def ai_check_estimate(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    """What an AI double-check would cost for this report, before anything runs."""
+    from app import ai_check
+    with db.session(ctx) as s:
+        v = _get_version(s, report_id, version_id)
+        fids, last = _ai_state(s, v)
+    return {"available": bool(get_settings().gemini_api_key), "estimate": ai_check.estimate(len(fids)), "last": last}
+
+
+class AiCheckIn(BaseModel):
+    credits_shown: int = Field(ge=0)
+
+
+@router.post("/{report_id}/versions/{version_id}/ai-check", status_code=202)
+def ai_check_start(report_id: uuid.UUID, version_id: uuid.UUID, body: AiCheckIn,
+                   ctx: Context = Depends(require("report.edit_figure"))) -> dict:
+    """Start the AI double-check the user just saw the estimate for. Refused if the
+    estimate has changed since (so nobody is charged for something they didn't see)."""
+    from app import ai_check, jobs
+    if not get_settings().gemini_api_key:
+        raise HTTPException(400, "AI double-check isn't set up on this platform.")
+    with db.session(ctx) as s:
+        v = _get_version(s, report_id, version_id)
+        if v.published_at is not None or v.status == "processing":
+            raise HTTPException(409, "Wait until the checks have finished, then try again.")
+        fids, _ = _ai_state(s, v)
+        est = ai_check.estimate(len(fids))
+        if not fids:
+            raise HTTPException(409, "There are no flagged figures for the AI to check.")
+        if est["credits"] != body.credits_shown:
+            raise HTTPException(409, f"The estimate has changed to {est['credits']} credits. Review it and confirm again.")
+        job = jobs.enqueue(s, ctx, "pipeline.ai_check", {"version_id": str(v.id)},
+                           idempotency_key=f"ai_check:{v.id}:{v.schema_sha256}")
+        job.version_id = v.id     # the report itself stays as it is; the AI run has its own status
+        audit.record(s, ctx, "report.ai_check_requested", target_type="report_version", target_id=v.id, after=est)
+        return {"estimate": est, "job_id": str(job.id)}
+
+
 @router.post("/{report_id}/versions/{version_id}/rerun")
 def rerun(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.upload"))) -> dict:
     with db.session(ctx) as s:

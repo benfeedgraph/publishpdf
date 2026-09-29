@@ -392,3 +392,6 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); border-color: #C5
 .pdf-crop { position: relative; overflow: hidden; width: 100%; background: #fff; border: 1px solid var(--border); border-radius: 6px; }
 .pdf-crop img { position: absolute; max-width: none; height: auto; }
 .pdf-crop-hl { position: absolute; outline: 2px solid #e5484d; border-radius: 2px; background: rgba(229,72,77,.08); pointer-events: none; }
+
+.ai-estimate { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0 14px; }
+.ai-estimate .stat { flex: 1 1 160px; }

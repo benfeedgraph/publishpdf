@@ -1,6 +1,7 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import type React from "react";
-import { post, useTenantRole, type Report, type VersionDetail } from "../../api";
+import { api, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import ValidationTab from "./ValidationTab";
 
@@ -125,6 +126,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
         </>
       )}
 
+      {s && !processing && isAdmin && version.published_at === null && <AiCheckCard tenantId={tenantId} reportId={report.id} versionId={version.id} />}
       {s && (s.blocking > 0 || s.warnings > 0) && <ValidationTab tenantId={tenantId} report={report} version={version} embedded />}
       {isAdmin && !processing && version.published_at === null && (
         <p className="muted small">
@@ -132,6 +134,57 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           <button className="link" disabled={rerun.isPending} onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</button>
         </p>
       )}
+    </div>
+  );
+}
+
+interface AiEstimate { items: number; requests: number; input_tokens: number; output_tokens: number; usd: number; credits: number; model: string; credit_usd: number }
+interface AiState { available: boolean; estimate: AiEstimate; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
+
+/** Opt-in AI double-check of the flagged figures, with the cost shown before it runs. */
+function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; reportId: string; versionId: string }) {
+  const qc = useQueryClient();
+  const url = `/api/tenants/${tenantId}/reports/${reportId}/versions/${versionId}/ai-check`;
+  const q = useQuery({
+    queryKey: ["ai-check", versionId],
+    queryFn: () => api<AiState>(url),
+    refetchInterval: (d) => (d.state.data?.last && ["queued", "running"].includes(d.state.data.last.status) ? 2500 : false),
+  });
+  const [err, setErr] = useState<string | null>(null);
+  const start = useMutation({
+    mutationFn: (credits: number) => post(url, { credits_shown: credits }),
+    onSuccess: () => { setErr(null); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
+    onError: (e: Error) => { setErr(e.message); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
+  });
+  if (!q.data) return null;
+  const { available, estimate: e, last } = q.data;
+  const running = last && ["queued", "running"].includes(last.status);
+  if (!e.items && !last) return null;
+  const done = last?.status === "succeeded" && last.result;
+  return (
+    <div className="card">
+      <h2 style={{ marginTop: 0 }}>AI double-check</h2>
+      <p className="muted small">The AI reads a small crop of the PDF for each flagged figure. It can only confirm the value we extracted — it never types a number. A match turns the item into a warning; a mismatch stays for you to decide.</p>
+      {e.items > 0 && (
+        <div className="ai-estimate">
+          <div className="stat"><span className="stat-n">{e.items}</span><span className="stat-l">flagged figures to check</span></div>
+          <div className="stat"><span className="stat-n">{e.credits}</span><span className="stat-l">credits, estimated</span></div>
+          <div className="stat"><span className="stat-n muted">${e.usd.toFixed(4)}</span><span className="stat-l">{(e.input_tokens + e.output_tokens).toLocaleString()} tokens · {e.model}</span></div>
+        </div>
+      )}
+      {!available && <p className="callout info small">AI double-check isn't set up yet: add a Gemini key to the platform settings.</p>}
+      {available && e.items > 0 && !running && (
+        <button className="primary" disabled={start.isPending}
+          onClick={() => { if (window.confirm(`Run the AI double-check on ${e.items} figures for about ${e.credits} credits ($${e.usd.toFixed(4)})?`)) start.mutate(e.credits); }}>
+          Run AI double-check · ≈ {e.credits} credits
+        </button>
+      )}
+      {running && <p className="callout info small">AI double-check running… this updates automatically.</p>}
+      {err && <p className="error" role="alert">{err}</p>}
+      {done && last?.result && (
+        <p className="small" style={{ marginBottom: 0 }}>Last run: <strong>{last.result.confirmed}</strong> confirmed · <strong>{last.result.disagreed}</strong> need you · used <strong>{last.result.credits}</strong> credits (${last.result.usd.toFixed(4)}, {(last.result.input_tokens + last.result.output_tokens).toLocaleString()} tokens).</p>
+      )}
+      {last?.status === "failed" && <p className="error small">The last AI run didn't finish: {last.error ?? "unknown error"}. Nothing was changed.</p>}
     </div>
   );
 }
