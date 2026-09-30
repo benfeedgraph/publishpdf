@@ -362,11 +362,33 @@ def piece_html(p: Piece, W: float, H: float, figures: dict, y0: float = 0.0, x0:
     asc, desc = _metrics(p.stem, p.weight)
     top = p.baseline - p.size * (1 + asc - desc) / 2          # line-height:1 box top
     target = max(0.1, p.x1 - p.x0)
-    natural = measure(p.text, p.stem, p.weight, p.size)
-    k = target / natural if natural > 0 else 1.0
-    k = min(1.6, max(0.55, k))
+    text = p.text if not p.fid else figures[p.fid]["raw"]
+    natural = measure(text, p.stem, p.weight, p.size)
+    # Letter width: the PDF's own glyphs vs ours, measured on the letters alone (spaces
+    # excluded). This ratio is the same for every line of the same font, so all lines
+    # share one letter width — a justified line and the ragged line under it no longer
+    # look like different sizes. Word gaps then absorb the rest, as justification does.
+    ink = [c for c in p.chars if not c["c"].isspace()]
+    pdf_letters = sum(c["bbox"][2] - c["bbox"][0] for c in ink)
+    our_letters = measure("".join(c["c"] for c in ink), p.stem, p.weight, p.size) if ink else 0
+    if pdf_letters > 0 and our_letters > 0:
+        k = min(1.12, max(0.7, pdf_letters / our_letters))
+    else:
+        k = min(1.12, max(0.6, target / natural)) if natural > 0 else 1.0
+    gaps = text.count(" ")
+    ws = 0.0
+    if gaps and natural > 0:
+        ws = (target / k - natural) / gaps          # extra (or less) per word gap, before scaling
+        ws = max(-0.25 * p.size, min(ws, 1.5 * p.size))
+        rendered = k * (natural + ws * gaps)
+        if rendered > target * 1.01:                # still too long: tighten letters a little more
+            k = max(0.6, k * target / rendered)
+    elif natural > 0:
+        k = min(1.12, max(0.6, target / natural))
     cls = face_class(p.family, p.weight, p.italic)
     style = f"--x:{_n((p.x0 - x0) / W * 100)};--y:{_n((top - y0) / H * 100)};--s:{_n(p.size / W * 100)}"
+    if abs(ws) > 0.01:
+        style += f";--ws:{_n(ws / p.size)}"
     if abs(k - 1) > 0.004:
         style += f";--k:{_n(k)}"
     if p.color:

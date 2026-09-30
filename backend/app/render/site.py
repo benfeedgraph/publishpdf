@@ -222,7 +222,7 @@ PAGES_CSS = """
 .part-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
 .part-t{position:absolute;inset:0;content-visibility:auto}
 .part .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
-  transform-origin:0 0;transform:scaleX(var(--k,1));color:#000;font-kerning:normal}
+  word-spacing:calc(var(--ws,0)*1em);transform-origin:0 0;transform:scaleX(var(--k,1));color:#000;font-kerning:normal}
 .part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
 .part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent);outline:1px solid color-mix(in srgb,var(--c-primary) 55%,transparent)}
 .part ::selection{background:color-mix(in srgb,var(--c-primary) 30%,transparent)}
@@ -252,7 +252,7 @@ PAGES_CSS = """
   .rf-vis{position:relative;overflow:hidden;margin:14px auto 18px;container-type:inline-size;border-radius:6px;background:#fff;width:min(100%,var(--vw))}
   .rf-vis img{position:absolute;max-width:none;height:auto}
   .rf-vis-t{position:absolute;inset:0}
-  .rf-vis .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;transform-origin:0 0;transform:scaleX(var(--k,1));color:#000}
+  .rf-vis .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;word-spacing:calc(var(--ws,0)*1em);transform-origin:0 0;transform:scaleX(var(--k,1));color:#000}
   .reflow .table-wrap{margin:12px -16px;border-radius:0;border-left:0;border-right:0;font-size:.88em}
   .part-text{display:none}
   .edition-rail ol{columns:1}
@@ -356,6 +356,19 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                        for r in it["b"].get("runs") or [])
         reflow = {pg: story.reflow_order(items) for pg, items in reflow.items()
                   if _para_words(items) >= REFLOW_MIN_WORDS or any(it["kind"] == "table" for it in items)}
+        # A sentence the PDF carries over a page break reads on in the previous part.
+        prev_pg = None
+        for pg in sorted(reflow):
+            items = reflow[pg]
+            if prev_pg is not None and prev_pg == pg - 1 and items and reflow[prev_pg]:
+                a, b = reflow[prev_pg][-1], items[0]
+                tail = "".join(r.get("t", "") for r in a["b"]["runs"][-1:]).rstrip() if a["kind"] == "paragraph" else "."
+                if a["kind"] == b["kind"] == "paragraph" and story.bullet_runs(b["b"]) is None \
+                        and (not tail or tail[-1] not in ".:?!;"):
+                    a["b"] = {**a["b"], "runs": a["b"]["runs"] + [{"t": " "}] + b["b"]["runs"]}
+                    items.pop(0)
+            prev_pg = pg
+        reflow = {pg: items for pg, items in reflow.items() if items}
         page_list, art, link_menu = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
                                                            max_pages=max_pages, skip_pages=skip, visuals=vis_boxes,
                                                            pdf_page_sink=pdf_page_sink)
