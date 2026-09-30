@@ -80,7 +80,7 @@ def request_magic_link(email: str, ip: str | None = None) -> str | None:
         s.add(LoginToken(user_id=user.id, token_hash=hash_token(token),
                          expires_at=_now() + timedelta(minutes=settings.magic_link_ttl_minutes)))
     link = f"{settings.dashboard_base_url}/auth/verify?token={quote(token)}"
-    emailer.send(email, "Your sign-in link",
+    emailer.send_soon(email, "Your sign-in link",
                  f"Click to sign in:\n\n{link}\n\n"
                  f"This link expires in {settings.magic_link_ttl_minutes} minutes and works once.\n"
                  "If you didn't ask for it, you can ignore this email.")
@@ -186,7 +186,7 @@ def request_email_code(email: str, ip: str | None = None) -> str | None:
         code = f"{secrets.randbelow(10 ** 6):06d}"
         s.add(EmailCode(email=email, code_hash=_code_hash(email, code), ip=ip,
                         expires_at=_now() + timedelta(minutes=settings.email_code_ttl_minutes)))
-    emailer.send(email, f"{code} is your PublishPDF code",
+    emailer.send_soon(email, f"{code} is your PublishPDF code",
                  f"Your sign-in code is:\n\n    {code}\n\nIt expires in {settings.email_code_ttl_minutes} minutes. "
                  "If you didn't ask for it, you can ignore this email.")
     if settings.env == "development" and settings.email_backend == "console":

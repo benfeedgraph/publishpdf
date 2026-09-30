@@ -108,9 +108,19 @@ class Settings(BaseSettings):
     # --- Storage --------------------------------------------------------------
     storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")  # local | s3
     storage_local_root: str = Field(default="./.data/storage", alias="STORAGE_LOCAL_ROOT")
-    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
-    s3_region: str | None = Field(default=None, alias="S3_REGION")
-    s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
+    # S3-compatible: AWS S3, Cloudflare R2, Railway buckets, MinIO. The names Railway's
+    # bucket integration injects (BUCKET, ENDPOINT, ...) are accepted too.
+    s3_bucket: str | None = Field(default=None, validation_alias=AliasChoices("S3_BUCKET", "BUCKET"))
+    s3_region: str | None = Field(default=None, validation_alias=AliasChoices("S3_REGION", "REGION"))
+    s3_endpoint_url: str | None = Field(default=None, validation_alias=AliasChoices("S3_ENDPOINT_URL", "ENDPOINT"))
+    s3_access_key_id: str | None = Field(default=None, validation_alias=AliasChoices(
+        "S3_ACCESS_KEY_ID", "ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
+    s3_secret_access_key: str | None = Field(default=None, validation_alias=AliasChoices(
+        "S3_SECRET_ACCESS_KEY", "SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
+    # AWS encrypts with SSE-S3; R2/Railway/MinIO encrypt at rest themselves and some
+    # reject the header, so it's sent only to AWS unless set explicitly.
+    s3_sse: str | None = Field(default=None, alias="S3_SSE")
+    s3_path_style: bool = Field(default=False, alias="S3_FORCE_PATH_STYLE")
 
     # --- Limits (proposed values; to confirm — PLAN.md D12) ---------------------
     max_upload_mb: int = Field(default=100, alias="MAX_UPLOAD_MB")

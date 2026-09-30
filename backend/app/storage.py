@@ -7,6 +7,7 @@ tenant's code path cannot address another tenant's files.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import re
 from functools import lru_cache
@@ -51,7 +52,13 @@ class LocalBackend:
 
     def put(self, full_key: str, data: bytes, content_type: str) -> None:
         p = self._path(full_key)
-        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            if e.errno == errno.EROFS:      # serverless hosts (Vercel, Lambda) have no writable disk
+                raise StorageError("File storage isn't set up on this server: its disk is read-only. Set "
+                                   "STORAGE_BACKEND=s3 with an S3-compatible bucket.") from e
+            raise
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_bytes(data)
         tmp.replace(p)
@@ -70,17 +77,23 @@ class LocalBackend:
 
 
 class S3Backend:
-    """S3-compatible backend (AWS S3, MinIO, GCS interop). Bucket must be private."""
+    """S3-compatible backend (AWS S3, Cloudflare R2, Railway buckets, MinIO). Bucket must be private."""
 
-    def __init__(self, bucket: str, region: str | None, endpoint_url: str | None) -> None:
+    def __init__(self, bucket: str, region: str | None, endpoint_url: str | None, *, access_key: str | None = None,
+                 secret_key: str | None = None, sse: str | None = None, path_style: bool = False) -> None:
         import boto3
+        from botocore.config import Config
 
         self.bucket = bucket
-        self.client = boto3.client("s3", region_name=region, endpoint_url=endpoint_url)
+        self.client = boto3.client(
+            "s3", region_name=region or ("auto" if endpoint_url else None), endpoint_url=endpoint_url,
+            aws_access_key_id=access_key, aws_secret_access_key=secret_key,
+            config=Config(s3={"addressing_style": "path" if path_style else "auto"},
+                          retries={"max_attempts": 3, "mode": "standard"}))
+        self.extra = {"ServerSideEncryption": sse} if sse else {}
 
     def put(self, full_key: str, data: bytes, content_type: str) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=full_key, Body=data, ContentType=content_type,
-                               ServerSideEncryption="AES256")
+        self.client.put_object(Bucket=self.bucket, Key=full_key, Body=data, ContentType=content_type, **self.extra)
 
     def get(self, full_key: str) -> bytes:
         try:
@@ -105,7 +118,10 @@ def _backend() -> Backend:
     if s.storage_backend == "s3":
         if not s.s3_bucket:
             raise StorageError("S3_BUCKET is required when STORAGE_BACKEND=s3")
-        return S3Backend(s.s3_bucket, s.s3_region, s.s3_endpoint_url)
+        endpoint, region = s.s3_endpoint_url or None, s.s3_region or None
+        sse = s.s3_sse if s.s3_sse else (None if endpoint else "AES256")
+        return S3Backend(s.s3_bucket, region, endpoint, access_key=s.s3_access_key_id,
+                         secret_key=s.s3_secret_access_key, sse=sse or None, path_style=s.s3_path_style)
     return LocalBackend(s.storage_local_root)
 
 
