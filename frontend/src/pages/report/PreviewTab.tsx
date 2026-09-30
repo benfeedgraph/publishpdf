@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, formatDateTime, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 
+const DESKTOP_W = 1280;   // width the desktop preview is laid out at
+
 interface CommentRow { id: string; section_id: string; body: string; by: string; at: string; resolved: boolean }
 
 export default function PreviewTab({ tenantId, report, version, hidePublish = false }: { tenantId: string; report: Report; version: VersionDetail; hidePublish?: boolean }) {
@@ -13,8 +15,22 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
   const [width, setWidth] = useState<"desktop" | "mobile">("desktop");
   const [sideBySide, setSideBySide] = useState(true);
   const [section, setSection] = useState<string | null>(version.sections[0]?.id ?? null);
+  // The page-faithful edition has no sections: its preview reports its contents menu and parts.
+  const [edition, setEdition] = useState<{ menu: { label: string; page: number }[]; parts: number[] } | null>(null);
+  const [page, setPage] = useState<number | null>(null);
   const iframe = useRef<HTMLIFrameElement>(null);
   const pdfPane = useRef<HTMLDivElement>(null);
+  // The desktop preview renders at a real desktop width and is scaled to fit: squeezed
+  // beside the PDF at its natural size it would fall into the phone layout.
+  const stage = useRef<HTMLDivElement>(null);
+  const [stageW, setStageW] = useState(0);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setStageW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [version.bundle_sha256, width]);
   const followPdf = useRef(true);
   // Scroll only the PDF pane (scrollIntoView would also scroll the whole window).
   const showPdfPage = (page: number | null | undefined) => {
@@ -30,12 +46,28 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
         setSection(ev.data.id);
         const sec = version.sections.find((s) => s.id === ev.data.id);
         if (followPdf.current) showPdfPage(sec?.page);
+      } else if (ev.data.ppdf === "edition") {
+        setEdition({ menu: ev.data.menu ?? [], parts: ev.data.parts ?? [] });
+      } else if (ev.data.ppdf === "page") {
+        onPage(ev.data.page);
+        if (followPdf.current) showPdfPage(ev.data.page);
       }
     }
     addEventListener("message", onMsg);
     return () => removeEventListener("message", onMsg);
   }, [version.sections]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Comments stay keyed by section: a page's comments go to the last section starting on or before it.
+  const onPage = (n: number) => {
+    setPage(n);
+    const sec = [...version.sections].reverse().find((x) => (x.page ?? 0) <= n) ?? version.sections[0];
+    if (sec) setSection(sec.id);
+  };
+  const gotoPage = (n: number) => {
+    onPage(n);
+    iframe.current?.contentWindow?.postMessage({ ppdf: "gotoPage", page: n }, "*");
+    showPdfPage(n);
+  };
   const goto = (id: string) => {
     setSection(id);
     iframe.current?.contentWindow?.postMessage({ ppdf: "goto", id }, "*");
@@ -64,6 +96,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
 
       <div className="preview-layout">
         <aside className="card sections-nav" aria-label="Sections">
+          {edition ? <EditionNav edition={edition} page={page} onGo={gotoPage} /> : (<>
           <h2>Sections</h2>
           <ol>
             {version.sections.map((s) => (
@@ -73,6 +106,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
               </li>
             ))}
           </ol>
+          </>)}
           {section && <Comments base={base} sectionId={section} rows={comments.data?.comments ?? []} readonly={version.published_at !== null} onChange={() => qc.invalidateQueries({ queryKey: ["comments", version.id] })} />}
         </aside>
         <div className={`preview-panes ${sideBySide ? "two" : ""}`}>
@@ -85,13 +119,41 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
             </div>
           )}
           <div className="frame-wrap">
-            <iframe ref={iframe} title="Page preview" src={previewUrl} style={{ width: width === "mobile" ? 390 : "100%" }} />
+            {width === "mobile" ? (
+              <iframe ref={iframe} title="Page preview" src={previewUrl} style={{ width: 390 }} />
+            ) : (
+              <div className="frame-stage" ref={stage}>
+                {(() => {
+                  const scale = stageW && stageW < DESKTOP_W ? stageW / DESKTOP_W : 1;
+                  return <iframe ref={iframe} title="Page preview" src={previewUrl}
+                                 style={scale < 1 ? { width: DESKTOP_W, height: `calc(76vh / ${scale})`, transform: `scale(${scale})` } : { width: "100%" }} />;
+                })()}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {!hidePublish && <PublishPanel tenantId={tenantId} report={report} version={version} isAdmin={isAdmin} disclaimer={settings.data?.effective_disclaimer ?? null} siteOrigin={settings.data?.site_origin} />}
     </div>
+  );
+}
+
+/** Contents of the page-faithful edition: the PDF's own contents menu, else its pages. */
+function EditionNav({ edition, page, onGo }: { edition: { menu: { label: string; page: number }[]; parts: number[] }; page: number | null; onGo: (n: number) => void }) {
+  const items = edition.menu.length ? edition.menu : edition.parts.map((n) => ({ label: `PDF page ${n}`, page: n }));
+  const active = page === null ? -1 : items.reduce((best, it, i) => (it.page <= page ? i : best), -1);
+  return (
+    <>
+      <h2>Contents</h2>
+      <ol>
+        {items.map((it, i) => (
+          <li key={`${it.page}-${i}`}>
+            <button className={`link ${i === active ? "strong" : ""}`} onClick={() => onGo(it.page)}>{it.label}</button>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }
 

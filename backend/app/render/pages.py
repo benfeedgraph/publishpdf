@@ -358,6 +358,27 @@ def face_class(fam: str, weight: int, italic: bool) -> str:
     return f"f{FAMILY_CODE[fam]}{weight // 100}{'i' if italic else ''}"
 
 
+_NO_SPACE_BEFORE = tuple(",.;:!?%)]}\u2019\u201d")
+
+
+def pieces_html(ps: list[Piece], one) -> str:
+    """The pieces' HTML with real word breaks between them. Each piece is positioned on its
+    own, so on screen nothing changes (whitespace between absolute boxes takes no room),
+    but copied text, search engines and screen readers get "Enterprise for" and "credo
+    Nation First", not "Enterprisefor" and "credoNation First"."""
+    out, prev = [], None
+    for p in ps:
+        if prev is not None:
+            text, before = p.text or "0", prev.text or "0"
+            same_line = abs(p.baseline - prev.baseline) < 0.3 * max(p.size, prev.size)
+            touching = same_line and p.x0 - prev.x1 < 0.12 * p.size        # a font change mid-word
+            if not (touching or text.startswith(_NO_SPACE_BEFORE) or (not same_line and before.endswith("-"))):
+                out.append(" ")
+        out.append(one(p))
+        prev = p
+    return "".join(out)
+
+
 def piece_html(p: Piece, W: float, H: float, figures: dict, y0: float = 0.0, x0: float = 0.0) -> str:
     asc, desc = _metrics(p.stem, p.weight)
     top = p.baseline - p.size * (1 + asc - desc) / 2          # line-height:1 box top
@@ -638,12 +659,13 @@ def _build_page(n: int) -> dict:
             continue
         rw, rh = x1 - x0, y1 - y0
         # Only labels wholly inside the crop: a heading that merely touches it would be cut.
-        ov = "".join(piece_html(p, rw, rh, figures, y0, x0) for p in inside
-                     if x0 - 1 <= p.x0 and p.x1 <= x1 + 1 and y0 - 1 <= p.baseline - p.size and p.baseline <= y1 + 1)
+        ov = pieces_html([p for p in inside if x0 - 1 <= p.x0 and p.x1 <= x1 + 1
+                          and y0 - 1 <= p.baseline - p.size and p.baseline <= y1 + 1],
+                         lambda p: piece_html(p, rw, rh, figures, y0, x0))
         vis[bid] = {"w": rw, "h": rh, "img_w": _n(W / rw * 100), "left": _n((x0) / rw * 100),
                     "top": _n((y0 - c0) / rh * 100), "html": ov}
     return {"n": n, "kind": "part", "W": W, "c0": c0, "c1": c1, "webp": webp(crop), "pdf_page": printed, "bg_w": crop.width,
-            "bg_h": crop.height, "body": "".join(piece_html(p, W, H, figures, c0) for p in inside), "ocr": ocr,
+            "bg_h": crop.height, "body": pieces_html(inside, lambda p: piece_html(p, W, H, figures, c0)), "ocr": ocr,
             "vis": vis}
 
 

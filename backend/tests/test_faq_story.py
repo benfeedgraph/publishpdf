@@ -178,7 +178,7 @@ def test_continuous_page_drops_page_furniture_contents_and_blank_pages():
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     html_ = files[base + "index.html"].decode()
-    parts = re.findall(r'<section class="part[^"]*" id="p(\d+)"', html_)
+    parts = re.findall(r'<div class="leaf" id="p(\d+)">', html_)
     assert parts == ["1", "3", "4", "5"]                        # contents (2) and blank (6) pages left out
     assert "ACME LIMITED ANNUAL REPORT" not in html_           # running header trimmed away
     nav = html_[html_.index('class="edition-rail"'):html_.index("</nav>", html_.index('class="edition-rail"'))]

@@ -230,3 +230,10 @@ def test_admin_creates_tenant_with_first_admin_invite(client):
     assert r.status_code == 201
     assert last_link(f"ceo@{slug}.example.com", "/invite")
     assert client.post("/api/admin/tenants", json={"name": "Dup", "slug": slug}).status_code == 409
+
+
+def test_database_outage_is_a_plain_503_without_the_host():
+    from sqlalchemy.exc import OperationalError
+    from app.main import DB_DOWN, _db_unreachable
+    err = OperationalError("SELECT 1", {}, Exception('connection to server at "10.0.0.1", port 40190 failed'))
+    assert _db_unreachable(err) and "10.0.0.1" not in DB_DOWN

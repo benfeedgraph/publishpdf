@@ -218,7 +218,8 @@ PAGES_CSS = """
 .edition-rail a:hover,.edition-rail a:focus-visible{color:var(--c-primary);border-left-color:var(--c-primary);background:var(--c-background)}
 /* The report as one continuous surface: parts meet edge to edge, no page frames. */
 .flow{background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.06),0 0 0 1px var(--c-border)}
-.part{position:relative;width:100%;aspect-ratio:var(--pw)/var(--ph);container-type:inline-size;overflow:hidden;scroll-margin-top:84px}
+.leaf{scroll-margin-top:84px}
+.part{position:relative;width:100%;aspect-ratio:var(--pw)/var(--ph);container-type:inline-size;overflow:hidden}
 .part-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
 .part-t{position:absolute;inset:0;content-visibility:auto}
 .part .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;

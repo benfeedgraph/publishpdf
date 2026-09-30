@@ -337,14 +337,16 @@ table.schema-table caption { text-align: left; padding: 8px 12px; color: var(--m
 pre.json, pre.email { background: var(--pp-midnight); color: #E4E6EC; border-radius: var(--radius); padding: 16px; max-height: 70vh; overflow: auto; font-size: .8rem; }
 
 /* ---- preview ---- */
-.preview-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; }
+.preview-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 960px) { .preview-layout { grid-template-columns: 1fr; } }
 .sections-nav ol { padding-left: 1.1rem; margin: 0 0 1rem; } .sections-nav li { margin: 4px 0; }
-.preview-panes.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.preview-panes.two { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; }  /* the web page gets the wider column */
 @media (max-width: 1180px) { .preview-panes.two { grid-template-columns: 1fr; } }
 .pdf-pane { position: relative; height: 78vh; overflow: auto; background: var(--pp-slate); border-radius: var(--radius); padding: 10px; }
 .pdf-pane img { display: block; width: 100%; height: auto; margin: 0 auto 10px; background: #fff; border-radius: 4px; }
 .frame-wrap { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); display: flex; justify-content: center; padding: 10px; }
+.frame-stage { position: relative; width: 100%; height: 76vh; overflow: hidden; border-radius: 8px; }
+.frame-stage iframe { position: absolute; top: 0; left: 0; transform-origin: 0 0; max-width: none !important; }
 .frame-wrap iframe { height: 76vh; border: 0; background: #fff; border-radius: 8px; max-width: 100%; box-shadow: var(--shadow); }
 .comments ul { list-style: none; padding: 0; } .comments li { border-top: 1px solid var(--border); padding: 8px 0; }
 .comments h3 { font-size: .9rem; margin: .5rem 0; }

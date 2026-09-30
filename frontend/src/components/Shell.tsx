@@ -1,3 +1,4 @@
+import { forgetMe } from "../session";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { NavLink, useMatch, useNavigate } from "react-router-dom";
@@ -14,6 +15,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
 
   async function signOut() {
     await post("/api/auth/logout");
+    forgetMe();
     qc.clear();
     navigate("/login");
   }

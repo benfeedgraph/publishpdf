@@ -198,9 +198,10 @@ function CreditEstimator() {
 }
 
 export default function Landing() {
+  // The landing page never waits for the server: it's prerendered HTML, shown at once.
+  // A signed-in visitor is forwarded to their workspace as soon as that's known.
   const me = useMe();
-  useReveal(!me.isPending);
-  if (me.isPending) return <p className="center muted">Loading…</p>;
+  useReveal(true);
   if (me.data?.fully_authenticated) {
     const path = workspacePath(me.data);
     if (path !== "/") return <Navigate to={path} replace />;

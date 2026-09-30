@@ -163,3 +163,11 @@ ol.steps li.current { background: var(--lv-grad); color: #fff; border-color: tra
 pre.json, pre.email { background: #1C1838; border-radius: 16px; }
 .tabs, .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .tabs button, .seg button { white-space: nowrap; flex: none; }
+
+/* ---- first-visit skeleton (no "Loading…" text) ---- */
+.sk { border-radius: 12px; background: linear-gradient(90deg, var(--lv-50) 0%, var(--lv-100) 50%, var(--lv-50) 100%); background-size: 200% 100%; animation: sk-shimmer 1.3s ease-in-out infinite; }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.skeleton-shell .sidebar { gap: 10px; padding: 18px 16px; }
+.sk-logo { height: 26px; width: 140px; margin-bottom: 14px; } .sk-nav { height: 30px; }
+.sk-title { height: 30px; width: 40%; margin-bottom: 12px; } .sk-line { height: 14px; width: 60%; margin-bottom: 24px; } .sk-card { height: 140px; margin-bottom: 14px; border-radius: 20px; }

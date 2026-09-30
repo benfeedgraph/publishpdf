@@ -133,3 +133,33 @@ def test_change_headers():
     assert is_change_header("QoQ") == "qoq"
     assert is_change_header("% Change") == "change"
     assert is_change_header("Q2 FY26") is None
+
+
+def _pdf(*pages: str) -> bytes:
+    import pymupdf
+    doc = pymupdf.open()
+    for text in pages:
+        doc.new_page().insert_textbox(pymupdf.Rect(40, 40, 560, 800), text, fontsize=10)
+    return doc.tobytes()
+
+
+def test_detect_annual_report_and_accounts():
+    """ITC-style cover: the legal name mustn't swallow the sentence before it, 'Report and
+    Accounts' is an annual report, and its year is the fiscal year."""
+    from app.extraction.detect import detect_metadata
+    meta = detect_metadata(_pdf(
+        "Contents are hyper-linked to the relevant pages of the report Click 'ITC Limited",
+        "Contents REPORT AND ACCOUNTS 2026 Board of Directors",
+        "ITC has always lived by its vision. Nearly 40 lakh tonnes sourced. Over Rs. 37,000 cr consumer spends. "
+        "Luxury' & Sustainability ITC Hotels Limited",
+    ))
+    assert meta["reporting_unit"] == "₹ crore"          # the money amount, not "40 lakh tonnes"
+    assert meta["company_name"] == "ITC Limited"
+    assert meta["report_type"] == "annual_report"
+    assert (meta["period"], meta["fiscal_year"]) == ("fy", 2026)
+
+
+def test_detect_annual_report_year_range():
+    from app.extraction.detect import detect_metadata
+    meta = detect_metadata(_pdf("Borealis Holdings Annual Report 2024-25"))
+    assert meta["fiscal_year"] == 2025 and meta["report_type"] == "annual_report"

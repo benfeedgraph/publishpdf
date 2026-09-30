@@ -622,10 +622,16 @@ def resolve_comment(report_id: uuid.UUID, version_id: uuid.UUID, comment_id: uui
 
 
 PREVIEW_SYNC = """<script>(function(){var s=[].slice.call(document.querySelectorAll('[data-section]'));
-function cur(){var b=null;s.forEach(function(e){if(e.getBoundingClientRect().top<120)b=e});return b||s[0]}
-var last=null;function tick(){var e=cur();if(e&&e!==last){last=e;parent.postMessage({ppdf:'section',id:e.getAttribute('data-section')},'*')}}
-addEventListener('scroll',tick,{passive:true});addEventListener('load',tick);
-addEventListener('message',function(m){if(m.data&&m.data.ppdf==='goto'){var e=document.querySelector('[data-section="'+m.data.id+'"]');if(e)e.scrollIntoView()}});
+var P=[].slice.call(document.querySelectorAll('.leaf[id^="p"]'));
+function num(e){return +e.id.slice(1)}
+function cur(L){var b=null;L.forEach(function(e){if(e.getBoundingClientRect().top<120)b=e});return b||L[0]}
+var last=null;function tick(){var L=s.length?s:P,e=cur(L);if(!e||e===last)return;last=e;
+parent.postMessage(s.length?{ppdf:'section',id:e.getAttribute('data-section')}:{ppdf:'page',page:num(e)},'*')}
+addEventListener('scroll',tick,{passive:true});
+addEventListener('load',function(){if(P.length&&!s.length){var menu=[].slice.call(document.querySelectorAll('.edition-rail a')).map(function(a){return{label:a.textContent.trim(),page:+a.getAttribute('href').slice(2)}});
+parent.postMessage({ppdf:'edition',menu:menu,parts:P.map(num)},'*')}tick()});
+addEventListener('message',function(m){var d=m.data||{};if(d.ppdf==='goto'){var e=document.querySelector('[data-section="'+d.id+'"]');if(e)e.scrollIntoView()}
+if(d.ppdf==='gotoPage'){var t=P.filter(function(e){return num(e)>=d.page})[0]||P[P.length-1];if(t)t.scrollIntoView()}});
 document.addEventListener('click',function(ev){var a=ev.target.closest('[data-fig]');if(a)parent.postMessage({ppdf:'figure',id:a.getAttribute('data-fig')},'*')});
 })();</script>"""
 

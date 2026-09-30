@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me } from "./api";
+import { cachedMe, forgetMe, rememberMe } from "./session";
 import Shell from "./components/Shell";
 import AdminIssues from "./pages/AdminIssues";
 import AdminJobs from "./pages/AdminJobs";
@@ -27,13 +28,27 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: async () => {
       try {
-        return await api<Me>("/api/auth/me");
+        const me = await api<Me>("/api/auth/me");
+        rememberMe(me);
+        return me;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        if (e instanceof ApiError && e.status === 401) { forgetMe(); return null; }
         throw e;
       }
     },
+    initialData: cachedMe,
+    initialDataUpdatedAt: 0,          // always re-check with the server straight away
   });
+}
+
+/** Shown only on a first visit, while the server confirms who you are. */
+function ShellSkeleton() {
+  return (
+    <div className="shell skeleton-shell" aria-busy="true" aria-label="Opening your workspace">
+      <aside className="sidebar"><div className="sk sk-logo" />{[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="sk sk-nav" />)}</aside>
+      <main className="content"><div className="sk sk-title" /><div className="sk sk-line" /><div className="sk sk-card" /><div className="sk sk-card" /></main>
+    </div>
+  );
 }
 
 export default function App() {
@@ -52,8 +67,8 @@ export default function App() {
 function Authenticated() {
   const me = useMe();
   const location = useLocation();
-  if (me.isPending) return <p className="center muted">Loading…</p>;
-  if (me.isError) return <p className="center error">Couldn't reach the server. Refresh to try again.</p>;
+  if (me.isPending) return <ShellSkeleton />;
+  if (me.isError && !me.data) return <p className="center error">Couldn't reach the server. Refresh to try again.</p>;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (!me.data.fully_authenticated) return <Navigate to="/mfa" replace />;
 

@@ -21,6 +21,18 @@ CSRF_HEADER = "x-ppdf-csrf"
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
+DB_DOWN = "The service can't reach its database right now. Please try again in a minute."
+
+
+def _db_unreachable(exc: BaseException) -> bool:
+    """A lost or refused database connection: the person gets a plain sentence (and a 503),
+    not the server's address; the full error stays in the log."""
+    from sqlalchemy.exc import DBAPIError, OperationalError
+    if isinstance(exc, OperationalError):
+        return True
+    return isinstance(exc, DBAPIError) and bool(exc.connection_invalidated)
+
+
 def _public_failure(exc: Exception) -> str:
     """A sentence safe to show in the browser. Connection strings stay out of it."""
     if isinstance(exc, ValidationError):
@@ -42,6 +54,8 @@ def create_app() -> FastAPI:
         if isinstance(exc, HTTPException):
             return await http_exception_handler(request, exc)
         logging.getLogger("app").exception("request failed")
+        if _db_unreachable(exc):
+            return JSONResponse({"detail": DB_DOWN}, status_code=503, headers={"Retry-After": "30"})
         return JSONResponse({"detail": _public_failure(exc)}, status_code=500)
 
     @app.middleware("http")
