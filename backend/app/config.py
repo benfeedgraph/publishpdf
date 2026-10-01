@@ -106,7 +106,10 @@ class Settings(BaseSettings):
     smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
 
     # --- Storage --------------------------------------------------------------
-    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")  # local | s3
+    # local | s3 | vercel_blob. Unset: Vercel Blob when a Blob store is connected
+    # (Vercel injects BLOB_READ_WRITE_TOKEN), otherwise the local disk.
+    storage_backend: str = Field(default="", alias="STORAGE_BACKEND")
+    blob_read_write_token: str | None = Field(default=None, alias="BLOB_READ_WRITE_TOKEN")
     storage_local_root: str = Field(default="./.data/storage", alias="STORAGE_LOCAL_ROOT")
     # S3-compatible: AWS S3, Cloudflare R2, Railway buckets, MinIO. The names Railway's
     # bucket integration injects (BUCKET, ENDPOINT, ...) are accepted too.

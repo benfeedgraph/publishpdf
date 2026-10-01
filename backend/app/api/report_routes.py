@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections import OrderedDict
 
@@ -117,21 +118,68 @@ async def upload(file: UploadFile = File(...), company_name: str = Form(...), re
         raise _err(e) from e
 
 
+class UploadUrlIn(BaseModel):
+    filename: str
+    size_bytes: int
+
+
+@router.post("/upload-url")
+def upload_url(body: UploadUrlIn, ctx: Context = Depends(require("report.upload"))) -> dict:
+    """Where the browser should send the PDF. With Vercel Blob it goes straight to the
+    private store (no function size cap); otherwise as a normal form upload to /inspect."""
+    limit = get_settings().max_upload_mb * 1024 * 1024
+    if body.size_bytes > limit:
+        raise HTTPException(413, f"The file is larger than the {get_settings().max_upload_mb} MB limit.")
+    key = f"incoming/{uuid.uuid4().hex}.pdf"
+    token = storage.direct_upload_token(ctx, key, limit)
+    if token is None:
+        return {"mode": "form"}
+    return {"mode": "direct", "key": key, "pathname": storage.scoped_key(ctx, key), "token": token}
+
+
+_INCOMING = re.compile(r"^incoming/[0-9a-f]{32}\.pdf$")
+
+
+async def _pdf_from_request(file: UploadFile | None, incoming: str | None) -> tuple[bytes, str, str | None]:
+    """The uploaded PDF: sent in this request, or already uploaded straight to storage."""
+    limit = get_settings().max_upload_mb * 1024 * 1024
+    if file is not None:
+        return await file.read(limit + 1), file.filename or "report.pdf", None
+    if not incoming or not _INCOMING.match(incoming):
+        raise HTTPException(400, "Choose a PDF to upload.")
+    return b"", "report.pdf", incoming
+
+
+def _read_incoming(ctx: Context, key: str) -> bytes:
+    try:
+        return storage.get(ctx, key)
+    except storage.StorageError as e:
+        raise HTTPException(400, "The upload didn't finish. Please choose the file again.") from e
+
+
 @router.post("/inspect")
-async def inspect(file: UploadFile = File(...), ctx: Context = Depends(require("report.upload"))) -> dict:
+async def inspect(file: UploadFile | None = File(None), incoming: str | None = Form(None),
+                  filename: str | None = Form(None), ctx: Context = Depends(require("report.upload"))) -> dict:
     """Step 1 of upload: store the PDF and suggest its metadata for the user to confirm."""
     from app.extraction.detect import detect_metadata
-    limit = get_settings().max_upload_mb * 1024 * 1024
-    data = await file.read(limit + 1)
+    data, name, key = await _pdf_from_request(file, incoming)
+    if key:
+        data, name = _read_incoming(ctx, key), filename or name
     if not data.startswith(b"%PDF-"):
         raise HTTPException(400, "Only PDF files can be uploaded.")
     try:
         with db.session(ctx) as s:
-            src = store_source(s, ctx, data, file.filename or "report.pdf")
+            src = store_source(s, ctx, data, name)
             out = {"source_file_id": str(src.id), "filename": src.original_filename, "page_count": src.page_count,
                    "size_bytes": src.size_bytes}
     except ReportError as e:
         raise _err(e) from e
+    finally:
+        if key:                                 # kept under its content hash now (or rejected)
+            try:
+                storage.delete(ctx, key)
+            except storage.StorageError:
+                pass
     try:
         detected = detect_metadata(data)
     except Exception:  # noqa: BLE001 - suggestions are best-effort

@@ -56,8 +56,8 @@ class LocalBackend:
             p.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             if e.errno == errno.EROFS:      # serverless hosts (Vercel, Lambda) have no writable disk
-                raise StorageError("File storage isn't set up on this server: its disk is read-only. Set "
-                                   "STORAGE_BACKEND=s3 with an S3-compatible bucket.") from e
+                raise StorageError("File storage isn't set up on this server: its disk is read-only. Connect a "
+                                   "Vercel Blob store to the project (or set STORAGE_BACKEND=s3).") from e
             raise
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_bytes(data)
@@ -112,10 +112,93 @@ class S3Backend:
         self.client.delete_object(Bucket=self.bucket, Key=full_key)
 
 
+class VercelBlobBackend:
+    """Vercel Blob, private store: every read needs the store token, nothing is public.
+
+    Speaks the same HTTP API as Vercel's own SDK (@vercel/blob, API version 12), so the
+    worker can run anywhere (e.g. next to the database) with just the token."""
+
+    API = "https://vercel.com/api/blob"
+    API_VERSION = "12"
+
+    def __init__(self, token: str) -> None:
+        import httpx
+
+        parts = token.split("_")
+        if not token.startswith("vercel_blob_rw_") or len(parts) < 5:
+            raise StorageError("BLOB_READ_WRITE_TOKEN isn't a Vercel Blob read-write token")
+        self.token, self.store_id = token, parts[3]
+        self.http = httpx.Client(timeout=httpx.Timeout(120, connect=15), follow_redirects=True,
+                                 transport=httpx.HTTPTransport(retries=3))
+
+    def _headers(self, **extra: str) -> dict[str, str]:
+        return {"authorization": f"Bearer {self.token}", "x-api-version": self.API_VERSION,
+                "x-vercel-blob-store-id": self.store_id, **extra}
+
+    def url(self, full_key: str) -> str:
+        from urllib.parse import quote
+        return f"https://{self.store_id}.private.blob.vercel-storage.com/{quote(full_key)}"
+
+    def _check(self, r, what: str) -> None:
+        if r.status_code >= 400:
+            try:
+                detail = r.json().get("error", {}).get("message", "")
+            except ValueError:
+                detail = ""
+            raise StorageError(f"Vercel Blob {what} failed ({r.status_code}) {detail}".strip())
+
+    def put(self, full_key: str, data: bytes, content_type: str) -> None:
+        r = self.http.put(self.API + "/", params={"pathname": full_key}, content=data, headers=self._headers(**{
+            "x-vercel-blob-access": "private", "x-add-random-suffix": "0", "x-allow-overwrite": "1",
+            "x-content-type": content_type, "x-cache-control-max-age": "60"}))
+        self._check(r, "upload")
+
+    def get(self, full_key: str) -> bytes:
+        # cache=0: a re-rendered file keeps its name, so a cached copy could be stale.
+        r = self.http.get(self.url(full_key), params={"cache": "0"}, headers={"authorization": f"Bearer {self.token}"})
+        if r.status_code == 404:
+            raise StorageError("not found")
+        self._check(r, "download")
+        return r.content
+
+    def exists(self, full_key: str) -> bool:
+        r = self.http.get(self.API, params={"url": self.url(full_key)}, headers=self._headers())
+        if r.status_code == 404:
+            return False
+        self._check(r, "lookup")
+        return True
+
+    def delete(self, full_key: str) -> None:
+        r = self.http.post(self.API + "/delete", json={"urls": [self.url(full_key)]}, headers=self._headers())
+        if r.status_code != 404:
+            self._check(r, "delete")
+
+    def client_upload_token(self, full_key: str, *, max_bytes: int, valid_seconds: int = 900) -> str:
+        """A token the BROWSER uploads with, straight to the store: large PDFs never pass
+        through a size-capped function. It allows one PDF at exactly this key, until it
+        expires. Same format as @vercel/blob's generateClientTokenFromReadWriteToken."""
+        import base64
+        import hmac
+        import json
+        import time
+        payload = base64.b64encode(json.dumps({
+            "pathname": full_key, "allowedContentTypes": ["application/pdf"], "maximumSizeInBytes": max_bytes,
+            "addRandomSuffix": False, "allowOverwrite": True, "validUntil": int((time.time() + valid_seconds) * 1000),
+        }, separators=(",", ":")).encode()).decode()
+        signature = hmac.new(self.token.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return f"vercel_blob_client_{self.store_id}_" + base64.b64encode(f"{signature}.{payload}".encode()).decode()
+
+
 @lru_cache
 def _backend() -> Backend:
     s = get_settings()
-    if s.storage_backend == "s3":
+    kind = s.storage_backend or ("vercel_blob" if s.blob_read_write_token else "local")
+    if kind == "vercel_blob":
+        if not s.blob_read_write_token:
+            raise StorageError("BLOB_READ_WRITE_TOKEN is required when STORAGE_BACKEND=vercel_blob "
+                               "(connect a Blob store to the project in Vercel)")
+        return VercelBlobBackend(s.blob_read_write_token)
+    if kind == "s3":
         if not s.s3_bucket:
             raise StorageError("S3_BUCKET is required when STORAGE_BACKEND=s3")
         endpoint, region = s.s3_endpoint_url or None, s.s3_region or None
@@ -141,3 +224,12 @@ def exists(ctx: Context, key: str) -> bool:
 
 def delete(ctx: Context, key: str) -> None:
     _backend().delete(scoped_key(ctx, key))
+
+
+def direct_upload_token(ctx: Context, key: str, max_bytes: int) -> str | None:
+    """A browser upload token for `key`, when the store takes uploads straight from the
+    browser (Vercel Blob). None: the file goes through the API as a normal form upload."""
+    backend = _backend()
+    if not isinstance(backend, VercelBlobBackend):
+        return None
+    return backend.client_upload_token(scoped_key(ctx, key), max_bytes=max_bytes)

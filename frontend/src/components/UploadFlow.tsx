@@ -17,6 +17,7 @@ export function Dropzone({ tenantId, compact = false }: { tenantId: string; comp
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inspected, setInspected] = useState<Inspected | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
 
   async function handle(file: File | undefined) {
     if (!file) return;
@@ -27,13 +28,30 @@ export function Dropzone({ tenantId, compact = false }: { tenantId: string; comp
     setBusy(true);
     setError(null);
     try {
+      const base = `/api/tenants/${tenantId}/reports`;
       const form = new FormData();
-      form.append("file", file);
-      setInspected(await upload<Inspected>(`/api/tenants/${tenantId}/reports/inspect`, form));
+      // With Vercel Blob the PDF goes from the browser straight to the private store, so
+      // an annual report isn't stopped by the ~4.5 MB limit on requests to the API.
+      const dest = await post<{ mode: "direct" | "form"; key?: string; pathname?: string; token?: string }>(
+        `${base}/upload-url`, { filename: file.name, size_bytes: file.size });
+      if (dest.mode === "direct" && dest.pathname && dest.token && dest.key) {
+        const { put } = await import("@vercel/blob/client");
+        await put(dest.pathname, file, {
+          access: "private", token: dest.token, contentType: "application/pdf", multipart: file.size > 8 * 1024 * 1024,
+          onUploadProgress: ({ percentage }) => setProgress(Math.round(percentage)),
+        });
+        form.append("incoming", dest.key);
+        form.append("filename", file.name);
+      } else {
+        form.append("file", file);
+      }
+      setProgress(null);
+      setInspected(await upload<Inspected>(`${base}/inspect`, form));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
   function onDrop(e: DragEvent) {
@@ -48,7 +66,7 @@ export function Dropzone({ tenantId, compact = false }: { tenantId: string; comp
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}>
         <input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(e) => handle(e.target.files?.[0])} aria-label="Upload a report PDF" />
         <div className="dz-icon"><IconUpload /></div>
-        <p className="dz-title">{busy ? "Reading your PDF…" : "Drop a report PDF here, or click to choose"}</p>
+        <p className="dz-title">{busy ? (progress !== null ? `Uploading… ${progress}%` : "Reading your PDF…") : "Drop a report PDF here, or click to choose"}</p>
         <p className="muted small" style={{ margin: 0 }}>Quarterly results, investor presentations, annual reports — 100+ pages is fine.</p>
         {error && <p className="error" style={{ marginTop: 10 }}>{error}</p>}
       </label>
