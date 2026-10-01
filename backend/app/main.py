@@ -75,11 +75,18 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    def healthz() -> dict:
         with db.session(system_context()) as s:
             s.execute(text("SELECT 1"))
         from app import storage
-        return {"status": "ok", "storage": storage.backend_kind()}     # names only, never credentials
+        import os
+        from app.config import get_settings
+        # Deployment facts for diagnosing a host's setup: names and yes/no only, never values.
+        return {"status": "ok", "storage": storage.backend_kind(),
+                "blob_token": bool(get_settings().blob_read_write_token),
+                "storage_backend_setting": get_settings().storage_backend or None,
+                "commit": (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7] or None,
+                "vercel_env": os.environ.get("VERCEL_ENV")}
 
     @app.get("/api/schema/report.schema.json")
     def report_json_schema() -> Response:
