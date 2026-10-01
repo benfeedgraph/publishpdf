@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
         # Deployment facts for diagnosing a host's setup: names and yes/no only, never values.
         return {"status": "ok", "storage": storage.backend_kind(),
                 "blob_token": bool(get_settings().blob_read_write_token),
+                "blob_store_id": bool(os.environ.get("BLOB_STORE_ID")),       # a store connected via OIDC only
                 "storage_backend_setting": get_settings().storage_backend or None,
                 "commit": (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7] or None,
                 "vercel_env": os.environ.get("VERCEL_ENV")}

@@ -57,8 +57,8 @@ class LocalBackend:
         except OSError as e:
             if e.errno == errno.EROFS:      # serverless hosts (Vercel, Lambda) have no writable disk
                 raise StorageError("File storage isn't set up on this server: its disk is read-only and no "
-                                   "BLOB_READ_WRITE_TOKEN is set. In Vercel, connect a Blob store to THIS "
-                                   "(API) project, then redeploy.") from e
+                                   "BLOB_READ_WRITE_TOKEN is set. Copy the read-write token from your Vercel "
+                                   "Blob store into this project's environment variables, then redeploy.") from e
             raise
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_bytes(data)
