@@ -110,6 +110,17 @@ class Settings(BaseSettings):
     # (Vercel injects BLOB_READ_WRITE_TOKEN), otherwise the local disk.
     storage_backend: str = Field(default="", alias="STORAGE_BACKEND")
     blob_read_write_token: str | None = Field(default=None, alias="BLOB_READ_WRITE_TOKEN")
+
+    @model_validator(mode="after")
+    def _find_blob_token(self) -> "Settings":
+        # Vercel lets a connected Blob store use a custom prefix (e.g. MYSTORE_READ_WRITE_TOKEN);
+        # the token itself always starts with vercel_blob_rw_.
+        if not self.blob_read_write_token:
+            import os
+            self.blob_read_write_token = next(
+                (v for k, v in sorted(os.environ.items())
+                 if k.endswith("READ_WRITE_TOKEN") and v.startswith("vercel_blob_rw_")), None)
+        return self
     storage_local_root: str = Field(default="./.data/storage", alias="STORAGE_LOCAL_ROOT")
     # S3-compatible: AWS S3, Cloudflare R2, Railway buckets, MinIO. The names Railway's
     # bucket integration injects (BUCKET, ENDPOINT, ...) are accepted too.

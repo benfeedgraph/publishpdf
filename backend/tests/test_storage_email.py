@@ -181,3 +181,10 @@ def test_copied_dev_env_local_still_uses_blob_on_vercel(monkeypatch):
     assert storage.backend_kind() == "vercel_blob"
     monkeypatch.delenv("VERCEL")
     assert storage.backend_kind() == "local"          # a real disk: an explicit choice is kept
+
+
+def test_blob_token_found_under_a_custom_prefix(monkeypatch):
+    from app.config import Settings
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
+    monkeypatch.setenv("REPORTS_READ_WRITE_TOKEN", "vercel_blob_rw_STORE9_" + "s" * 30)
+    assert Settings(_env_file=None).blob_read_write_token.startswith("vercel_blob_rw_STORE9_")
