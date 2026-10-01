@@ -56,8 +56,9 @@ class LocalBackend:
             p.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             if e.errno == errno.EROFS:      # serverless hosts (Vercel, Lambda) have no writable disk
-                raise StorageError("File storage isn't set up on this server: its disk is read-only. Connect a "
-                                   "Vercel Blob store to the project (or set STORAGE_BACKEND=s3).") from e
+                raise StorageError("File storage isn't set up on this server: its disk is read-only and no "
+                                   "BLOB_READ_WRITE_TOKEN is set. In Vercel, connect a Blob store to THIS "
+                                   "(API) project, then redeploy.") from e
             raise
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_bytes(data)
@@ -189,10 +190,26 @@ class VercelBlobBackend:
         return f"vercel_blob_client_{self.store_id}_" + base64.b64encode(f"{signature}.{payload}".encode()).decode()
 
 
+def _serverless() -> bool:
+    import os
+    return bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+
+def backend_kind() -> str:
+    """Which store is in use. A serverless host has no writable disk, so "local" there
+    (e.g. STORAGE_BACKEND=local copied from a development .env) yields to a connected
+    Vercel Blob store instead of failing every upload."""
+    s = get_settings()
+    kind = (s.storage_backend or "").strip().lower()
+    if kind in ("", "local") and s.blob_read_write_token and (not kind or _serverless()):
+        return "vercel_blob"
+    return kind or "local"
+
+
 @lru_cache
 def _backend() -> Backend:
     s = get_settings()
-    kind = s.storage_backend or ("vercel_blob" if s.blob_read_write_token else "local")
+    kind = backend_kind()
     if kind == "vercel_blob":
         if not s.blob_read_write_token:
             raise StorageError("BLOB_READ_WRITE_TOKEN is required when STORAGE_BACKEND=vercel_blob "

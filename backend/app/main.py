@@ -78,7 +78,8 @@ def create_app() -> FastAPI:
     def healthz() -> dict[str, str]:
         with db.session(system_context()) as s:
             s.execute(text("SELECT 1"))
-        return {"status": "ok"}
+        from app import storage
+        return {"status": "ok", "storage": storage.backend_kind()}     # names only, never credentials
 
     @app.get("/api/schema/report.schema.json")
     def report_json_schema() -> Response:

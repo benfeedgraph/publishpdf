@@ -13,7 +13,7 @@ def test_read_only_disk_says_what_to_configure(tmp_path, monkeypatch):
     def ro(*a, **k):
         raise OSError(errno.EROFS, "Read-only file system")
     monkeypatch.setattr(storage.Path, "mkdir", ro)
-    with pytest.raises(storage.StorageError, match="STORAGE_BACKEND=s3"):
+    with pytest.raises(storage.StorageError, match="BLOB_READ_WRITE_TOKEN"):
         backend.put("t/x.pdf", b"x", "application/pdf")
 
 
@@ -170,3 +170,14 @@ def test_form_upload_when_storage_takes_no_direct_uploads(client):
     add_member(t, u, Role.client_admin)
     sign_in(client, u)
     assert client.post(f"/api/tenants/{t.id}/reports/upload-url", json={"filename": "a.pdf", "size_bytes": 10}).json() == {"mode": "form"}
+
+
+def test_copied_dev_env_local_still_uses_blob_on_vercel(monkeypatch):
+    from app.config import Settings
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_STORE1_" + "s" * 30)
+    monkeypatch.setattr(storage, "get_settings", lambda: Settings(_env_file=None))
+    monkeypatch.setenv("VERCEL", "1")
+    assert storage.backend_kind() == "vercel_blob"
+    monkeypatch.delenv("VERCEL")
+    assert storage.backend_kind() == "local"          # a real disk: an explicit choice is kept
