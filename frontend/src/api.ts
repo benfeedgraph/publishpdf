@@ -111,6 +111,8 @@ export interface VersionDetail extends Version {
   page_count: number | null;
   pages: { page: number; width: number; height: number; method: "text_layer" | "ocr"; method_reason?: string }[];
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];
+  /** Set while the next step is queued: how long it has waited and whether any worker is running. */
+  queue: { waiting: boolean; waiting_seconds: number; workers_alive: number | null; stalled: boolean } | null;
 }
 
 export interface Report {

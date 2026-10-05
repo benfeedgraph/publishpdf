@@ -182,6 +182,43 @@ def periodic(interval: float) -> Callable[[Callable[[], object]], Callable[[], o
 
 _CURRENT: dict[str, Any] = {}          # the job this worker slot is running: {"id", "since", "worker"}
 
+# A worker slot beats every HEARTBEAT whether busy or idle; one not seen for WORKER_ALIVE
+# is treated as gone. Lets /healthz and the progress screen tell "no worker is running"
+# apart from "the queue is empty".
+WORKER_ALIVE = timedelta(seconds=90)
+# A job queued longer than this with no live worker is reported as stalled.
+QUEUE_STALL = timedelta(minutes=2)
+
+
+def beat(worker_id: str) -> None:
+    with db.session(system_context()) as s:
+        s.execute(text("""INSERT INTO worker_heartbeats (worker_id) VALUES (:w)
+                          ON CONFLICT (worker_id) DO UPDATE SET seen_at = now()"""), {"w": worker_id})
+        s.execute(text("DELETE FROM worker_heartbeats WHERE seen_at < now() - interval '1 day'"))
+
+
+def queue_health() -> dict[str, Any]:
+    """Counts only (no tenant data): live workers, queue depth, and how long the oldest
+    queued job has waited. `stalled` = work is waiting and nothing is taking it."""
+    with db.session(system_context()) as s:
+        q = s.execute(text("""
+            SELECT count(*) FILTER (WHERE status = 'queued' AND run_after <= now()) AS queued,
+                   count(*) FILTER (WHERE status = 'running') AS running,
+                   extract(epoch FROM now() - min(run_after) FILTER (
+                       WHERE status = 'queued' AND run_after <= now())) AS oldest
+            FROM jobs WHERE status IN ('queued', 'running')""")).one()
+        live = last = None
+        if s.scalar(text("SELECT to_regclass('worker_heartbeats') IS NOT NULL")):
+            hb = s.execute(text("""
+                SELECT count(*) FILTER (WHERE seen_at > now() - make_interval(secs => :alive)) AS live,
+                       extract(epoch FROM now() - max(seen_at)) AS last
+                FROM worker_heartbeats"""), {"alive": WORKER_ALIVE.total_seconds()}).one()
+            live, last = hb.live, hb.last
+    oldest = round(q.oldest) if q.oldest is not None else None
+    stalled = bool(q.queued) and not live and (oldest or 0) > QUEUE_STALL.total_seconds()
+    return {"workers_alive": live, "worker_last_seen_seconds": round(last) if last is not None else None,
+            "queued": q.queued, "running": q.running, "oldest_queued_seconds": oldest, "stalled": stalled}
+
 
 def _watchdog() -> None:  # pragma: no cover - runs in the worker process
     """Keeps the running job's lock fresh, and stops a job that runs past the time limit:
@@ -194,6 +231,10 @@ def _watchdog() -> None:  # pragma: no cover - runs in the worker process
     def loop() -> None:
         while True:
             time.sleep(HEARTBEAT)
+            try:
+                beat(_WORKER_ID[0])
+            except Exception:  # noqa: BLE001
+                log.exception("worker heartbeat failed")
             cur = dict(_CURRENT)
             if not cur:
                 continue
@@ -221,9 +262,17 @@ def _watchdog() -> None:  # pragma: no cover - runs in the worker process
     threading.Thread(target=loop, daemon=True, name="job-watchdog").start()
 
 
+_WORKER_ID: list[str] = [""]
+
+
 def work_forever() -> None:  # pragma: no cover - process entrypoint
     worker_id = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
+    _WORKER_ID[0] = worker_id
     poll = get_settings().job_poll_seconds
+    try:
+        beat(worker_id)
+    except Exception:  # noqa: BLE001 - e.g. migration 0005 not applied yet; jobs still run
+        log.exception("worker heartbeat failed")
     _watchdog()
     log.info("worker %s started; handlers: %s", worker_id, sorted(_HANDLERS))
     last: dict[int, float] = {}

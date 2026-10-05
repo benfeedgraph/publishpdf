@@ -41,7 +41,7 @@ from app.reports import (
     source_key,
     versions_for,
 )
-from app.tenancy import Context
+from app.tenancy import Context, system_context
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}/reports", tags=["reports"])
 
@@ -326,7 +326,26 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["page_count"] = page_count
         out["pages"] = pages
         out["sections"] = sections
-        return out
+    out["queue"] = _queue_for(jobs) if v.status == "processing" else None
+    return out
+
+
+def _queue_for(version_jobs: list[Job]) -> dict | None:
+    """Whether this version's next step is waiting for a worker, and whether any worker is
+    running at all, so the progress screen never says "Reading the PDF" while nothing is."""
+    from app import jobs as jobq
+
+    waiting = next((j for j in reversed(version_jobs) if j.status == "queued"), None)
+    if waiting is None:
+        return None
+    try:
+        health = jobq.queue_health()
+    except Exception:  # noqa: BLE001 - progress info is best-effort
+        return None
+    with db.session(system_context()) as s:
+        secs = s.scalar(text("SELECT greatest(0, extract(epoch FROM now() - :t))"), {"t": waiting.run_after})
+    return {"waiting": True, "waiting_seconds": round(secs or 0),
+            "workers_alive": health["workers_alive"], "stalled": health["stalled"]}
 
 
 @router.get("/{report_id}/versions/{version_id}/schema")

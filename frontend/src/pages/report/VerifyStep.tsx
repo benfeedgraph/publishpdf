@@ -35,7 +35,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   });
   const s = version.validation as (VersionDetail["validation"] & { agents?: Agent[]; consensus?: Record<string, number> }) | null;
   const processing = version.status === "processing";
-  const p = stageProgress(version.stage, version.status);
+  const queue = processing ? version.queue : null;
+  // A queued step hasn't started, whatever stage name the version carries.
+  const p = queue?.waiting ? { pct: 3, label: "Waiting to start", exact: false } : stageProgress(version.stage, version.status);
+  const noWorker = !!queue?.waiting && (queue.stalled || (queue.workers_alive === 0 && queue.waiting_seconds > 30));
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
@@ -57,7 +60,14 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
             <span className="muted small">{version.pages.length ? `${version.pages.length} pages` : version.page_count ? `${version.page_count} pages` : ""}</span>
           </div>
           <div className={`progress ${p.exact ? "" : "indeterminate"}`}><span style={{ width: `${p.pct}%` }} /></div>
-          <p className="muted small" style={{ marginTop: 10 }}>Large reports take a few minutes. You can leave this page — processing continues in the background.</p>
+          {noWorker ? (
+            <div className="callout warn" role="status" style={{ marginTop: 12 }}>
+              <strong>Processing hasn't started yet.</strong> Our processing service isn't running right now, so this report is waiting in line.
+              It will start on its own as soon as the service is back. You don't need to upload it again.
+            </div>
+          ) : (
+            <p className="muted small" style={{ marginTop: 10 }}>Large reports take a few minutes. You can leave this page — processing continues in the background.</p>
+          )}
         </div>
       )}
 

@@ -81,8 +81,17 @@ def create_app() -> FastAPI:
         from app import storage
         import os
         from app.config import get_settings
+        from app import jobs
+        try:
+            queue = jobs.queue_health()
+        except Exception:  # noqa: BLE001 - the queue report must never take the health check down
+            logging.getLogger("app").exception("queue health failed")
+            queue = None
+        # Stays HTTP 200 when the queue is stalled: the API itself is up, and Railway's
+        # deploy health check uses this route. Monitors should alert on "status".
+        status = "degraded" if queue and queue["stalled"] else "ok"
         # Deployment facts for diagnosing a host's setup: names and yes/no only, never values.
-        return {"status": "ok", "storage": storage.backend_kind(),
+        return {"status": status, "queue": queue, "storage": storage.backend_kind(),
                 "blob_token": bool(get_settings().blob_read_write_token),
                 "blob_store_id": bool(os.environ.get("BLOB_STORE_ID")),       # a store connected via OIDC only
                 "storage_backend_setting": get_settings().storage_backend or None,

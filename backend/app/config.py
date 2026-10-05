@@ -34,8 +34,15 @@ def normalize_database_url(url: str) -> str:
     return url
 
 
+def _inside_railway() -> bool:
+    import os
+
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"))
+
+
 def choose_database_url(*candidates: str) -> str:
-    """Pick a URL Vercel can open. A public URL wins over localhost or Railway's private host."""
+    """Pick a URL this host can open. A public URL wins over localhost or Railway's private host;
+    a service running on Railway itself (the worker) may use the private host."""
     cleaned = [c.strip().strip('"').strip("'") for c in candidates if c and c.strip()]
     if not cleaned:
         raise ValueError(
@@ -44,7 +51,7 @@ def choose_database_url(*candidates: str) -> str:
         )
     public = [c for c in cleaned if not _private_database_host(c)]
     chosen = public[0] if public else cleaned[0]
-    if "railway.internal" in chosen:
+    if "railway.internal" in chosen and not _inside_railway():
         raise ValueError(
             "postgres.railway.internal only works inside Railway. Use the public database URL "
             "(DATABASE_PUBLIC_URL), whose host looks like proxy.rlwy.net."

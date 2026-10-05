@@ -319,3 +319,15 @@ def test_admin_can_delete_a_live_report_and_file_that_period_again(admin_client,
     again = upload(admin, t, "acme_q2fy26_results.pdf", period="h2", report_type="annual_report")
     assert again["report_id"] != rid
     assert admin.get(f"/api/tenants/{t.id}/reports/{again['report_id']}").status_code == 200
+
+
+def test_progress_says_waiting_until_a_worker_takes_the_job(admin_client):
+    """The screen must never claim "Reading the PDF" while nothing is reading it."""
+    client, t, _ = admin_client
+    rep = upload(client, t, "acme_q2fy26_results.pdf", period="q3")
+    rid, vid = rep["report_id"], rep["version"]["id"]
+    v = _version(client, t, rid, vid)
+    assert v["status"] == "processing" and v["queue"]["waiting"] is True
+    assert v["queue"]["waiting_seconds"] >= 0 and "workers_alive" in v["queue"]
+    drain()
+    assert _version(client, t, rid, vid)["queue"] is None
