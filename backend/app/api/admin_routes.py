@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import undefer
 
 from app import audit, db, jobs
 from app.api.deps import admin_context
@@ -35,6 +36,7 @@ def list_tenants(ctx: Context = Depends(admin_context)) -> dict:
         members = (select(Membership.tenant_id, func.count().label("n"))
                    .group_by(Membership.tenant_id).subquery())
         rows = s.execute(select(Tenant, func.coalesce(members.c.n, 0))
+                         .options(undefer(Tenant.ai_monthly_credit_limit))
                          .outerjoin(members, members.c.tenant_id == Tenant.id)
                          .order_by(Tenant.created_at.desc())).all()
     from app import ai_usage

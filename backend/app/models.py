@@ -33,7 +33,9 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="active")
     created_at: Mapped[datetime] = _now()
-    ai_monthly_credit_limit: Mapped[int | None] = mapped_column(Integer)   # None = no limit
+    # None = no limit. Deferred: sign-in and every tenant check load Tenant, and must keep
+    # working if this code is deployed before migration 0006 has run.
+    ai_monthly_credit_limit: Mapped[int | None] = mapped_column(Integer, deferred=True)
 
 
 class User(Base):

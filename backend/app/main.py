@@ -46,6 +46,19 @@ def _public_failure(exc: Exception) -> str:
     return f"{type(exc).__name__}: {text_value[:400]}"
 
 
+def _schema_state() -> dict:
+    """Database migration vs the newest migration shipped with this code. Nothing on Vercel
+    runs migrations (the Railway worker does, on deploy), so code can go live ahead of its
+    schema; "behind" makes that visible instead of a mystery 500."""
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+    code = max((p.name.split("_", 1)[0] for p in versions.glob("[0-9][0-9][0-9][0-9]_*.py")), default=None)
+    with db.session(system_context()) as s:
+        current = s.scalar(text("SELECT version_num FROM alembic_version"))
+    return {"db": current, "code": code, "behind": bool(code and current and current < code)}
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="PublishPDF API", version="0.1.0")
 
@@ -53,10 +66,18 @@ def create_app() -> FastAPI:
     async def show_failure(request: Request, exc: Exception):
         if isinstance(exc, HTTPException):
             return await http_exception_handler(request, exc)
-        logging.getLogger("app").exception("request failed")
+        import uuid as _uuid
+        ref = _uuid.uuid4().hex[:8]
+        logging.getLogger("app").exception("request failed (ref %s)", ref)
         if _db_unreachable(exc):
             return JSONResponse({"detail": DB_DOWN}, status_code=503, headers={"Retry-After": "30"})
-        return JSONResponse({"detail": _public_failure(exc)}, status_code=500)
+        from app.config import get_settings
+        if get_settings().env == "development" or isinstance(exc, ValidationError):
+            return JSONResponse({"detail": _public_failure(exc)}, status_code=500)
+        # Production never shows exception text (it can carry SQL and schema details);
+        # the reference finds the full traceback in the server log.
+        return JSONResponse({"detail": f"Something went wrong on our side. Please try again in a moment. (Reference: {ref})"},
+                            status_code=500)
 
     @app.middleware("http")
     async def csrf_and_headers(request: Request, call_next):
@@ -93,9 +114,14 @@ def create_app() -> FastAPI:
             queue = None
         # Stays HTTP 200 when the queue is stalled: the API itself is up, and Railway's
         # deploy health check uses this route. Monitors should alert on "status".
-        status = "degraded" if queue and queue["stalled"] else "ok"
+        try:
+            schema = _schema_state()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("app").exception("schema state failed")
+            schema = None
+        status = "degraded" if (queue and queue["stalled"]) or (schema and schema["behind"]) else "ok"
         # Deployment facts for diagnosing a host's setup: names and yes/no only, never values.
-        return {"status": status, "db_roundtrip_ms": db_ms, "region": os.environ.get("VERCEL_REGION"),
+        return {"status": status, "schema": schema, "db_roundtrip_ms": db_ms, "region": os.environ.get("VERCEL_REGION"),
                 "queue": queue, "storage": storage.backend_kind(),
                 "blob_token": bool(get_settings().blob_read_write_token),
                 "blob_store_id": bool(os.environ.get("BLOB_STORE_ID")),       # a store connected via OIDC only

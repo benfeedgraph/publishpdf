@@ -94,3 +94,32 @@ def test_local_disk_worker_refuses_a_remote_database(monkeypatch):
     monkeypatch.setattr(storage, "backend_kind", lambda: "vercel_blob")
     monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@db.proxy.rlwy.net:1/x")
     assert cli.worker_refusal() is None
+
+
+def test_healthz_reports_the_schema_against_the_code(client):
+    body = client.get("/healthz").json()
+    assert body["schema"]["code"] == body["schema"]["db"] and body["schema"]["behind"] is False
+
+
+def test_production_500s_never_show_exception_text(client, monkeypatch):
+    from app.config import get_settings
+    from app.main import app
+
+    @app.get("/api/_boom_for_test")
+    def boom():
+        raise RuntimeError('column tenants.secret does not exist [SQL: SELECT tenants.secret FROM tenants]')
+
+    monkeypatch.setattr(get_settings(), "env", "production")
+    c = type(client)(app, raise_server_exceptions=False)
+    r = c.get("/api/_boom_for_test")
+    assert r.status_code == 500
+    assert "SQL" not in r.text and "tenants" not in r.text and "Reference:" in r.json()["detail"]
+
+
+def test_sign_in_does_not_load_the_ai_limit_column():
+    """Code can deploy before migration 0006; nothing on the sign-in path may select it."""
+    from sqlalchemy import select
+
+    from app.models import Tenant
+    sql = str(select(Tenant).compile())
+    assert "ai_monthly_credit_limit" not in sql
