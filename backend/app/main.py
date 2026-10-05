@@ -76,8 +76,12 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> dict:
+        import time
         with db.session(system_context()) as s:
             s.execute(text("SELECT 1"))
+            t0 = time.perf_counter()
+            s.execute(text("SELECT 1"))
+            db_ms = round((time.perf_counter() - t0) * 1000)   # one round trip, API host -> database
         from app import storage
         import os
         from app.config import get_settings
@@ -91,7 +95,8 @@ def create_app() -> FastAPI:
         # deploy health check uses this route. Monitors should alert on "status".
         status = "degraded" if queue and queue["stalled"] else "ok"
         # Deployment facts for diagnosing a host's setup: names and yes/no only, never values.
-        return {"status": status, "queue": queue, "storage": storage.backend_kind(),
+        return {"status": status, "db_roundtrip_ms": db_ms, "region": os.environ.get("VERCEL_REGION"),
+                "queue": queue, "storage": storage.backend_kind(),
                 "blob_token": bool(get_settings().blob_read_write_token),
                 "blob_store_id": bool(os.environ.get("BLOB_STORE_ID")),       # a store connected via OIDC only
                 "storage_backend_setting": get_settings().storage_backend or None,

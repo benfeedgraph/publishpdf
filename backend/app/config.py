@@ -172,6 +172,10 @@ class Settings(BaseSettings):
     # Your plan's prices, USD per million tokens — confirm against Google's current price list.
     gemini_price_in_per_m: float = Field(default=0.30, alias="GEMINI_PRICE_IN_PER_M")
     gemini_price_out_per_m: float = Field(default=2.50, alias="GEMINI_PRICE_OUT_PER_M")
+    # Claude section labelling (LLM assist), USD per million tokens. Defaults are Anthropic's
+    # first-party Sonnet 5 list prices; set these if LLM_MODEL is changed.
+    anthropic_price_in_per_m: float = Field(default=2.00, alias="ANTHROPIC_PRICE_IN_PER_M")
+    anthropic_price_out_per_m: float = Field(default=10.00, alias="ANTHROPIC_PRICE_OUT_PER_M")
     # What one credit is worth in USD; estimates and usage are shown in credits.
     ai_credit_usd: float = Field(default=0.01, alias="AI_CREDIT_USD")
 

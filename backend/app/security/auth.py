@@ -290,15 +290,21 @@ class AuthState:
 def resolve_session(token: str | None) -> AuthState | None:
     if not token:
         return None
+    # One query (runs on every request): session + user + "admin anywhere" together.
+    is_admin_q = (select(Membership.id).where(Membership.user_id == User.id,
+                                              Membership.role == Role.client_admin.value)
+                  .exists().label("is_any_admin"))
     with db.session(system_context()) as s:
-        sess = s.scalars(select(AuthSession).where(AuthSession.token_hash == hash_token(token))).first()
-        if sess is None or sess.revoked_at is not None or sess.expires_at <= _now():
+        row = s.execute(select(AuthSession, User, is_admin_q)
+                        .join(User, User.id == AuthSession.user_id)
+                        .where(AuthSession.token_hash == hash_token(token))).first()
+        if row is None:
             return None
-        user = s.get(User, sess.user_id)
-        if user is None or user.disabled_at is not None:
+        sess, user, is_any_admin = row
+        if sess.revoked_at is not None or sess.expires_at <= _now():
             return None
-        is_any_admin = s.scalar(select(func.count()).select_from(Membership).where(
-            Membership.user_id == user.id, Membership.role == Role.client_admin.value)) > 0
+        if user.disabled_at is not None:
+            return None
         s.expunge(user)
         return AuthState(
             user=user,

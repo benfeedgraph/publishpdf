@@ -41,7 +41,7 @@ from app.reports import (
     source_key,
     versions_for,
 )
-from app.tenancy import Context, system_context
+from app.tenancy import Context
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}/reports", tags=["reports"])
 
@@ -339,12 +339,10 @@ def _queue_for(version_jobs: list[Job]) -> dict | None:
     if waiting is None:
         return None
     try:
-        health = jobq.queue_health()
+        health = jobq.queue_health(waiting_since=waiting.run_after)
     except Exception:  # noqa: BLE001 - progress info is best-effort
         return None
-    with db.session(system_context()) as s:
-        secs = s.scalar(text("SELECT greatest(0, extract(epoch FROM now() - :t))"), {"t": waiting.run_after})
-    return {"waiting": True, "waiting_seconds": round(secs or 0),
+    return {"waiting": True, "waiting_seconds": health["waiting_seconds"],
             "workers_alive": health["workers_alive"], "stalled": health["stalled"]}
 
 
@@ -435,7 +433,9 @@ def ai_check_estimate(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context 
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         fids, last = _ai_state(s, v)
-    return {"available": bool(get_settings().gemini_api_key), "estimate": ai_check.estimate(len(fids)), "last": last}
+    from app import ai_usage
+    return {"available": bool(get_settings().gemini_api_key), "estimate": ai_check.estimate(len(fids)), "last": last,
+            "allowance": ai_usage.allowance(ctx)}
 
 
 class AiCheckIn(BaseModel):
@@ -447,7 +447,7 @@ def ai_check_start(report_id: uuid.UUID, version_id: uuid.UUID, body: AiCheckIn,
                    ctx: Context = Depends(require("report.edit_figure"))) -> dict:
     """Start the AI double-check the user just saw the estimate for. Refused if the
     estimate has changed since (so nobody is charged for something they didn't see)."""
-    from app import ai_check, jobs
+    from app import ai_check, ai_usage, jobs
     if not get_settings().gemini_api_key:
         raise HTTPException(400, "AI double-check isn't set up on this platform.")
     with db.session(ctx) as s:
@@ -460,8 +460,13 @@ def ai_check_start(report_id: uuid.UUID, version_id: uuid.UUID, body: AiCheckIn,
             raise HTTPException(409, "There are no flagged figures for the AI to check.")
         if est["credits"] != body.credits_shown:
             raise HTTPException(409, f"The estimate has changed to {est['credits']} credits. Review it and confirm again.")
+        try:
+            ai_usage.check(ctx, est["credits"])
+        except ai_usage.LimitReached as e:
+            raise HTTPException(409, e.message) from e
+        # One attempt only: a retry would pay for every request again.
         job = jobs.enqueue(s, ctx, "pipeline.ai_check", {"version_id": str(v.id)},
-                           idempotency_key=f"ai_check:{v.id}:{v.schema_sha256}")
+                           idempotency_key=f"ai_check:{v.id}:{v.schema_sha256}", max_attempts=1)
         job.version_id = v.id     # the report itself stays as it is; the AI run has its own status
         audit.record(s, ctx, "report.ai_check_requested", target_type="report_version", target_id=v.id, after=est)
         return {"estimate": est, "job_id": str(job.id)}

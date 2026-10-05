@@ -37,9 +37,13 @@ def list_tenants(ctx: Context = Depends(admin_context)) -> dict:
         rows = s.execute(select(Tenant, func.coalesce(members.c.n, 0))
                          .outerjoin(members, members.c.tenant_id == Tenant.id)
                          .order_by(Tenant.created_at.desc())).all()
-        return {"tenants": [{"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
-                             "created_at": t.created_at.isoformat(), "member_count": n}
-                            for t, n in rows]}
+    from app import ai_usage
+    credits = ai_usage.month_credits_by_tenant(ctx)
+    return {"tenants": [{"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
+                         "created_at": t.created_at.isoformat(), "member_count": n,
+                         "ai_credits_month": credits.get(str(t.id), 0),
+                         "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
+                        for t, n in rows]}
 
 
 @router.post("/tenants", status_code=201)
@@ -71,6 +75,23 @@ def update_tenant(tenant_id: uuid.UUID, body: TenantPatch, ctx: Context = Depend
                      tenant_id=t.id, target_type="tenant", target_id=t.id,
                      before={"status": before}, after={"status": t.status})
         return {"id": str(t.id), "status": t.status}
+
+
+class AiLimitIn(BaseModel):
+    monthly_credits: int | None = Field(default=None, ge=0, le=10_000_000)   # None = no limit
+
+
+@router.put("/tenants/{tenant_id}/ai-limit")
+def set_ai_limit(tenant_id: uuid.UUID, body: AiLimitIn, ctx: Context = Depends(admin_context)) -> dict:
+    with db.session(ctx) as s:
+        t = s.get(Tenant, tenant_id)
+        if t is None:
+            raise HTTPException(404, "Tenant not found.")
+        before = t.ai_monthly_credit_limit
+        t.ai_monthly_credit_limit = body.monthly_credits
+        audit.record(s, ctx, "tenant.ai_limit_changed", tenant_id=t.id, target_type="tenant", target_id=t.id,
+                     before={"monthly_credits": before}, after={"monthly_credits": body.monthly_credits})
+        return {"id": str(t.id), "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
 
 
 @router.get("/jobs")
@@ -117,9 +138,10 @@ def tenant_detail(tenant_id: uuid.UUID, ctx: Context = Depends(admin_context)) -
                             .where(Membership.tenant_id == tenant_id)).all()
         jobs_ = s.scalars(select(Job).where(Job.tenant_id == tenant_id).order_by(Job.created_at.desc()).limit(50)).all()
         d = s.scalars(select(Domain).where(Domain.tenant_id == tenant_id, Domain.status != "removed")).first()
-        return {
-            "tenant": {"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
-                       "created_at": t.created_at.isoformat()},
+        tenant_json = {"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
+                       "created_at": t.created_at.isoformat(), "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
+        out = {
+            "tenant": tenant_json,
             "reports": reports,
             "members": [{"user_id": str(u.id), "email": u.email, "role": m.role,
                          "mfa_enrolled": u.totp_enabled_at is not None} for m, u in members],
@@ -127,6 +149,9 @@ def tenant_detail(tenant_id: uuid.UUID, ctx: Context = Depends(admin_context)) -
             "domain": {"hostname": d.hostname, "status": d.status, "failure_reason": d.failure_reason,
                        "last_checked_at": d.last_checked_at.isoformat() if d.last_checked_at else None} if d else None,
         }
+    from app import ai_usage
+    out["ai_usage"] = ai_usage.summary(tctx)
+    return out
 
 
 @router.get("/issues")

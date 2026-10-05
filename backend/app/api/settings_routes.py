@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import audit, db, domain_jobs, domains, storage
 from app.api.deps import require
+from app.config import get_settings as get_platform_settings
 from app.models import Domain, EdgeHit, Report, ReportVersion, Tenant
 from app.render import analyze, site
 from app.render import theme as theming
@@ -63,6 +64,19 @@ def put_settings(body: SettingsIn, ctx: Context = Depends(require("theme.manage"
                      before=before, after=after)
         rebuild_site(s, ctx)
         return after
+
+
+# ------------------------------------------------------------------ AI usage
+
+
+@router.get("/ai-usage")
+def get_ai_usage(ctx: Context = Depends(require("report.view"))) -> dict:
+    """This month's AI spend for the workspace, by feature, with the latest requests."""
+    from app import ai_usage
+    cfg = get_platform_settings()
+    out = ai_usage.summary(ctx)
+    out["available"] = {"ai_check": bool(cfg.gemini_api_key), "section_labels": bool(cfg.anthropic_api_key)}
+    return out
 
 
 # ------------------------------------------------------------------ theme

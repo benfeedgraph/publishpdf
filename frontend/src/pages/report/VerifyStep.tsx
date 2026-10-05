@@ -150,7 +150,8 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
 }
 
 interface AiEstimate { items: number; requests: number; input_tokens: number; output_tokens: number; usd: number; credits: number; model: string; credit_usd: number }
-interface AiState { available: boolean; estimate: AiEstimate; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
+interface AiAllowance { limit: number | null; used: number; remaining: number | null }
+interface AiState { available: boolean; estimate: AiEstimate; allowance?: AiAllowance; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
 
 /** Opt-in AI double-check of the flagged figures, with the cost shown before it runs. */
 function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; reportId: string; versionId: string }) {
@@ -168,8 +169,9 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
     onError: (e: Error) => { setErr(e.message); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
   });
   if (!q.data) return null;
-  const { available, estimate: e, last } = q.data;
+  const { available, estimate: e, last, allowance: a } = q.data;
   const running = last && ["queued", "running"].includes(last.status);
+  const overLimit = !!a && a.remaining !== null && e.credits > a.remaining;
   if (!e.items && !last) return null;
   const done = last?.status === "succeeded" && last.result;
   return (
@@ -184,7 +186,13 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
         </div>
       )}
       {!available && <p className="callout info small">AI double-check isn't set up yet: add a Gemini key to the platform settings.</p>}
-      {available && e.items > 0 && !running && (
+      {a && a.limit !== null && (
+        <p className="muted small">This month: {a.used} of {a.limit} AI credits used · {a.remaining} left.</p>
+      )}
+      {available && e.items > 0 && !running && overLimit && (
+        <p className="callout warn small">This check needs {e.credits} credits, but your workspace has {a?.remaining} of its monthly AI credits left. Ask your PublishPDF contact to raise the limit.</p>
+      )}
+      {available && e.items > 0 && !running && !overLimit && (
         <button className="primary" disabled={start.isPending}
           onClick={() => { if (window.confirm(`Run the AI double-check on ${e.items} figures for about ${e.credits} credits ($${e.usd.toFixed(4)})?`)) start.mutate(e.credits); }}>
           Run AI double-check · ≈ {e.credits} credits
@@ -195,7 +203,7 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
       {done && last?.result && (
         <p className="small" style={{ marginBottom: 0 }}>Last run: <strong>{last.result.confirmed}</strong> confirmed · <strong>{last.result.disagreed}</strong> need you · used <strong>{last.result.credits}</strong> credits (${last.result.usd.toFixed(4)}, {(last.result.input_tokens + last.result.output_tokens).toLocaleString()} tokens).</p>
       )}
-      {last?.status === "failed" && <p className="error small">The last AI run didn't finish: {last.error ?? "unknown error"}. Nothing was changed.</p>}
+      {last?.status === "failed" && <p className="error small">The last AI run didn't finish: {last.error ?? "unknown error"}. Nothing in the report was changed; any requests that did run are counted under Settings → AI usage.</p>}
     </div>
   );
 }

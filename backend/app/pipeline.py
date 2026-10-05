@@ -65,14 +65,19 @@ def _fail(ctx: Context, vid: uuid.UUID, message: str) -> None:
                   .values(status="failed", error_plain=message))
 
 
-def _llm_for(ctx: Context) -> classify.LlmCall | None:
-    """Only when the tenant opted in AND a key is configured (PLAN D4)."""
+def _llm_for(ctx: Context, version_id: uuid.UUID | None = None) -> classify.LlmCall | None:
+    """Only when the tenant opted in AND a key is configured (PLAN D4), and the workspace
+    hasn't used up its monthly AI credits. Every call is recorded in the AI usage ledger."""
+    from app import ai_usage
+
     cfg = get_settings()
     if not cfg.anthropic_api_key:
         return None
     with db.session(ctx) as s:
         if not settings_for(s, ctx).llm_assist_enabled:
             return None
+    if not ai_usage.can_run_automatic(ctx):
+        return None
 
     def call(prompt: str) -> str:
         import httpx
@@ -83,7 +88,12 @@ def _llm_for(ctx: Context) -> classify.LlmCall | None:
                   "Classify each report section. Reply with JSON only: {\"<id>\": \"<type>\"} using allowed_types. "
                   "Never output numbers or dates.", "messages": [{"role": "user", "content": prompt}]})
         r.raise_for_status()
-        return "".join(b.get("text", "") for b in r.json().get("content", []))
+        body = r.json()
+        usage = body.get("usage") or {}
+        ai_usage.record(ctx, feature="section_labels", provider="anthropic", model=body.get("model") or cfg.llm_model,
+                        input_tokens=int(usage.get("input_tokens") or 0),
+                        output_tokens=int(usage.get("output_tokens") or 0), version_id=version_id)
+        return "".join(b.get("text", "") for b in body.get("content", []))
     return call
 
 
@@ -114,7 +124,7 @@ def stage_extract(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
                 last["t"] = time.monotonic()
                 _set_stage(ctx, vid, f"extract: reading page {done} of {total}")
 
-        schema, artifact = extract(pdf, meta, llm=_llm_for(ctx), max_pages=get_settings().max_pages, progress=on_page)
+        schema, artifact = extract(pdf, meta, llm=_llm_for(ctx, vid), max_pages=get_settings().max_pages, progress=on_page)
     except PdfError as e:
         _fail(ctx, vid, str(e))
         raise UserFacingError(str(e)) from e
@@ -256,8 +266,19 @@ def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         sha, vid = v.source_sha256, v.id
     if not fids:
         return {"items": 0}
+    from app import ai_usage
+    try:                                   # re-checked here: others may have spent since the click
+        ai_usage.check(ctx, ai_check.estimate(len(fids))["credits"])
+    except ai_usage.LimitReached as e:
+        raise UserFacingError(e.message) from e
     pdf = storage.get(ctx, source_key(sha))
-    out = ai_check.run(schema, pdf, fids, ai_check.transport())
+    model = get_settings().gemini_model
+
+    def spent(tin: int, tout: int) -> None:
+        ai_usage.record(ctx, feature="ai_check", provider="gemini", model=model,
+                        input_tokens=tin, output_tokens=tout, version_id=vid)
+
+    out = ai_check.run(schema, pdf, fids, ai_check.transport(), on_usage=spent)
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None

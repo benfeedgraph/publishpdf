@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Path, Request, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 
 from app import db
 from app.config import get_settings
@@ -51,10 +51,11 @@ def tenant_ctx(tenant_id: uuid.UUID = Path(...), state: AuthState = Depends(full
     """Resolve the caller's role in `tenant_id`. Non-members get 404 (not 403), so
     tenant ids can't be probed for existence."""
     probe = tenant_context(state.user.id, tenant_id, None, platform_admin=state.user.is_platform_admin)
-    with db.session(probe) as s:
-        tenant = s.get(Tenant, tenant_id)
-        membership = s.scalars(select(Membership).where(Membership.tenant_id == tenant_id,
-                                                        Membership.user_id == state.user.id)).first()
+    with db.session(probe) as s:                    # one query: runs on every tenant request
+        row = s.execute(select(Tenant, Membership).outerjoin(
+            Membership, and_(Membership.tenant_id == Tenant.id, Membership.user_id == state.user.id))
+            .where(Tenant.id == tenant_id)).first()
+    tenant, membership = row if row else (None, None)
     if tenant is None or (membership is None and not state.user.is_platform_admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found.")
     if tenant.status != "active" and not state.user.is_platform_admin:

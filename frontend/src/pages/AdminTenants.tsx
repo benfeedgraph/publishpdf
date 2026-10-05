@@ -10,6 +10,8 @@ interface TenantRow {
   status: "active" | "suspended";
   created_at: string;
   member_count: number;
+  ai_credits_month: number;
+  ai_monthly_credit_limit: number | null;
 }
 
 const slugify = (s: string) =>
@@ -95,6 +97,7 @@ export default function AdminTenants() {
               <th scope="col">Name</th>
               <th scope="col">Slug</th>
               <th scope="col">Members</th>
+              <th scope="col" className="num">AI credits this month</th>
               <th scope="col">Status</th>
               <th scope="col">Created</th>
               <th scope="col"><span className="sr-only">Actions</span></th>
@@ -106,6 +109,7 @@ export default function AdminTenants() {
                 <td><Link to={`/admin/tenants/${t.id}`}>{t.name}</Link></td>
                 <td className="mono">{t.slug}</td>
                 <td>{t.member_count}</td>
+                <td className="num">{t.ai_credits_month.toLocaleString()}{t.ai_monthly_credit_limit !== null && <span className="muted small"> / {t.ai_monthly_credit_limit.toLocaleString()}</span>}</td>
                 <td><span className={`status status-${t.status}`}>{t.status}</span></td>
                 <td className="nowrap">{formatDateTime(t.created_at)}</td>
                 <td className="right">

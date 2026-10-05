@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, post, put, useTenantRole } from "../api";
 import { useMe } from "../App";
+import AiUsagePanel, { type AiUsageSummary } from "../components/AiUsage";
 
 interface S { disclaimer: string | null; effective_disclaimer: string | null; robots_policy: string; llm_assist_enabled: boolean }
 
@@ -52,11 +53,23 @@ export default function Settings() {
           <h2>AI-assisted section labels</h2>
           <label className="check"><input type="checkbox" checked={llm} disabled={!isAdmin} onChange={(e) => setLlm(e.target.checked)} /> Let an AI model help label sections that our rules can't classify</label>
           <p className="muted small">Off by default. Only section headings with every digit removed are sent; the model can only pick a section type. It never sees, produces or changes a figure. Requires the platform operator to have configured a provider.</p>
+          <p className="muted small">When on, it runs automatically on each upload and re-run where some headings are left unlabelled, and uses AI credits. Every call is recorded below under AI usage with its real cost, and it stops running once your workspace reaches its monthly AI credit limit.</p>
         </div>
         {isAdmin && <div><button className="primary" disabled={save.isPending}>Save settings</button> {msg && <span className="small" role="status">{msg}</span>}</div>}
       </form>
+      <AiUsageCard tenantId={tenantId!} />
       <TwoFactor />
     </>
+  );
+}
+
+function AiUsageCard({ tenantId }: { tenantId: string }) {
+  const q = useQuery({ queryKey: ["ai-usage", tenantId], queryFn: () => api<AiUsageSummary>(`/api/tenants/${tenantId}/ai-usage`) });
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h2>AI usage</h2>
+      {q.isError ? <p className="error small">{q.error.message}</p> : q.data ? <AiUsagePanel data={q.data} tenantId={tenantId} /> : <p className="muted small">Loading…</p>}
+    </div>
   );
 }
 

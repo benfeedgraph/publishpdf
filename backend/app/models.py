@@ -33,6 +33,7 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default="active")
     created_at: Mapped[datetime] = _now()
+    ai_monthly_credit_limit: Mapped[int | None] = mapped_column(Integer)   # None = no limit
 
 
 class User(Base):

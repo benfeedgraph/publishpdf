@@ -80,3 +80,17 @@ def test_railway_private_db_host_allowed_only_on_railway(monkeypatch):
         choose_database_url(url)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     assert choose_database_url(url).startswith("postgresql+psycopg://u:p@postgres.railway.internal")
+
+
+def test_local_disk_worker_refuses_a_remote_database(monkeypatch):
+    from app import cli, storage
+    from app.config import get_settings
+
+    monkeypatch.setattr(storage, "backend_kind", lambda: "local")
+    monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@db.proxy.rlwy.net:1/x")
+    assert "Refusing to start the worker" in cli.worker_refusal()
+    monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@localhost:54329/x")
+    assert cli.worker_refusal() is None
+    monkeypatch.setattr(storage, "backend_kind", lambda: "vercel_blob")
+    monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@db.proxy.rlwy.net:1/x")
+    assert cli.worker_refusal() is None

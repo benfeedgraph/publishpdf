@@ -8,7 +8,8 @@ drops to a warning; a disagreement stays with a person, with the AI's reading sh
 
 Cost is estimated before anything runs, from token counts x the configured Gemini
 prices, and shown in credits (AI_CREDIT_USD per credit). Actual usage — from the
-provider's own token counts — is recorded on the job and in the audit log.
+provider's own token counts — is written to the ai_usage ledger after every request
+(app/ai_usage.py), and totalled on the job and in the audit log.
 """
 
 from __future__ import annotations
@@ -146,9 +147,14 @@ class Outcome:
     credits: int
 
 
-def run(schema: dict, pdf_bytes: bytes, fids: list[str], transport: Transport) -> Outcome:
+UsageSink = Callable[[int, int], None]     # (input_tokens, output_tokens) of one request
+
+
+def run(schema: dict, pdf_bytes: bytes, fids: list[str], transport: Transport,
+        on_usage: UsageSink | None = None) -> Outcome:
     """Reads each figure's crop and records the outcome on the figure (schema is updated
-    in place). Only confirmations change anything downstream, and only to a warning."""
+    in place). Only confirmations change anything downstream, and only to a warning.
+    `on_usage` is called after EACH request, so spend is recorded even if a later one fails."""
     from app.validation import reextraction_matches
 
     cfg = get_settings()
@@ -162,8 +168,11 @@ def run(schema: dict, pdf_bytes: bytes, fids: list[str], transport: Transport) -
             figs = [schema["figures"][fid] for fid in batch]
             resp = transport(_request([crop_png(doc, f) for f in figs]))
             usage = resp.get("usageMetadata") or {}
-            tin += int(usage.get("promptTokenCount") or 0)
-            tout += int(usage.get("candidatesTokenCount") or 0)
+            bin_, bout = int(usage.get("promptTokenCount") or 0), int(usage.get("candidatesTokenCount") or 0)
+            tin += bin_
+            tout += bout
+            if on_usage is not None:
+                on_usage(bin_, bout)
             for f, read in zip(figs, _parse(resp, len(figs))):
                 match = bool(read) and reextraction_matches(f["raw"], read, f["kind"])
                 f["ai_check"] = {"raw": f["raw"], "read": read, "match": match, "model": cfg.gemini_model, "at": now}

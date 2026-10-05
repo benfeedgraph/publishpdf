@@ -197,27 +197,34 @@ def beat(worker_id: str) -> None:
         s.execute(text("DELETE FROM worker_heartbeats WHERE seen_at < now() - interval '1 day'"))
 
 
-def queue_health() -> dict[str, Any]:
+_QUEUE_HEALTH = text("""
+    SELECT q.queued, q.running, q.oldest, hb.live, hb.last,
+           extract(epoch FROM now() - CAST(:since AS timestamptz)) AS since
+    FROM (SELECT count(*) FILTER (WHERE status = 'queued' AND run_after <= now()) AS queued,
+                 count(*) FILTER (WHERE status = 'running') AS running,
+                 extract(epoch FROM now() - min(run_after) FILTER (
+                     WHERE status = 'queued' AND run_after <= now())) AS oldest
+          FROM jobs WHERE status IN ('queued', 'running')) q,
+         (SELECT count(*) FILTER (WHERE seen_at > now() - make_interval(secs => :alive)) AS live,
+                 extract(epoch FROM now() - max(seen_at)) AS last
+          FROM worker_heartbeats) hb
+""")
+
+
+def queue_health(waiting_since: Any = None) -> dict[str, Any]:
     """Counts only (no tenant data): live workers, queue depth, and how long the oldest
-    queued job has waited. `stalled` = work is waiting and nothing is taking it."""
+    queued job has waited. `stalled` = work is waiting and nothing is taking it.
+    One statement: /healthz and the progress screen poll this. With `waiting_since`,
+    also returns `waiting_seconds` (server clock, so the browser's clock never matters)."""
     with db.session(system_context()) as s:
-        q = s.execute(text("""
-            SELECT count(*) FILTER (WHERE status = 'queued' AND run_after <= now()) AS queued,
-                   count(*) FILTER (WHERE status = 'running') AS running,
-                   extract(epoch FROM now() - min(run_after) FILTER (
-                       WHERE status = 'queued' AND run_after <= now())) AS oldest
-            FROM jobs WHERE status IN ('queued', 'running')""")).one()
-        live = last = None
-        if s.scalar(text("SELECT to_regclass('worker_heartbeats') IS NOT NULL")):
-            hb = s.execute(text("""
-                SELECT count(*) FILTER (WHERE seen_at > now() - make_interval(secs => :alive)) AS live,
-                       extract(epoch FROM now() - max(seen_at)) AS last
-                FROM worker_heartbeats"""), {"alive": WORKER_ALIVE.total_seconds()}).one()
-            live, last = hb.live, hb.last
+        q = s.execute(_QUEUE_HEALTH, {"alive": WORKER_ALIVE.total_seconds(), "since": waiting_since}).one()
     oldest = round(q.oldest) if q.oldest is not None else None
-    stalled = bool(q.queued) and not live and (oldest or 0) > QUEUE_STALL.total_seconds()
-    return {"workers_alive": live, "worker_last_seen_seconds": round(last) if last is not None else None,
-            "queued": q.queued, "running": q.running, "oldest_queued_seconds": oldest, "stalled": stalled}
+    stalled = bool(q.queued) and not q.live and (oldest or 0) > QUEUE_STALL.total_seconds()
+    out = {"workers_alive": q.live, "worker_last_seen_seconds": round(q.last) if q.last is not None else None,
+           "queued": q.queued, "running": q.running, "oldest_queued_seconds": oldest, "stalled": stalled}
+    if waiting_since is not None:
+        out["waiting_seconds"] = max(0, round(q.since or 0))
+    return out
 
 
 def _watchdog() -> None:  # pragma: no cover - runs in the worker process

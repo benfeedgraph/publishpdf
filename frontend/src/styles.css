@@ -412,3 +412,5 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); border-color: #C5
 
 .ai-estimate { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0 14px; }
 .ai-estimate .stat { flex: 1 1 160px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table-wrap { overflow-x: auto; position: relative; max-width: 100%; }

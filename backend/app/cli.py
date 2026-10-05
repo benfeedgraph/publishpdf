@@ -64,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
         from app import jobs
         from app.config import get_settings
 
+        refusal = worker_refusal()
+        if refusal:
+            logging.getLogger("app.cli").error(refusal)
+            print(refusal, file=sys.stderr)
+            return 2
         jobs.supervise(args.concurrency or get_settings().job_concurrency)
         return 0
 
@@ -73,6 +78,23 @@ def main(argv: list[str] | None = None) -> int:
         print(Fernet.generate_key().decode())
         return 0
     return 1
+
+
+def worker_refusal() -> str | None:
+    """A worker that keeps files on its own disk can only process uploads made on the same
+    machine. Pointed at a shared (remote) database it claims other hosts' jobs, can't find
+    their PDFs, and fails them: a laptop running scripts/dev.sh against the production
+    database failed a live report exactly this way."""
+    from app import storage
+    from app.config import _private_database_host, get_settings
+
+    s = get_settings()
+    if storage.backend_kind() == "local" and not _private_database_host(s.database_owner_url):
+        return ("Refusing to start the worker: files are stored on this machine's disk "
+                "(STORAGE_BACKEND=local) but the database is remote, so this worker would take "
+                "jobs whose PDFs it cannot read and fail them. Point DATABASE_*_URL at a local "
+                "database, or configure the shared file store (BLOB_READ_WRITE_TOKEN or S3).")
+    return None
 
 
 def _seed_demo(admin_email: str) -> int:
