@@ -40,9 +40,14 @@ def tesseract_bin() -> str:
     return path
 
 
+# Callers run many Tesseract processes side by side (one per core). Tesseract's own
+# OpenMP threads on top of that oversubscribe the CPU and make every call slower.
+_TESS_ENV = {**__import__("os").environ, "OMP_THREAD_LIMIT": "1"}
+
+
 def _run(png: bytes, *args: str, timeout: int = 180) -> str:
     proc = subprocess.run([tesseract_bin(), "stdin", "stdout", *args], input=png,
-                          capture_output=True, timeout=timeout)
+                          capture_output=True, timeout=timeout, env=_TESS_ENV)
     if proc.returncode != 0:
         raise RuntimeError(f"tesseract failed: {proc.stderr.decode(errors='replace')[:500]}")
     return proc.stdout.decode("utf-8", errors="replace")

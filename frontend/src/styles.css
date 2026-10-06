@@ -406,7 +406,9 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); border-color: #C5
 .review-tile.on { opacity: 1; border-color: var(--accent-200, var(--border)); }
 .review-tile label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .review-read code.big { font-size: 1.05rem; }
-.pdf-crop { position: relative; overflow: hidden; width: 100%; background: #fff; border: 1px solid var(--border); border-radius: 6px; }
+/* No border: with border-box sizing it would sit inside the aspect-ratio box while the
+   image offsets are percentages of the padding box, shifting the crop up to a line. */
+.pdf-crop { position: relative; overflow: hidden; width: 100%; background: #fff; box-shadow: 0 0 0 1px var(--border); border-radius: 6px; }
 .pdf-crop img { position: absolute; max-width: none; height: auto; }
 .pdf-crop-hl { position: absolute; outline: 2px solid #e5484d; border-radius: 2px; background: rgba(229,72,77,.08); pointer-events: none; }
 

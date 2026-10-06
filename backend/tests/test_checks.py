@@ -434,3 +434,28 @@ def test_figure_review_trail_is_append_only():
         privs = c.execute(text("SELECT has_table_privilege(current_user, 'figure_reviews', 'UPDATE'), "
                                "has_table_privilege(current_user, 'figure_reviews', 'DELETE')")).one()
     assert privs == (False, False)
+
+
+def test_a_neighbours_edge_is_not_read_as_part_of_the_figure():
+    """"Madhya Pradesh 480 001": the cut-out for 001 must not pick up the edge of 480's last
+    zero (OCR then reads "1001" and a correct value blocks the report)."""
+    import pymupdf
+
+    from app import validation
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    figs = {}
+    y = 120
+    for i, (a, b) in enumerate((("480", "001"), ("249", "403"), ("456", "335"), ("431", "401"))):
+        # set tight, as on the scanned page: 1.5 pt between the numbers
+        w = pymupdf.get_text_length(a, fontname="helv", fontsize=9)
+        page.insert_text((72, y), a, fontname="helv", fontsize=9)
+        page.insert_text((72 + w + 1.5, y), b, fontname="helv", fontsize=9)
+        for k, raw in enumerate((a, b)):
+            r = [h for h in page.search_for(raw) if abs(h.y1 - y) < 6][0]
+            figs[f"f{i}{k}"] = {"id": f"f{i}{k}", "raw": raw, "kind": "number", "status": "active",
+                                "method": "text_layer", "source": {"page": 1, "bbox": [r.x0, r.y0, r.x1, r.y1]}}
+        y += 20
+    issues = validation.check_reextraction({"figures": figs}, doc, verified=set(), text_confirmed=set())
+    assert [i for i in issues if i.severity == "blocking"] == []

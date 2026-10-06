@@ -532,8 +532,8 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
     index_files = site.render_site_index(company, [dict(e) for e in entries], theme=theme,
                                          disclaimer=effective_disclaimer(st), robots_policy=st.robots_policy,
                                          logo_src=logo_src(theme))
-    for rel, data in index_files.items():
-        storage.put(ctx, SITE_INDEX_PREFIX + rel, data)
+    storage.put_many(ctx, [(SITE_INDEX_PREFIX + rel, data, "application/octet-stream") for rel, data in index_files.items()])
+    for rel in index_files:
         paths["/" + rel] = {"key": SITE_INDEX_PREFIX + rel}
         if rel.endswith("index.html"):
             paths["/" + rel[: -len("index.html")]] = paths["/" + rel]

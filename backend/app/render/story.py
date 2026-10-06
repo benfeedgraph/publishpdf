@@ -119,7 +119,59 @@ def document_order(schema: dict, layout: dict[str, dict]) -> dict[str, list[dict
                 if p["type"] == "paragraph" and p["source"]["page"] == pg and bb and bb[1] < y1 - 6 and bb[3] > y0 + 6:
                     blocks.insert(j, blocks.pop(i))
                     break
-        out[s["id"]] = _join_across_pages(blocks)
+        out[s["id"]] = mend_lists(_join_across_pages(blocks))
+    return out
+
+
+def _directly_below(a: dict, b: dict) -> bool:
+    """b starts right under a on the same page (a wrapped line), not further down. Without
+    positions, adjacency in reading order is all there is to go on."""
+    sa, sb = a.get("source") or {}, b.get("source") or {}
+    if not (sa.get("bbox") and sb.get("bbox")) or sa.get("page") != sb.get("page"):
+        return sa.get("page") == sb.get("page")
+    gap = sb["bbox"][1] - sa["bbox"][3]
+    return -2 <= gap <= 14
+
+
+_INLINE_BULLET = re.compile(r"\s[•▪●]\s")
+
+
+def mend_lists(blocks: list[dict]) -> list[dict]:
+    """Lists as the PDF meant them. Runs are only regrouped, never re-typed:
+    - bullets the PDF ran into one paragraph ("…accuracy • E-Commerce sales…") split back
+      into separate bullets;
+    - a bullet's wrapped line that came out as its own paragraph ("…CAGR of 11% and Segment"
+      | "Results grew at CAGR of 27%") joins its bullet again."""
+    split: list[dict] = []
+    for b in blocks:
+        if b["type"] != "paragraph" or not any("t" in r and _INLINE_BULLET.search(r["t"]) for r in b.get("runs") or []):
+            split.append(b)
+            continue
+        pieces: list[list[dict]] = [[]]
+        for r in b["runs"]:
+            if "t" not in r:
+                pieces[-1].append(r)
+                continue
+            parts = _INLINE_BULLET.split(r["t"])
+            for k, t in enumerate(parts):
+                if k:
+                    pieces.append([{"t": "• "}])
+                if t:
+                    pieces[-1].append({**r, "t": t})
+        pieces = [p for p in pieces if any(("f" in r) or r.get("t", "").strip(" •") for r in p)]
+        split.extend({**b, "id": b["id"] if k == 0 else f"{b['id']}~{k}", "runs": p} for k, p in enumerate(pieces))
+    out: list[dict] = []
+    for b in split:
+        prev = out[-1] if out else None
+        if prev and prev["type"] == b["type"] == "paragraph" and bullet_runs(prev) is not None \
+                and bullet_runs(b) is None and prev.get("runs") and b.get("runs") and not prev.get("_mended") \
+                and _directly_below(prev, b):
+            last = prev["runs"][-1]
+            tail = last.get("t", "x").rstrip() if "t" in last else "x"
+            if tail and tail[-1] not in ".?!:;\"”’)":
+                out[-1] = {**prev, "runs": prev["runs"] + [{"t": " "}] + b["runs"], "_mended": True}
+                continue
+        out.append(b)
     return out
 
 

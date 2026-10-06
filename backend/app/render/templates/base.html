@@ -10,9 +10,9 @@
 <meta property="og:type" content="article">
 <meta property="og:url" content="{{ origin }}{{ canonical_path }}">
 <meta property="og:description" content="{{ description }}">
-{%- if cover %}
-<meta property="og:image" content="{{ cover.href }}">{% endif %}
-<meta name="twitter:card" content="{{ 'summary_large_image' if cover else 'summary' }}">
+{%- if og_cover %}
+<meta property="og:image" content="{{ og_cover.href }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if og_cover else 'summary' }}">
 {%- if alternates %}{% for a in alternates %}
 <link rel="alternate" type="{{ a.type }}" href="{{ a.href }}" title="{{ a.title }}">{% endfor %}{% endif %}
 {%- if fonts_href %}

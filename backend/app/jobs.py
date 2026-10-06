@@ -138,9 +138,21 @@ def _run_claimed(row, job_id: uuid.UUID) -> bool:
     return True
 
 
+_SECRET_PARAM = __import__("re").compile(r"(?i)\b(key|api_key|token|access_token|secret|password)=([^&\s'\"]+)")
+
+
+def redact(text_: str) -> str:
+    """Job errors are stored and shown to platform admins: no credentials in them."""
+    cfg = get_settings()
+    for secret in (cfg.gemini_api_key, cfg.anthropic_api_key, cfg.blob_read_write_token, cfg.app_secret_key):
+        if secret and len(secret) >= 8:
+            text_ = text_.replace(secret, "[redacted]")
+    return _SECRET_PARAM.sub(r"\1=[redacted]", text_)
+
+
 def _record_failure(ctx: Context, job_id: uuid.UUID, attempts: int, max_attempts: int,
                     exc: Exception) -> None:
-    detail = "".join(traceback.format_exception(exc))[-8000:]
+    detail = redact("".join(traceback.format_exception(exc)))[-8000:]
     if isinstance(exc, UserFacingError):
         plain, retry = exc.message, exc.retryable and attempts < max_attempts
     else:

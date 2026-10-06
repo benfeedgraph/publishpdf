@@ -200,65 +200,71 @@ details.chart-data{margin:-.6em 0 1.6em}details.chart-data summary{cursor:pointe
 """
 
 
-REFLOW_MIN_WORDS = 40     # below this a page is mostly pictures: phones see its design, not a text column
+GRAPHIC_FRAGMENT_WORDS = 5   # a "paragraph" this short, among many, is a label inside a graphic
 
-PAGES_CSS = """
-.layout-document:has(.edition){background:var(--c-surface)}
-.edition-bar{background:var(--c-background);border-bottom:1px solid var(--c-border)}
-.edition-bar-in{max-width:1360px;margin:0 auto;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.edition-bar h1{font-size:clamp(1.15em,2vw,1.45em);margin:0;letter-spacing:-.02em}
-.edition-eyebrow{margin:0 0 2px;color:var(--c-primary);font-weight:700;font-size:.76em;letter-spacing:.12em;text-transform:uppercase}
-.edition-actions{margin:0;display:flex;gap:10px;flex-wrap:wrap}
-.edition-menu-btn{display:none}
-.edition-body{max-width:1360px;margin:0 auto;padding:24px 24px 0;display:grid;grid-template-columns:minmax(0,1040px);justify-content:center;gap:32px}
-.edition-body.has-menu{grid-template-columns:250px minmax(0,1040px)}
-.edition-rail{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:.86em;padding:4px 6px 16px 0}
-.edition-rail ol{list-style:none;margin:0;padding:0;border-left:2px solid var(--c-border)}
-.edition-rail a{display:block;padding:6px 12px;margin-left:-2px;border-left:2px solid transparent;color:var(--c-muted);text-decoration:none;line-height:1.35}
-.edition-rail a:hover,.edition-rail a:focus-visible{color:var(--c-primary);border-left-color:var(--c-primary);background:var(--c-background)}
-/* The report as one continuous surface: parts meet edge to edge, no page frames. */
-.flow{background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.06),0 0 0 1px var(--c-border)}
-.leaf{scroll-margin-top:84px}
-.part{position:relative;width:100%;aspect-ratio:var(--pw)/var(--ph);container-type:inline-size;overflow:hidden}
-.part-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
-.part-t{position:absolute;inset:0;content-visibility:auto}
-.part .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
+
+def _words(b: dict) -> int:
+    return sum(len(r.get("t", "").split()) + ("f" in r) for r in b.get("runs") or [])
+
+
+REFLOW_MIN_WORDS = 40     # below this a page is mostly pictures: it is shown as designed, not as text
+
+WEB_CSS = """
+/* ---- web edition: the report as a web page ---- */
+.layout-document:has(.web){background:var(--c-background)}
+.web-hero{background:linear-gradient(180deg,var(--c-primary-soft),var(--c-background) 92%);border-bottom:1px solid var(--c-border)}
+.web-hero-in{max-width:1120px;margin:0 auto;padding:clamp(40px,7vw,96px) 24px clamp(36px,5vw,72px);display:grid;gap:clamp(28px,5vw,72px);align-items:center}
+.web-hero-in.has-cover{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr)}
+.web-eyebrow{margin:0;color:var(--c-primary);font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:.82em}
+.web-hero h1{margin:.3em 0 0;font-size:clamp(2.2em,5.2vw,3.8em);line-height:1.05}
+.web-hero h1>span:not([data-meta]){display:block;margin-top:.35em;font-weight:600;color:var(--c-muted);font-size:.46em;letter-spacing:-.01em;line-height:1.25}
+.web-actions{display:flex;gap:12px;flex-wrap:wrap;margin:32px 0 0}
+.web-cover{margin:0;justify-self:end;width:100%;max-width:420px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--c-border),var(--shadow-3);transform:rotate(1.2deg)}
+.web-toc{max-width:828px;margin:clamp(28px,4vw,48px) auto 0;padding:0 24px}
+.web-toc details{border:1px solid var(--c-border);border-radius:16px;background:var(--c-surface);padding:4px 22px}
+.web-toc summary{cursor:pointer;font-family:var(--font-heading);font-weight:750;font-size:1.05em;padding:14px 0}
+.web-toc ol{list-style:none;margin:2px 0 16px;padding:0;columns:2 300px;column-gap:32px}
+.web-toc li{break-inside:avoid}
+.web-toc a{display:flex;gap:8px;padding:7px 0;color:var(--c-text);text-decoration:none;line-height:1.38;font-size:.94em}
+.web-toc a:hover{color:var(--c-primary)}
+.web-toc .tq{flex:none;min-width:2.5em;font-weight:800;color:var(--c-primary)}
+.web-body{max-width:828px;margin:0 auto;padding:clamp(8px,2vw,24px) 24px 0}
+.web .doc-sec{padding:clamp(34px,4.5vw,52px) 0}
+.web .doc-sec:first-of-type{border-top:0}
+.web .doc-q{font-size:clamp(1.3em,2.3vw,1.65em);line-height:1.28;letter-spacing:-.02em}
+.web .doc-body{font-size:1.09em;line-height:1.78}
+.web .doc-body p:not(.li){text-align:left;hyphens:manual}
+.pa{display:block;height:0;scroll-margin-top:92px}
+.web .doc-sec{scroll-margin-top:80px}
+/* Visuals may run wider than the text column, up to their own size. */
+.web-vis{--ww:min(var(--vw),1040px,calc(100vw - 48px - 2 * var(--qm)))}
+.web-page{--ww:min(1040px,calc(100vw - 48px - 2 * var(--qm)))}
+.web-vis,.web-page{width:var(--ww);margin:30px 0 34px calc((100% - var(--ww)) / 2)}
+.rf-vis{position:relative;overflow:hidden;container-type:inline-size;border-radius:12px;background:#fff;box-shadow:0 0 0 1px var(--c-border),var(--shadow-1)}
+.rf-vis img{position:absolute;max-width:none;height:auto}
+.rf-vis-t{position:absolute;inset:0}
+.rf-vis .w,.part .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;
   word-spacing:calc(var(--ws,0)*1em);transform-origin:0 0;transform:scaleX(var(--k,1));color:#000;font-kerning:normal}
+.part{position:relative;width:100%;aspect-ratio:var(--pw)/var(--ph);container-type:inline-size;overflow:hidden;background:#fff}
+.web-page .part{border-radius:12px;box-shadow:0 0 0 1px var(--c-border),var(--shadow-2)}
+.part-bg{position:absolute;inset:0;width:100%;height:100%;display:block;user-select:none}
+.part-t{position:absolute;inset:0}
 .part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
-.part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent);outline:1px solid color-mix(in srgb,var(--c-primary) 55%,transparent)}
-.part ::selection{background:color-mix(in srgb,var(--c-primary) 30%,transparent)}
-.part-text{margin:0;background:var(--c-surface);border-block:1px solid var(--c-border);padding:10px 5%}
-.part-text summary{cursor:pointer;font-weight:650;color:var(--c-primary)}
-.part-text-in{padding:8px 0 4px;font-size:.95em}
-.flow .doc-note{padding:18px 5% 22px;margin:0;text-align:center;border-top:1px solid var(--c-border)}
+.part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent)}
+.web .doc-note{margin:40px auto 0;padding-top:28px;border-top:1px solid var(--c-border)}
 .to-top{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
-@media (max-width:1100px){.edition-body.has-menu{grid-template-columns:minmax(0,1040px)}
-  .edition-rail{position:static;max-height:none;background:var(--c-background);border:1px solid var(--c-border);border-radius:10px;padding:12px}
-  .edition-rail ol{columns:2 220px;border-left:0}.edition-rail a{border-left:0;padding:5px 4px}
-  .edition-menu-btn{display:inline-flex}}
-/* Phone view: the designed parts give way to the same content re-flowed into one column. */
-.reflow{display:none}
-@media (max-width:700px){
-  .edition-body{padding:0}.edition-bar-in{padding:12px 16px}
-  .flow{box-shadow:none;background:var(--c-background)}
-  .part:has(+ .reflow){display:none}
-  .reflow{display:block;padding:18px 16px 6px;border-bottom:1px solid var(--c-border);font-size:1.02em;line-height:1.65}
-  .reflow p{margin:0 0 .85em}
-  .reflow p.li{position:relative;padding-left:1.3em}
-  .reflow p.li::before{content:"";position:absolute;left:.25em;top:.7em;width:.4em;height:.4em;background:var(--c-primary);transform:rotate(45deg)}
-  .rf-h{font-size:1.2em;line-height:1.3;margin:.4em 0 .6em;color:var(--c-text)}
-  .rf-q{color:var(--c-primary)}
-  .rf-sub{font-weight:650}
-  .rf-stat{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--c-surface);border-radius:8px}
-  .rf-vis{position:relative;overflow:hidden;margin:14px auto 18px;container-type:inline-size;border-radius:6px;background:#fff;width:min(100%,var(--vw))}
-  .rf-vis img{position:absolute;max-width:none;height:auto}
-  .rf-vis-t{position:absolute;inset:0}
-  .rf-vis .w{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);font-size:calc(var(--s)*1cqw);line-height:1;white-space:pre;word-spacing:calc(var(--ws,0)*1em);transform-origin:0 0;transform:scaleX(var(--k,1));color:#000}
-  .reflow .table-wrap{margin:12px -16px;border-radius:0;border-left:0;border-right:0;font-size:.88em}
-  .part-text{display:none}
-  .edition-rail ol{columns:1}
+@media (max-width:860px){
+  .web-hero-in.has-cover{grid-template-columns:1fr}
+  .web-cover{justify-self:start;max-width:280px;transform:none}
 }
-@media print{.edition-bar,.edition-rail,.to-top{display:none}.flow{box-shadow:none}}
+@media (max-width:640px){
+  .web-hero-in,.web-toc,.web-body{padding-left:16px;padding-right:16px}
+  .web-toc details{padding:2px 16px}
+  .web-vis{--ww:min(var(--vw),100%)}
+  .web-page{--ww:100%}
+  .web .doc-body{font-size:1.04em}
+}
+@media print{.web-toc,.to-top,.web-actions{display:none}.web-vis,.web-page{--ww:100%}}
 """
 
 
@@ -321,83 +327,112 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
     files: dict[str, bytes] = {}
     if pdf_bytes:
         methods = {int(k): v for k, v in (m.get("extraction") or {}).get("methods", {}).items()}
-        # A contents table in the PDF (no links) becomes the site's contents menu, and its
-        # page is left out — on the web the menu does that job.
-        skip, menu = set(), []
-        by_slug = {x["slug"]: x for x in sections}
+        page_count = (m.get("source_pdf") or {}).get("page_count")
+        index_links = story.index_links(schema, page_count)
+        # The PDF's own contents page is left out: "In this report" does that job on the web.
         tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
-        for tid, rows in story.index_links(schema, (m.get("source_pdf") or {}).get("page_count")).items():
-            t = tables[tid]
-            if t["source"]["page"] > 5:
-                continue                    # contents live at the front; later tables are content
-            skip.add(t["source"]["page"])
-            for ri, slug in sorted(rows.items()):
-                target = by_slug[slug].get("source", {}).get("page")
-                if target:
-                    menu.append({"page": target, "label": _runs_html(t["rows"][ri]["label"], figures)})
-        # Phone view: each page's content re-flowed into one column — section headings,
-        # paragraphs, tables, and its charts/graphics as crops of the page artwork.
-        reflow: dict[int, list] = {}
+        skip = {tables[tid]["source"]["page"] for tid in index_links if tables[tid]["source"]["page"] <= 5}
         vis_boxes: dict[int, list] = {}
+        words: dict[int, int] = {}
+        table_pages: set[int] = set()
+        page_blocks: dict[int, list] = {}
         for sec in sections:
-            sp = (sec.get("source") or {}).get("page")
-            if sec.get("heading") and sp:
-                reflow.setdefault(sp, []).append({"kind": "heading", "sec": sec})
             for b in sec["blocks"]:
                 pg = (b.get("source") or {}).get("page")
                 if not pg:
                     continue
-                if b["type"] == "chart" and b["source"].get("bbox"):
-                    vis_boxes.setdefault(pg, []).append((b["id"], b["source"]["bbox"]))
-                reflow.setdefault(pg, []).append({"kind": b["type"], "b": b, "sec": sec})
-        # Pages that are mostly pictures (a cover, a photo spread, a scanned page with a
-        # few words) keep their designed look on phones too; the rest re-flow.
-        def _para_words(items):
-            return sum(len(r.get("t", "").split()) + ("f" in r) for it in items if it["kind"] == "paragraph"
-                       for r in it["b"].get("runs") or [])
-        reflow = {pg: story.reflow_order(items) for pg, items in reflow.items()
-                  if _para_words(items) >= REFLOW_MIN_WORDS or any(it["kind"] == "table" for it in items)}
-        # A sentence the PDF carries over a page break reads on in the previous part.
-        prev_pg = None
-        for pg in sorted(reflow):
-            items = reflow[pg]
-            if prev_pg is not None and prev_pg == pg - 1 and items and reflow[prev_pg]:
-                a, b = reflow[prev_pg][-1], items[0]
-                tail = "".join(r.get("t", "") for r in a["b"]["runs"][-1:]).rstrip() if a["kind"] == "paragraph" else "."
-                if a["kind"] == b["kind"] == "paragraph" and story.bullet_runs(b["b"]) is None \
-                        and (not tail or tail[-1] not in ".:?!;"):
-                    a["b"] = {**a["b"], "runs": a["b"]["runs"] + [{"t": " "}] + b["b"]["runs"]}
-                    items.pop(0)
-            prev_pg = pg
-        reflow = {pg: items for pg, items in reflow.items() if items}
-        page_list, art, link_menu = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                           max_pages=max_pages, skip_pages=skip, visuals=vis_boxes,
-                                                           pdf_page_sink=pdf_page_sink)
-        kept = sorted(p["n"] for p in page_list)
-        for it in menu:
-            it["page"] = next((k for k in kept if k >= it["page"]), None)
-        # The PDF's own contents links, where it has them, are the authority.
-        menu = link_menu or [it for it in menu if it["page"]]
+                page_blocks.setdefault(pg, []).append(b)
+                if b["type"] == "paragraph":
+                    words[pg] = words.get(pg, 0) + _words(b)
+                elif b["type"] == "table":
+                    table_pages.add(pg)
+        # A graphic whose words came out as loose fragments ("Ghee & RTE", "#1 in Bridges")
+        # is one picture: one cut-out spanning the charts and fragments, which then aren't
+        # repeated as text. Other charts are cut out one by one, trimmed so one never
+        # shows the top of the next.
+        region_at: dict[str, str] = {}      # first block of a graphic -> its cut-out
+        in_graphic: set[str] = set()
+        for pg, bl in page_blocks.items():
+            charts = [b for b in bl if b["type"] == "chart" and b["source"].get("bbox")]
+            paras = [b for b in bl if b["type"] == "paragraph" and b["source"].get("bbox")]
+            frags = [b for b in paras if 0 < _words(b) <= GRAPHIC_FRAGMENT_WORDS]
+            if charts and len(frags) >= 4 and len(frags) * 2 >= len(paras):
+                members = charts + frags
+                box = [min(b["source"]["bbox"][0] for b in members), min(b["source"]["bbox"][1] for b in members),
+                       max(b["source"]["bbox"][2] for b in members), max(b["source"]["bbox"][3] for b in members)]
+                inside = lambda bb: bb[0] >= box[0] - 2 and bb[1] >= box[1] - 2 and bb[2] <= box[2] + 2 and bb[3] <= box[3] + 2  # noqa: E731
+                members += [b for b in paras if b not in members and inside(b["source"]["bbox"])]
+                rid = f"graphic-p{pg}"
+                vis_boxes[pg] = [(rid, box)]
+                region_at[next(b["id"] for b in bl if b in members)] = rid
+                in_graphic.update(b["id"] for b in members)
+                continue
+            boxes = sorted(([b["id"], list(b["source"]["bbox"])] for b in charts), key=lambda x: x[1][1])
+            for (_, a), (_, nxt) in zip(boxes, boxes[1:]):
+                if a[3] > nxt[1] and a[0] < nxt[2] and nxt[0] < a[2]:
+                    a[3] = max(a[1] + 20, nxt[1] - 2)
+            vis_boxes[pg] = [(bid, tuple(bb)) for bid, bb in boxes]
+        # Only pages the web page shows as pictures need artwork: a picture-led cover, pages
+        # with charts or graphics to cut out, and picture pages. Text pages are web text.
+        total_pages = page_count or max([p for x in sections for p in [(x.get("source") or {}).get("page") or 0]] + [1])
+        wanted = {n for n in range(1, total_pages + 1)
+                  if n == 1 or n in vis_boxes or not (words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages)}
+        page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
+                                                   max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
+                                                   skip_pages=skip | (set(range(1, total_pages + 1)) - wanted))
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
-        # Scanned pages: their text, from the verified blocks, follows the page image.
-        scan_blocks: dict[int, list] = {}
+        # Charts and graphics: cut from their page's artwork, labels as real text on top.
+        crops = {bid: {**v, "bg": p["bg"]} for p in page_list for bid, v in p["vis"].items()}
+        for first_id, rid in region_at.items():
+            if rid in crops:
+                crops[first_id] = crops[rid]
+        crop_pages = {p["n"] for p in page_list if p["vis"]}
+
+        def text_page(n: int) -> bool:
+            return words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages
+        # A picture-led first page is the cover; other picture pages (an infographic spread)
+        # are shown as designed, where they fall. Everything else is web text.
+        cover = page_list[0] if page_list and page_list[0]["n"] == 1 and not text_page(1) else None
+        owner: dict[int, str] = {}            # page -> last section with content on it
+        first: dict[int, str] = {}            # page -> first section with content on it
         for sec in sections:
-            for b in sec["blocks"]:
-                pg = (b.get("source") or {}).get("page")
-                if pg and methods.get(pg) == "ocr" and b["type"] in ("paragraph", "table", "stat"):
-                    scan_blocks.setdefault(pg, []).append({**b, "_section": sec})
-        # A scanned cover or photo page with a few words doesn't need a text box under it.
-        def _words(bl):
-            return sum(len(r.get("t", "").split()) + ("f" in r) for b in bl for r in b.get("runs") or [])
-        scan_blocks = {pg: bl for pg, bl in scan_blocks.items() if any(b["type"] == "table" for b in bl) or _words(bl) >= 25}
-        css_all = Markup(css + pages_mod.fonts_css(href) + PAGES_CSS)
-        files[base.lstrip("/") + "index.html"] = _ENV.get_template("pages.html").render(
+            pgs = {b["source"]["page"] for b in sec["blocks"] if (b.get("source") or {}).get("page")}
+            if (sec.get("source") or {}).get("page"):
+                pgs.add(sec["source"]["page"])
+            for pg in sorted(pgs):
+                owner[pg] = sec["id"]
+                first.setdefault(pg, sec["id"])
+
+        def owner_of(n: int) -> str | None:
+            if n in owner:
+                return owner[n]
+            prior = [x for x in sections if ((x.get("source") or {}).get("page") or 10 ** 9) <= n]
+            return (prior[-1] if prior else sections[0])["id"] if sections else None
+        pictures: dict[str, list] = {}
+        for p in page_list:
+            if p is not cover and not text_page(p["n"]) and p["n"] not in crop_pages:
+                pictures.setdefault(owner_of(p["n"]), []).append(p)
+        # "#p12" links (from the PDF's own links) land on where page 12's content starts.
+        anchors: dict[str, list[int]] = {}
+        for pg, sid in sorted(first.items()):
+            anchors.setdefault(sid, []).append(pg)
+        qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
+        front = sections[0] if sections and not sections[0].get("heading") else None
+        # The cover is shown as designed, and the PDF's contents page is "In this report".
+        hidden = ({1} if cover else set()) | skip
+        front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])
+                        if (b.get("source") or {}).get("page") not in hidden] if front else []
+        doclayout = story.document_layout(schema, {})
+        css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
+        files[base.lstrip("/") + "index.html"] = _ENV.get_template("web.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
-            jsonld=Markup(_jsonld(schema, base)), pages=page_list, scan_blocks=scan_blocks,
-            menu=[{"page": it["page"], "label": Markup(it["label"])} for it in menu], reflow=reflow,
-            qparts={x["id"]: story.question_parts(schema, x) for x in sections},
-            cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
+            jsonld=Markup(_jsonld(schema, base)), qparts=qparts, faq=story.is_faq(schema), front=front,
+            front_blocks=front_blocks, first_q=next((x for x in sections if qparts[x["id"]]), None),
+            toc=[x for x in sections if x.get("heading")], doclayout=doclayout,
+            doc_order=story.document_order(schema, doclayout), heading_ids=story.heading_like(schema),
+            index_links=index_links, crops=crops, graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, pictures=pictures, anchors=anchors,
+            og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
         page_count = (m.get("source_pdf") or {}).get("page_count")

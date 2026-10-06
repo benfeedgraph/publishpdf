@@ -61,6 +61,8 @@ def _schema_state() -> dict:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PublishPDF API", version="0.1.0")
+    from starlette.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)   # report previews are large HTML
 
     @app.exception_handler(Exception)
     async def show_failure(request: Request, exc: Exception):

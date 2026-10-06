@@ -10,13 +10,14 @@ a stage with the same inputs produces the same outputs.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 
-from app import audit, db, storage
+from app import audit, db, jobs, storage
 from app.config import get_settings
 from app.extraction import classify
 from app.extraction.pdf import PdfError
@@ -169,15 +170,28 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
 
     from app.reports import pdf_page_key
 
-    def keep_pdf_page(n: int, data: bytes) -> None:
-        storage.put(ctx, pdf_page_key(v_sha, n), data, "image/webp")
-
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page, pdf_page_sink=keep_pdf_page)
+                               progress=on_page)
     prefix = bundle_prefix(vid)
-    for rel, data in files.items():
-        ctype = site.content_type(rel)
-        storage.put(ctx, prefix + rel, data, ctype)
+    # A re-render (a confirmed figure, a new theme) changes few files: upload only those.
+    # _hashes.json records what is stored; anything missing from it is uploaded.
+    hashes = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
+    try:
+        stored = json.loads(storage.get(ctx, prefix + "_hashes.json"))
+    except Exception:  # noqa: BLE001 - first render of this version
+        stored = {}
+    todo = [(prefix + rel, data, site.content_type(rel)) for rel, data in files.items() if stored.get(rel) != hashes[rel]]
+    done = {"n": 0, "t": 0.0}
+
+    def saved(_key: str) -> None:
+        import time
+        done["n"] += 1
+        if done["n"] == len(todo) or time.monotonic() - done["t"] > 1.5:
+            done["t"] = time.monotonic()
+            _set_stage(ctx, vid, f"render: saving file {done['n']} of {len(todo)}")
+    storage.put_many(ctx, todo, on_done=saved)
+    # The file list goes last: its presence means the whole bundle is stored.
+    storage.put(ctx, prefix + "_hashes.json", json.dumps(hashes).encode(), "application/json")
     storage.put(ctx, prefix + "_files.json", json.dumps(sorted(files)).encode(), "application/json")
     bsha = site.bundle_sha256(files)
     with db.session(ctx) as s:
@@ -185,8 +199,75 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         assert v is not None
         v.bundle_key, v.bundle_sha256 = prefix, bsha
         v.theme_snapshot = {"theme": theme, "contrast_adjustments": adjustments, "disclaimer": disclaimer}
+        if _review_only_change(s, ctx, v, bsha):
+            return {"files": len(files), "bundle_sha256": bsha, "checks": "reused"}
         enqueue_stage(s, ctx, v, "validate")
+        # The review screen's as-printed page images: off the critical path (it renders a
+        # page on demand until they're stored).
+        jobs.enqueue(s, ctx, "pipeline.page_images", {"version_id": str(vid)},
+                     idempotency_key=f"page_images:{v_sha}", max_attempts=2)
     return {"files": len(files), "bundle_sha256": bsha}
+
+
+@handler("pipeline.page_images")
+def stage_page_images(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
+    """Each PDF page as printed, for side-by-side review. Keyed by the PDF's hash, so a
+    re-run or a new version of the same PDF reuses them."""
+    from app.render.pages import BG_SCALE, webp
+    from app.reports import pdf_page_key
+    import pymupdf
+    from PIL import Image
+
+    with db.session(ctx) as s:
+        v = _version(s, payload)
+        sha = v.source_sha256
+    pdf = storage.get(ctx, source_key(sha))
+    doc = pymupdf.open(stream=pdf, filetype="pdf")
+    count = doc.page_count
+    up = storage.Uploader(ctx)
+    try:
+        for n in range(1, count + 1):
+            pix = doc[n - 1].get_pixmap(matrix=pymupdf.Matrix(BG_SCALE, BG_SCALE), alpha=False)
+            up.put(pdf_page_key(sha, n), webp(Image.frombytes("RGB", (pix.width, pix.height), pix.samples)), "image/webp")
+    finally:
+        doc.close()
+        up.finish()
+    return {"pages": count}
+
+
+def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
+    """After a person confirms figures, the checks would find exactly what they found last
+    time when neither what they read (the schema minus review decisions) nor the rendered
+    page changed. Then: apply the decisions to the last run's findings and finish — no
+    minutes-long re-run of every check on a 400-page report."""
+    prev = v.validation_summary or {}
+    if not (prev.get("checked_content_sha") and prev.get("bundle_sha") == bsha and v.schema_json
+            and prev["checked_content_sha"] == validation.checked_content_sha(v.schema_json)):
+        return False
+    run = latest_run_no(s, v.id)
+    rows = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == v.id,
+                                                    ValidationIssue.run_no == run)).all()
+    found = [validation.Issue(r.check_name, r.severity, r.message, r.fid, r.page, r.section_id, r.bbox,
+                              r.expected, r.actual, r.status, r.resolution) for r in rows]
+    # Exactly what a full run applies after its checks: people's decisions, then the AI's.
+    validation.apply_reviews(found, v.schema_json)
+    # (stored findings may already carry the AI's note from an earlier pass: never add it twice)
+    ai_check.apply_confirmations([i for i in found if "AI reading" not in i.message], v.schema_json)
+    for r, i in zip(rows, found):
+        if r.status == "open" and i.status != "open":
+            r.status, r.resolution = i.status, i.resolution
+        if (r.severity, r.message) != (i.severity, i.message):
+            r.severity, r.message = i.severity, i.message
+    summary = {**validation.summarize(v.schema_json, found), "agents": prev.get("agents"),
+               "consensus": prev.get("consensus"), "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha}
+    v.validation_summary = summary
+    v.validated_schema_sha256, v.validated_bundle_sha256 = v.schema_sha256, bsha
+    v.status = "validation_issues" if summary["blocking"] else "needs_review"
+    v.stage = "done"
+    audit.record(s, ctx, "pipeline.validated", target_type="report_version", target_id=v.id,
+                 after={"run": run, "reused_checks": True,
+                        **{k: summary[k] for k in ("figures_checked", "passed", "warnings", "blocking")}})
+    return True
 
 
 # ------------------------------------------------------------------ validate
@@ -201,16 +282,18 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         vid, schema, sha, bundle_key, bsha, sch_sha = v.id, v.schema_json, v.source_sha256, v.bundle_key, v.bundle_sha256, v.schema_sha256
         ext_key = v.extraction_key
     _set_stage(ctx, vid, "validate")
-    pdf = storage.get(ctx, source_key(sha))
-    artifact = json.loads(storage.get(ctx, ext_key))
-    names = json.loads(storage.get(ctx, bundle_key + "_files.json"))
-    files = {n: storage.get(ctx, bundle_key + n) for n in names}
+    first = storage.get_many(ctx, [source_key(sha), ext_key, bundle_key + "_files.json"])
+    pdf, artifact = first[source_key(sha)], json.loads(first[ext_key])
+    names = json.loads(first[bundle_key + "_files.json"])
+    got = storage.get_many(ctx, [bundle_key + n for n in names])
+    files = {n: got[bundle_key + n] for n in names}
     issues, summary = validation.run_all(
         schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
         progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
     validation.apply_reviews(issues, schema)
     ai_check.apply_confirmations(issues, schema)
-    summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"]}
+    summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"],
+               "checked_content_sha": validation.checked_content_sha(schema), "bundle_sha": bsha}
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None
@@ -221,11 +304,13 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         flags = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == vid,
                                                         ValidationIssue.check_name == "reviewer_flag",
                                                         ValidationIssue.status == "open")).all()
-        for i in issues:
-            s.add(ValidationIssue(tenant_id=ctx.tenant_id, version_id=vid, run_no=run, check_name=i.check,
-                                  severity=i.severity, fid=i.fid, page=i.page, section_id=i.section_id, bbox=i.bbox,
-                                  message=i.message, expected=i.expected, actual=i.actual, status=i.status,
-                                  resolution=i.resolution))
+        # One multi-row INSERT per ~1000 issues, not one round trip each: a 400-page report
+        # has ~2,000 issues, and a far-away database turned row-by-row into minutes.
+        if issues:
+            s.execute(insert(ValidationIssue), [dict(
+                tenant_id=ctx.tenant_id, version_id=vid, run_no=run, check_name=i.check, severity=i.severity,
+                fid=i.fid, page=i.page, section_id=i.section_id, bbox=i.bbox, message=i.message,
+                expected=i.expected, actual=i.actual, status=i.status, resolution=i.resolution) for i in issues])
         for fl in flags:
             fl.run_no = run
             summary["blocking"] += 1
@@ -278,7 +363,10 @@ def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         ai_usage.record(ctx, feature="ai_check", provider="gemini", model=model,
                         input_tokens=tin, output_tokens=tout, version_id=vid)
 
-    out = ai_check.run(schema, pdf, fids, ai_check.transport(), on_usage=spent)
+    try:
+        out = ai_check.run(schema, pdf, fids, ai_check.transport(), on_usage=spent)
+    except ai_check.ProviderRejected as e:
+        raise UserFacingError(str(e)) from e
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None

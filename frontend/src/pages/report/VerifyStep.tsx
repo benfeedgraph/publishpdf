@@ -16,7 +16,9 @@ function stageProgress(stage: string | null, status: string): { pct: number; lab
   const m = s.match(/reading page (\d+) of (\d+)/);
   if (m) return { pct: 5 + (Number(m[1]) / Number(m[2])) * 55, label: `Reading page ${m[1]} of ${m[2]}`, exact: true };
   const r = s.match(/building page (\d+) of (\d+)/);
-  if (r) return { pct: 62 + (Number(r[1]) / Number(r[2])) * 8, label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
+  if (r) return { pct: 62 + (Number(r[1]) / Number(r[2])) * 6, label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
+  const u = s.match(/saving file (\d+) of (\d+)/);
+  if (u) return { pct: 68 + (Number(u[1]) / Math.max(1, Number(u[2]))) * 2, label: `Saving the web page — file ${u[1]} of ${u[2]}`, exact: true };
   const v = s.match(/validate: (.+) \((\d+) of (\d+)\)/);
   if (v) return { pct: 70 + (Number(v[2]) / Number(v[3])) * 28, label: `Checking figures — ${v[1]}`, exact: true };
   const key = s.split(":")[0];

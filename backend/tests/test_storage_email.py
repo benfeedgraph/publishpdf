@@ -188,3 +188,78 @@ def test_blob_token_found_under_a_custom_prefix(monkeypatch):
     monkeypatch.delenv("BLOB_READ_WRITE_TOKEN", raising=False)
     monkeypatch.setenv("REPORTS_READ_WRITE_TOKEN", "vercel_blob_rw_STORE9_" + "s" * 30)
     assert Settings(_env_file=None).blob_read_write_token.startswith("vercel_blob_rw_STORE9_")
+
+
+def test_remote_batches_run_in_parallel_and_report_failures(monkeypatch):
+    """A remote store is ~1 s per object from far away; a report is ~50 objects."""
+    import threading
+    import time
+    import uuid as _uuid
+
+    import pytest as _pytest
+
+    from app import storage
+    from app.tenancy import tenant_context
+
+    class SlowRemote:
+        def __init__(self):
+            self.data, self.lock, self.live, self.peak = {}, threading.Lock(), 0, 0
+
+        def _enter(self):
+            with self.lock:
+                self.live += 1
+                self.peak = max(self.peak, self.live)
+
+        def _leave(self):
+            with self.lock:
+                self.live -= 1
+
+        def put(self, k, d, c):
+            self._enter(); time.sleep(0.05); self.data[k] = d; self._leave()
+            if d == b"boom":
+                raise storage.StorageError("upload failed")
+
+        def get(self, k):
+            self._enter(); time.sleep(0.05); self._leave()
+            return self.data[k]
+
+    fake = SlowRemote()
+    monkeypatch.setattr(storage, "_backend", lambda: fake)
+    ctx = tenant_context(None, _uuid.uuid4(), None)
+    items = [(f"k{i}", f"v{i}".encode(), "text/plain") for i in range(16)]
+    t = time.perf_counter()
+    storage.put_many(ctx, items)
+    assert time.perf_counter() - t < 16 * 0.05 / 2 and fake.peak > 1
+    got = storage.get_many(ctx, [k for k, _, _ in items])
+    assert got == {k: d for k, d, _ in items}
+    up = storage.Uploader(ctx)
+    up.put("p1", b"x", "image/webp")
+    up.put("p2", b"boom", "image/webp")
+    with _pytest.raises(storage.StorageError):
+        up.finish()                                   # a failed page upload fails the render
+
+
+def test_a_busy_blob_store_is_retried_not_fatal(monkeypatch):
+    """Vercel Blob answers 503 "Blob service is currently unavailable" under load: one such
+    answer must not fail a whole render."""
+    import httpx
+
+    backend, files = _fake_blob_store()
+    real = backend.http._transport.handler
+    seen = {"n": 0}
+
+    def flaky(req):
+        if req.method == "PUT":
+            seen["n"] += 1
+            if seen["n"] <= 2:
+                return httpx.Response(503, json={"error": {"message": "Blob service is currently unavailable."}})
+        return real(req)
+    backend.http = httpx.Client(transport=httpx.MockTransport(flaky))
+    monkeypatch.setattr(storage.VercelBlobBackend, "RETRY_DELAYS", (0, 0, 0, 0, 0))
+    backend.put("t/a.webp", b"img", "image/webp")
+    assert seen["n"] == 3 and files["t/a.webp"][0] == b"img"
+    # a store that stays down still fails, with the store's own message
+    backend.http = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(503, json={"error": {"message": "down"}})))
+    with pytest.raises(storage.StorageError, match="503"):
+        backend.put("t/b.webp", b"img", "image/webp")

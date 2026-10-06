@@ -123,3 +123,44 @@ def test_sign_in_does_not_load_the_ai_limit_column():
     from app.models import Tenant
     sql = str(select(Tenant).compile())
     assert "ai_monthly_credit_limit" not in sql
+
+
+def test_ocr_split_is_the_same_on_any_machine(monkeypatch):
+    """OCR readings depend on which crops share a batch, so how the work is split must not
+    depend on the machine's CPU count, and chunks must be whole batches."""
+    import os
+
+    from app import validation
+
+    figs = {f"f{i}": {"id": f"f{i}", "kind": "number", "raw": "1", "status": "active",
+                      "source": {"page": 1 + i // 30, "bbox": [0, 0, 1, 1]}} for i in range(2000)}
+    seen = []
+
+    class Pool:
+        def submit(self, fn, pdf, chunk, per):
+            seen.append([f["id"] for f in chunk])
+
+            class F:
+                def result(self):
+                    return {}
+            return F()
+
+    for cores in (2, 10, 64):
+        seen.clear()
+        monkeypatch.setattr(os, "cpu_count", lambda c=cores: c)
+        validation.reextraction_reads_parallel({"figures": figs}, b"", pool=Pool())
+        if cores == 2:
+            first = [list(c) for c in seen]
+        assert seen == first
+    assert len(first) == validation.REREAD_CHUNKS
+    assert all(len(c) % validation.BATCH == 0 for c in first[:-1])
+
+
+def test_stored_job_errors_never_hold_credentials(monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "AQ.secret-gemini-key-123")
+    tb = ("HTTPStatusError: 401 for url 'https://x.googleapis.com/m:gen?key=AQ.secret-gemini-key-123' "
+          "token=abc123 password=hunter2 AQ.secret-gemini-key-123")
+    out = jobs.redact(tb)
+    assert "secret-gemini" not in out and "abc123" not in out and "hunter2" not in out
+    assert "key=[redacted]" in out

@@ -20,7 +20,8 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const base = `/api/tenants/${tenantId}/reports/${report.id}/versions/${version.id}`;
-  const [severity, setSeverity] = useState("");
+  // Open on what blocks publishing; warnings are one filter away.
+  const [severity, setSeverity] = useState("blocking");
   const [status, setStatus] = useState("open");
   const [page, setPage] = useState("");
   const [section, setSection] = useState("");
@@ -37,10 +38,11 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const selected = issues.find((i) => i.id === selectedId) ?? issues[0] ?? null;
   const select = (id: string) => { const n = new URLSearchParams(params); n.set("issue", id); setParams(n, { replace: true }); };
 
-  // Items a person can decide in bulk: open, tied to a spot in the PDF, and not a
-  // page-build fault or a colleague's flag (those need their own answer).
+  // Items a person can decide in bulk: a value tied to a spot in the PDF. Not a page-build
+  // fault or a colleague's flag (those need their own answer), and not a completeness note
+  // ("1 of 17 numbers here weren't captured") — there is no value in it to confirm.
   const bulkable = useMemo(() => issues.filter((i) => i.status === "open" && i.page && i.bbox
-    && !["rendered_page", "schema", "reviewer_flag"].includes(i.check)), [issues]);
+    && !["rendered_page", "schema", "reviewer_flag", "completeness"].includes(i.check)), [issues]);
   const [view, setView] = useState<"grid" | "list" | null>(null);
   const mode = view ?? (bulkable.length > 12 ? "grid" : "list");
 

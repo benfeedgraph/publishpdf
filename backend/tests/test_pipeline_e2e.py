@@ -59,6 +59,10 @@ def test_clean_pdf_goes_all_the_way_to_a_public_page(admin_client):
     assert v["status"] == "needs_review", v
     assert v["validation"]["blocking"] == 0 and v["validation"]["figures_checked"] > 100
     assert [j["kind"] for j in v["jobs"]] == ["pipeline.extract", "pipeline.render", "pipeline.validate"]
+    # the review screen's as-printed page images are a separate job, off the critical path
+    from app.models import Job
+    with db.session(system_context()) as s:
+        assert s.scalars(select(Job).where(Job.kind == "pipeline.page_images", Job.tenant_id == t.id)).first() is not None
 
     schema = client.get(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/schema").json()
     raws = {f["raw"] for f in schema["figures"].values()}
@@ -84,12 +88,15 @@ def test_clean_pdf_goes_all_the_way_to_a_public_page(admin_client):
     assert page.status_code == 200
     assert page.headers["x-robots-tag"].startswith("noindex")
     assert f'<link rel="canonical" href="https://{host}/fy2026/q2/results/">' in page.text
-    assert '<section class="part' in page.text and ">1,234.56<" in page.text and ">(12.30)<" in page.text  # page edition
+    assert 'class="web"' in page.text and ">1,234.56<" in page.text and ">(12.30)<" in page.text  # web edition
     art = pub.get("/fy2026/q2/results/pages/p0001.webp", headers={"host": host})
     assert art.status_code == 200 and art.headers["content-type"] == "image/webp"
     assert pub.get("/fy2026/q2/results/full/", headers={"host": host}).status_code == 404   # no second page
     # readable with JavaScript disabled: the only <script> is non-executable JSON-LD
     assert page.text.count("<script") == page.text.count('<script type="application/ld+json">') == 1
+    # served compressed (a 400-page report is ~7 MB of HTML, ~1 MB gzipped)
+    gz = pub.get("/fy2026/q2/results/", headers={"host": host, "accept-encoding": "gzip"})
+    assert gz.headers.get("content-encoding") == "gzip" and gz.text == page.text
     assert pub.get("/latest/", headers={"host": host}).status_code == 200
     assert "Disallow: /" in pub.get("/robots.txt", headers={"host": host}).text          # preview: never indexed
     sm = pub.get("/sitemap.xml", headers={"host": host}).text
@@ -331,3 +338,81 @@ def test_progress_says_waiting_until_a_worker_takes_the_job(admin_client):
     assert v["queue"]["waiting_seconds"] >= 0 and "workers_alive" in v["queue"]
     drain()
     assert _version(client, t, rid, vid)["queue"] is None
+
+
+def test_a_rerender_uploads_only_changed_files_and_review_images_are_stored(admin_client, monkeypatch):
+    from app import storage
+    from app.reports import enqueue_stage, pdf_page_key
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results.pdf", period="q4")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    with db.session(system_context()) as s:
+        v = s.get(ReportVersion, __import__("uuid").UUID(vid))
+        sha, tid = v.source_sha256, v.tenant_id
+    from app.tenancy import tenant_context
+    ctx = tenant_context(None, tid, None)
+    assert storage.exists(ctx, pdf_page_key(sha, 1))                 # background review images ran
+    puts = []
+    real = storage.put_many
+    monkeypatch.setattr(storage, "put_many", lambda c, items, on_done=None: (puts.extend(k for k, *_ in items), real(c, items, on_done))[1])
+    with db.session(ctx) as s:
+        enqueue_stage(s, ctx, s.get(ReportVersion, v.id), "render", force=True)
+    drain()
+    assert puts == []                                                # nothing changed: nothing re-uploaded
+
+
+def test_validation_issues_are_saved_in_bulk(admin_client, monkeypatch):
+    """~2,000 issues on a large report must not be one database round trip each."""
+    from sqlalchemy import event
+
+    from app import validation
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results.pdf", period="h1")
+    real = validation.run_all
+
+    def many_issues(*a, **k):
+        issues, summary = real(*a, **k)
+        extra = [validation.Issue("completeness", "warning", f"synthetic {n}") for n in range(2500)]
+        return issues + extra, summary
+    monkeypatch.setattr(validation, "run_all", many_issues)
+    calls = []
+    eng = db.get_engine()
+    listener = lambda conn, cur, stmt, params, ctx, many: calls.append(stmt) if "INSERT INTO validation_issues" in stmt else None  # noqa: E731
+    event.listen(eng, "before_cursor_execute", listener)
+    try:
+        drain()
+    finally:
+        event.remove(eng, "before_cursor_execute", listener)
+    assert 0 < len(calls) <= 5, len(calls)
+    v = _version(client, t, up["report_id"], up["version"]["id"])
+    assert v["validation"]["warnings"] >= 2500
+
+
+def test_confirming_a_figure_reuses_the_checks_instead_of_rerunning_them(admin_client):
+    from app.models import Job
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results_scanned.pdf", period="h2")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}"
+    before = _version(client, t, rid, vid)
+    blocking = [i for i in client.get(f"{base}/issues", params={"status": "open"}).json()["issues"]
+                if i["severity"] == "blocking" and i.get("fid")]
+    assert blocking, "the scanned sample should have something to confirm"
+    with db.session(system_context()) as s:
+        validates = len(s.scalars(select(Job).where(Job.kind == "pipeline.validate", Job.tenant_id == t.id)).all())
+    r = client.post(f"{base}/figures/{blocking[0]['fid']}", json={"action": "confirm"})
+    assert r.status_code == 200, r.text
+    drain()
+    after = _version(client, t, rid, vid)
+    with db.session(system_context()) as s:
+        assert len(s.scalars(select(Job).where(Job.kind == "pipeline.validate", Job.tenant_id == t.id)).all()) == validates
+    assert after["status"] in ("needs_review", "validation_issues")
+    assert after["validation"]["blocking"] < before["validation"]["blocking"]
+    still = {i["id"] for i in client.get(f"{base}/issues", params={"status": "open"}).json()["issues"]}
+    assert blocking[0]["id"] not in still
+    # validated against the current schema + page, so publishing isn't held up by staleness
+    with db.session(system_context()) as s:
+        v = s.get(ReportVersion, __import__("uuid").UUID(vid))
+        assert v.validated_schema_sha256 == v.schema_sha256 and v.validated_bundle_sha256 == v.bundle_sha256

@@ -98,9 +98,17 @@ def gemini_transport(body: dict) -> dict:  # pragma: no cover - live network, ne
 
     cfg = get_settings()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.gemini_model}:generateContent"
-    r = httpx.post(url, params={"key": cfg.gemini_api_key}, json=body, timeout=60)
+    # The key goes in a header, never the URL: URLs end up in tracebacks, logs and job records.
+    r = httpx.post(url, headers={"x-goog-api-key": cfg.gemini_api_key or ""}, json=body, timeout=60)
+    if r.status_code in (401, 403):
+        raise ProviderRejected("The AI provider rejected the platform's Gemini API key (it may be invalid, "
+                               "expired or not enabled for the Gemini API). Nothing was charged.")
     r.raise_for_status()
     return r.json()
+
+
+class ProviderRejected(Exception):
+    """The provider refused the platform's credentials: retrying can't help."""
 
 
 _OVERRIDE: list[Transport] = []      # tests install a fake transport here; never the network

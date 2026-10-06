@@ -175,3 +175,21 @@ def test_platform_admin_sees_usage_and_sets_the_limit(client):
     detail = client.get(f"/api/admin/tenants/{t.id}").json()
     assert detail["ai_usage"]["remaining"] == 48
     assert client.put(f"/api/admin/tenants/{t.id}/ai-limit", json={"monthly_credits": None}).json()["ai_monthly_credit_limit"] is None
+
+
+def test_a_rejected_key_is_a_plain_message_not_a_retry(admin_client, monkeypatch):
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results_scanned.pdf", period="q3")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    url = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/ai-check"
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key-not-real")
+
+    def rejected(_body):
+        raise ai_check.ProviderRejected("The AI provider rejected the platform's Gemini API key. Nothing was charged.")
+    ai_check._OVERRIDE.append(rejected)
+    est = client.get(url).json()["estimate"]
+    assert client.post(url, json={"credits_shown": est["credits"]}).status_code == 202
+    drain()
+    last = client.get(url).json()["last"]
+    assert last["status"] == "failed" and "rejected the platform's Gemini API key" in last["error"]

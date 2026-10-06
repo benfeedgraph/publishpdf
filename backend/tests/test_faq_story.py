@@ -61,27 +61,44 @@ def test_a_wrapped_link_is_not_a_kpi_tile():
     assert not stats
 
 
-def test_the_report_is_one_page_that_looks_like_the_pdf():
+def test_the_report_is_one_web_page_not_a_copy_of_the_pdf():
     pdf = _faq_pdf()
     schema, _ = extract(pdf, META)
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
-    # Exactly one HTML page per report; every PDF page is on it, with its artwork.
+    # Exactly one HTML page per report.
     assert [k for k in files if k.endswith(".html")] == [base + "index.html"]
     html_ = files[base + "index.html"].decode()
-    assert html_.count('<section class="part') == 2 and 'id="p1"' in html_ and 'id="p2"' in html_
-    assert 'class="pg' not in html_ and 'class="flow"' in html_          # one continuous page, no page frames
-    assert {base + "pages/p0001.webp", base + "pages/p0002.webp"} <= set(files)
+    # A web page: hero, "In this report", the questions as real headings with FAQ markup —
+    # no page-by-page artwork, no side rail.
+    assert 'class="web"' in html_ and 'class="web-hero"' in html_ and 'class="web-toc"' in html_
+    assert 'class="edition-rail"' not in html_ and 'class="doc-rail"' not in html_ and 'class="leaf"' not in html_
+    assert html_.count('itemtype="https://schema.org/Question"') == 3
+    qs = [s for s in schema["sections"] if story.question_parts(schema, s)]
+    pos = [html_.index(f'id="{s["slug"]}"') for s in qs]
+    assert pos == sorted(pos)                                        # the PDF's order
+    # The chart is shown inline, cut from the page artwork, not as "see the PDF".
+    assert 'class="web-vis"' in html_ and "This chart is an image in the PDF" not in html_
     assert all(files[k][:4] == b"RIFF" for k in files if k.endswith(".webp"))
-    assert any(k.endswith(".woff2") for k in files) and any(k.endswith("-OFL.txt") for k in files)
-    # The words are real text on the page (search and answer engines read them)…
     assert "diversified portfolio" in html_ and "What is the Company" in html_
     # …and every number reaches the page only as a figure with its exact PDF string.
     assert validation.check_bundle(schema, files) == []
     q1 = next(f for f in schema["figures"].values() if f["raw"] == "Q1" and f["source"]["page"] == 2)
-    assert f'data-fig="{q1["id"]}">Q1<' in html_
-    # The page scales to any screen: positions and sizes are shares of the page width.
-    assert "--x:" in html_ and "cqw" in html_
+    assert re.search(rf'data-fig="{q1["id"]}"[^>]*>Q1<', html_)
+    # Links into the PDF's own pages ("#p2") still land somewhere.
+    assert 'id="p2"' in html_
+
+
+def test_bullets_are_mended_not_retyped():
+    a = {"id": "a", "type": "paragraph", "runs": [{"t": "• FMCG-Others: revenue grew at a CAGR of "}, {"f": "x"}, {"t": " and Segment"}]}
+    b = {"id": "b", "type": "paragraph", "runs": [{"t": "Results grew at CAGR of 27%"}]}
+    c = {"id": "c", "type": "paragraph", "runs": [{"t": "Sales grew fast. • E-Commerce sales rose • Quick commerce too."}]}
+    out = story.mend_lists([a, b, c])
+    assert [x["id"] for x in out] == ["a", "c", "c~1", "c~2"]
+    assert out[0]["runs"][-2:] == [{"t": " "}, {"t": "Results grew at CAGR of 27%"}]     # wrapped line rejoined
+    assert story.bullet_runs(out[2]) == [{"t": "E-Commerce sales rose"}]               # split, glyph only
+    assert "".join(r.get("t", "") for x in out[1:] for r in x["runs"]).replace("• ", "") == \
+        "Sales grew fast.E-Commerce sales roseQuick commerce too."                       # no words lost or added
 
 
 def test_without_the_pdf_the_text_is_laid_out_as_one_flowing_page():
@@ -178,11 +195,10 @@ def test_continuous_page_drops_page_furniture_contents_and_blank_pages():
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     html_ = files[base + "index.html"].decode()
-    parts = re.findall(r'<div class="leaf" id="p(\d+)">', html_)
-    assert parts == ["1", "3", "4", "5"]                        # contents (2) and blank (6) pages left out
+    # Contents (2) and blank (6) pages leave no artwork; the contents become "In this report".
+    assert "pages/p0002.webp" not in " ".join(files) and "pages/p0006.webp" not in " ".join(files)
     assert "ACME LIMITED ANNUAL REPORT" not in html_           # running header trimmed away
-    nav = html_[html_.index('class="edition-rail"'):html_.index("</nav>", html_.index('class="edition-rail"'))]
-    assert 'href="#p3"' in nav and "Chairman" in nav and "Governance" not in nav   # its target page was blank
+    assert 'class="edition-rail"' not in html_
     assert validation.check_bundle(schema, files) == []
 
 

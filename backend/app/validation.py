@@ -178,6 +178,7 @@ def reextraction_matches(raw: str, read: str, kind: str) -> bool:
 
 
 REREAD_DPIS = (300, 600)
+EDGE_KEEP = 0.8        # points kept either side of a figure's box when cutting it out for OCR
 BATCH = 40
 
 
@@ -199,14 +200,19 @@ def ocr_contradicts(raw: str, read: str) -> bool:
     return False
 
 
-def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
-                       verified: set[str] | None = None, text_confirmed: set[str] | None = None) -> list[Issue]:
-    """Render each figure's region and read it with OCR (a different method from the
-    text layer). Pass 1 reads crops in batches (one Tesseract call per ~40 figures);
-    anything not confirmed is re-read individually at three resolutions. A figure passes
-    only if a reading agrees exactly on digits, sign and kind."""
-    figs = [f for f in _active(schema) if f["kind"] in REEXTRACT_KINDS]
-    issues = []
+def _ocr_workers() -> int:
+    """Tesseract runs as one process per call, so OCR scales with CPU cores."""
+    import os
+    return max(2, min(16, os.cpu_count() or 6))
+
+
+def reextraction_reads(figs: list[dict], doc: pymupdf.Document, workers: int) -> dict[str, list[str]]:
+    """Every OCR reading of each figure's region. Pass 1 reads crops in batches (one
+    Tesseract call per ~40 figures); anything not confirmed is read again, batched at a
+    second resolution, then individually in several configurations. Figures go in page
+    order, so a batch's neighbours — which Tesseract's reading depends on — are always
+    the same for the same document."""
+    figs = sorted(figs, key=lambda f: (f["source"]["page"], f["id"]))
 
     def crop(f: dict, dpi: int, loose: bool = False):
         """Tight crop around the figure's own text line. Extra vertical padding pulls in
@@ -221,7 +227,19 @@ def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
             h = y1 - y0
             vpad = 0.4 * h if loose else min(1.2, 0.12 * h)
             clip = pymupdf.Rect(x0 - 3, y0 - vpad, x1 + 3, y1 + vpad) & page.rect
-            ims.append(ocr.render(page, dpi, clip))
+            im = ocr.render(page, dpi, clip)
+            # Only the figure's own glyphs: a neighbour's edge inside the side padding
+            # ("480 001" -> "1001") is painted out. The exact-match rule is unchanged.
+            k = dpi / 72
+            keep0, keep1 = int(max(0.0, x0 - EDGE_KEEP - clip.x0) * k), int(min(clip.width, x1 + EDGE_KEEP - clip.x0) * k)
+            if 0 < keep0 or keep1 < im.width:
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(im)
+                if keep0 > 0:
+                    draw.rectangle([0, 0, keep0 - 1, im.height], fill=255)
+                if keep1 < im.width:
+                    draw.rectangle([keep1, 0, im.width, im.height], fill=255)
+            ims.append(im)
         if len(ims) == 1:
             return ims[0]
         from PIL import Image
@@ -237,13 +255,24 @@ def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
     reads: dict[str, list[str]] = {f["id"]: [] for f in figs}
     ok = lambda f: any(reextraction_matches(f["raw"], r, f["kind"]) for r in reads[f["id"]])  # noqa: E731
 
-    # Pass 1: batched (rendering is single-threaded; OCR runs in parallel).
-    batches = [figs[i:i + BATCH] for i in range(0, len(figs), BATCH)]
-    rendered = [[crop(f, ocr.CROP_DPI) for f in b] for b in batches]
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for b, texts in zip(batches, pool.map(ocr.read_batch, rendered)):
-            for f, t in zip(b, texts):
-                reads[f["id"]].append(t)
+    def batched(group: list[dict], dpi: int) -> None:
+        """One Tesseract call per BATCH crops. Crops are cut on this thread (the PDF
+        document isn't thread-safe) and each batch is read as soon as it's cut, so
+        cutting and reading overlap."""
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = []
+            for i in range(0, len(group), BATCH):
+                b = group[i:i + BATCH]
+                futures.append((b, pool.submit(ocr.read_batch, [crop(f, dpi) for f in b])))
+            for b, fut in futures:
+                for f, t in zip(b, fut.result()):
+                    reads[f["id"]].append(t)
+
+    # Pass 1: every figure, batched.
+    batched(figs, ocr.CROP_DPI)
+    # Pass 1b: what pass 1 didn't confirm, batched again at a different resolution — one
+    # more independent reading configuration, far cheaper than a Tesseract start per figure.
+    batched([f for f in figs if not ok(f)], REREAD_DPIS[0])
     # Pass 2+: individual reads for anything not yet confirmed. Each attempt is a
     # different reading configuration; a figure passes only if one agrees exactly.
     attempts = [
@@ -263,12 +292,26 @@ def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
             for f, (text, _c) in zip([p[0] for p in pending],
                                      pool.map(lambda fc, psm=psm, up=up: ocr.ocr_image(fc[1], psm=psm, upscale=up), pending)):
                 reads[f["id"]].append(text)
+    return reads
+
+
+def check_reextraction(schema: dict, doc: pymupdf.Document | None, workers: int | None = None,
+                       verified: set[str] | None = None, text_confirmed: set[str] | None = None,
+                       reads: dict[str, list[str]] | None = None) -> list[Issue]:
+    """Render each figure's region and read it with OCR (a different method from the
+    text layer). A figure passes only if a reading agrees exactly on digits, sign and kind.
+    `reads` can come from reextraction_reads_parallel (run alongside other checks)."""
+    figs = [f for f in _active(schema) if f["kind"] in REEXTRACT_KINDS]
+    issues = []
+    if reads is None:
+        reads = reextraction_reads(figs, doc, workers or _ocr_workers())
+    ok = lambda f: any(reextraction_matches(f["raw"], r, f["kind"]) for r in reads.get(f["id"], []))  # noqa: E731
     for f in figs:
         if ok(f):
             if verified is not None:
                 verified.add(f["id"])
             continue
-        rs = [r for r in reads[f["id"]] if r]
+        rs = [r for r in reads.get(f["id"], []) if r]
         # Text-layer values that two independent PDF parsers already read identically: when
         # OCR merely failed to read them cleanly, that's a warning. It still blocks when
         # most OCR readings show different digits — the sign of a text layer that doesn't
@@ -286,6 +329,46 @@ def check_reextraction(schema: dict, doc: pymupdf.Document, workers: int = 6,
                                  "A second, independent reading of the PDF page disagrees with this value.",
                                  expected=f["raw"], actual=rs[-1] if rs else "(unreadable)"))
     return issues
+
+
+PARALLEL_REREAD_MIN = 800      # figures; below this one process is faster than starting several
+REREAD_CHUNKS = 4
+
+
+def _reads_chunk(pdf_bytes: bytes, figs: list[dict], workers: int) -> dict[str, list[str]]:
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return reextraction_reads(figs, doc, workers)
+    finally:
+        doc.close()
+
+
+def reextraction_reads_parallel(schema: dict, pdf_bytes: bytes, pool=None) -> dict[str, list[str]]:
+    """The OCR readings for every figure, split by page range across processes (cutting
+    crops is single-threaded per PDF document). Same readings as one process, sooner."""
+    import os
+    figs = [f for f in _active(schema) if f["kind"] in REEXTRACT_KINDS]
+    cores = os.cpu_count() or 4
+    # Always the same split for the same document, whatever the machine: results must not
+    # depend on hardware. Chunks are whole batches, so pass 1 reads identical batches.
+    n = 1 if len(figs) < PARALLEL_REREAD_MIN else REREAD_CHUNKS
+    figs.sort(key=lambda f: (f["source"]["page"], f["id"]))
+    size = max(BATCH, -(-(-(-len(figs) // n)) // BATCH) * BATCH) if figs else 1
+    chunks = [figs[i:i + size] for i in range(0, len(figs), size)] or [[]]
+    per = max(2, -(-cores // len(chunks)) + 1)
+    if pool is None or len(chunks) == 1:
+        out: dict[str, list[str]] = {}
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            out.update(reextraction_reads(figs, doc, _ocr_workers()))
+        finally:
+            doc.close()
+        return out
+    futures = [pool.submit(_reads_chunk, pdf_bytes, c, per) for c in chunks]
+    merged: dict[str, list[str]] = {}
+    for fut in futures:
+        merged.update(fut.result())
+    return merged
 
 
 # ------------------------------------------------------------------ 2b. independent parser (pdfminer)
@@ -344,13 +427,23 @@ def _same_glyphs(s: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", "", s.translate(_HYPHENS))
 
 
-def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None) -> list[Issue]:
+def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None,
+                        pool=None) -> list[Issue]:
     text_pages = {p["page"] for p in artifact["pages"] if p["method"] == "text_layer"}
     figs = [f for f in _active(schema) if f["source"]["page"] in text_pages and not f.get("edited")]
     if not figs:
         return []
     try:
-        words = _pdfminer_words(pdf_bytes, [f["source"]["page"] for f in figs])
+        pages = sorted({f["source"]["page"] for f in figs})
+        if pool is not None and len(pages) > 40:
+            # pdfminer is pure Python: page ranges in separate processes.
+            n = 4
+            size = -(-len(pages) // n)
+            words = {}
+            for part in [pool.submit(_pdfminer_words, pdf_bytes, pages[i:i + size]) for i in range(0, len(pages), size)]:
+                words.update(part.result())
+        else:
+            words = _pdfminer_words(pdf_bytes, pages)
     except Exception as e:  # noqa: BLE001 - a parser crash is itself worth a warning, not a silent pass
         return [Issue("second_parser", "warning", f"The second PDF parser couldn't read this file ({type(e).__name__}).")]
     issues = []
@@ -886,6 +979,29 @@ AGENTS = [
 ]
 
 
+def _check_pool(schema: dict):
+    """A process pool for the large-report checks; None (run in-process) for small reports
+    or where processes can't be started (sandbox, serverless)."""
+    if sum(1 for f in _active(schema) if f["kind"] in REEXTRACT_KINDS) < PARALLEL_REREAD_MIN:
+        return None
+    try:
+        import multiprocessing as mp
+        import os
+        from concurrent.futures import ProcessPoolExecutor
+        return ProcessPoolExecutor(max_workers=min(8, max(2, os.cpu_count() or 4)),
+                                   mp_context=mp.get_context("spawn"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _safe_reads(schema: dict, pdf_bytes: bytes, pool) -> dict[str, list[str]] | None:
+    """OCR readings from the pool; None (so the check reads in-process) if the pool fails."""
+    try:
+        return reextraction_reads_parallel(schema, pdf_bytes, pool)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes] | None,
             *, threshold: float, reextract: bool = True, progress=None) -> tuple[list[Issue], dict[str, Any]]:
     """Runs every validation agent. Each positive confirmation is tallied per figure, so
@@ -901,12 +1017,47 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
         return fn()
 
     issues: list[Issue] = [Issue("schema", "blocking", f"Schema document invalid: {e}") for e in schema_errors(schema)]
-    issues += step("Source trace", lambda: check_traceability(schema, doc, artifact, verified["traceability"]))
-    issues += step("Second PDF parser", lambda: check_second_parser(schema, pdf_bytes, artifact, verified["second_parser"]))
-    if reextract:
-        issues += step("Visual re-read", lambda: check_reextraction(
-            schema, doc, verified=verified["re_extraction"],
-            text_confirmed=verified["traceability"] & verified["second_parser"]))
+    # The slow checks — the second parser and the OCR readings — don't depend on each other,
+    # so on a large report they run side by side in other processes while the rest goes on.
+    pool = _check_pool(schema) if reextract else None
+    try:
+        sp_future = None
+        if pool:
+            import threading
+            sp_box: dict = {}
+            sp_ids: set[str] = set()
+            sp_th = threading.Thread(target=lambda: sp_box.update(r=check_second_parser(schema, pdf_bytes, artifact, sp_ids, pool=pool)),
+                                     daemon=True)
+            sp_th.start()
+            sp_future = (sp_th, sp_box, sp_ids)
+        reads_future = None
+        if pool:
+            import threading
+            box: dict = {}
+            th = threading.Thread(target=lambda: box.update(r=_safe_reads(schema, pdf_bytes, pool)), daemon=True)
+            th.start()
+            reads_future = (th, box)
+        issues += step("Source trace", lambda: check_traceability(schema, doc, artifact, verified["traceability"]))
+
+        def second_parser():
+            if sp_future is None:
+                return check_second_parser(schema, pdf_bytes, artifact, verified["second_parser"])
+            sp_future[0].join()
+            verified["second_parser"].update(sp_future[2])
+            return sp_future[1].get("r", [])
+        issues += step("Second PDF parser", second_parser)
+        if reextract:
+            def reread():
+                reads = None
+                if reads_future:
+                    reads_future[0].join()
+                    reads = reads_future[1].get("r")
+                return check_reextraction(schema, doc, verified=verified["re_extraction"],
+                                          text_confirmed=verified["traceability"] & verified["second_parser"], reads=reads)
+            issues += step("Visual re-read", reread)
+    finally:
+        if pool:
+            pool.shutdown(wait=False, cancel_futures=True)
     issues += step("Arithmetic", lambda: check_arithmetic(schema, verified["arithmetic"]))
     issues += step("Cross-table consistency", lambda: check_cross_tables(schema, verified["cross_table"]))
     issues += step("Periods & units", lambda: check_period_unit(schema))
@@ -951,6 +1102,20 @@ def issue_key(check: str, page: int | None, bbox: list | None, message: str) -> 
     import hashlib
     import json
     return hashlib.sha256(json.dumps([check, page, bbox, message]).encode()).hexdigest()[:24]
+
+
+REVIEW_ONLY_KEYS = ("review", "ai_check")      # per-figure: people's and the AI's decisions
+
+
+def checked_content_sha(schema: dict) -> str:
+    """Hash of everything the checks read: the schema minus review decisions (a confirmed
+    figure, an acknowledged note). Same hash + same rendered bundle = the checks would
+    find exactly the same things again; only which of them are resolved can differ."""
+    import hashlib
+    import json
+    figs = {k: {fk: fv for fk, fv in f.items() if fk not in REVIEW_ONLY_KEYS} for k, f in schema["figures"].items()}
+    core = {**{k: v for k, v in schema.items() if k not in ("figures", "acknowledged")}, "figures": figs}
+    return hashlib.sha256(json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def apply_reviews(issues: list[Issue], schema: dict) -> None:

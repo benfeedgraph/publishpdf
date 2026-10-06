@@ -17,19 +17,34 @@
 </div>
 {%- endmacro -%}
 
+{%- macro vis_crop(c) -%}
+<figure class="web-vis" style="--vw:{{ (c.w * 1.6)|round|int }}px">
+  <div class="rf-vis" style="aspect-ratio:{{ c.w }}/{{ c.h }}"><img src="{{ base_path }}{{ c.bg }}" alt="" loading="lazy" decoding="async" style="width:{{ c.img_w }}%;left:-{{ c.left }}%;top:-{{ c.top }}%"><div class="rf-vis-t">{{ c.html|safe }}</div></div>
+</figure>
+{%- endmacro -%}
+
 {%- macro doc_block(b, figures, section) -%}
-{%- if b.type == 'paragraph' -%}
+{%- if graphic_start is defined and b.id in graphic_start and crops.get(b.id) -%}{{ vis_crop(crops[b.id]) }}
+{%- elif in_graphic is defined and b.id in in_graphic -%}
+{%- elif b.type == 'paragraph' -%}
   {%- set li = bullet_runs(b) -%}
   {%- set ll = lead_label(b.runs) -%}
   {%- if b.id in heading_ids -%}<h3 class="doc-h">{{ runs(b.runs, figures) }}</h3>
   {%- elif li is not none -%}<p class="li">{{ runs(li, figures) }}</p>
   {%- elif ll -%}<p><strong class="lead-label">{{ ll[0] }}</strong> {{ runs(ll[1], figures) }}</p>
   {%- else -%}<p>{{ runs(b.runs, figures) }}</p>{%- endif -%}
+{%- elif b.type == 'chart' and crops is defined and crops.get(b.id) -%}
+{{ vis_crop(crops[b.id]) }}
+{%- if b.extracted and b.points|length > 1 %}
+<details class="chart-data"><summary>Chart values</summary><div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div></details>
+{%- endif %}
 {%- elif b.type == 'chart' and b.extracted -%}
 <div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div>
+{%- elif b.type == 'chart' and crops is defined -%}
+{#- web edition: a chart with no cut-out sits on a page shown as designed -#}
 {%- elif b.type == 'chart' -%}
 <figure class="chart-missing"><figcaption>This chart is an image in the PDF. <a href="{{ pdf_href }}#page={{ b.source.page }}">See it in the original PDF</a>.</figcaption></figure>
-{%- elif b.type == 'table' and index_links.get(b.id) -%}{{ index_table(b, figures, index_links[b.id]) }}
+{%- elif b.type == 'table' and index_links.get(b.id) -%}{% if not (crops is defined) %}{{ index_table(b, figures, index_links[b.id]) }}{% endif %}
 {%- elif b.type == 'table' -%}{{ table(b, figures, section, m) }}
 {%- elif b.type == 'stat' -%}<div class="stat-tile"><span class="stat-label">{{ runs(b.label, figures) }}</span><span class="stat-value">{{ runs(b.value, figures) }}</span></div>
 {%- endif -%}

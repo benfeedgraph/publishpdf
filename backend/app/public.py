@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from sqlalchemy import select
@@ -35,6 +36,8 @@ from app.tenancy import system_context, worker_context
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="PublishPDF public sites", docs_url=None, redoc_url=None, openapi_url=None)
+# A 400-page report is ~7 MB of HTML and ~1 MB compressed: always compress text responses.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 @dataclass

@@ -148,15 +148,30 @@ class VercelBlobBackend:
                 detail = ""
             raise StorageError(f"Vercel Blob {what} failed ({r.status_code}) {detail}".strip())
 
+    # Blob answers 429/5xx under load ("Blob service is currently unavailable. Please try
+    # again."). One such answer must not fail a 400-page render: retry that object.
+    RETRY_STATUS = {408, 429, 500, 502, 503, 504}
+    RETRY_DELAYS = (0.5, 1, 2, 4, 8)
+
+    def _send(self, method: str, url: str, **kw):
+        import time
+        for delay in (*self.RETRY_DELAYS, None):
+            r = self.http.request(method, url, **kw)
+            if r.status_code not in self.RETRY_STATUS or delay is None:
+                return r
+            wait = r.headers.get("retry-after")
+            time.sleep(min(30.0, float(wait)) if wait and wait.replace(".", "", 1).isdigit() else delay)
+        return r
+
     def put(self, full_key: str, data: bytes, content_type: str) -> None:
-        r = self.http.put(self.API + "/", params={"pathname": full_key}, content=data, headers=self._headers(**{
+        r = self._send("PUT", self.API + "/", params={"pathname": full_key}, content=data, headers=self._headers(**{
             "x-vercel-blob-access": "private", "x-add-random-suffix": "0", "x-allow-overwrite": "1",
             "x-content-type": content_type, "x-cache-control-max-age": "60"}))
         self._check(r, "upload")
 
     def get(self, full_key: str) -> bytes:
         # cache=0: a re-rendered file keeps its name, so a cached copy could be stale.
-        r = self.http.get(self.url(full_key), params={"cache": "0"}, headers={"authorization": f"Bearer {self.token}"})
+        r = self._send("GET", self.url(full_key), params={"cache": "0"}, headers={"authorization": f"Bearer {self.token}"})
         if r.status_code == 404:
             raise StorageError("not found")
         self._check(r, "download")
@@ -233,6 +248,57 @@ def put(ctx: Context, key: str, data: bytes, content_type: str = "application/oc
 
 def get(ctx: Context, key: str) -> bytes:
     return _backend().get(scoped_key(ctx, key))
+
+
+# Remote stores are a round trip per object (~1 s from far away), and a report is ~50
+# objects, so batches go in parallel. Backends' HTTP clients are thread-safe.
+PARALLEL = 8
+
+
+def put_many(ctx: Context, items: list[tuple[str, bytes, str]], on_done=None) -> None:
+    """Store several (key, data, content_type) at once. Raises the first failure.
+    `on_done(key)` is called as each one is stored (for progress)."""
+    if len(items) <= 1 or isinstance(_backend(), LocalBackend):
+        for key, data, ctype in items:
+            put(ctx, key, data, ctype)
+            if on_done:
+                on_done(key)
+        return
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
+        futures = {pool.submit(put, ctx, k, d, c): k for k, d, c in items}
+        for f in as_completed(futures):
+            f.result()
+            if on_done:
+                on_done(futures[f])
+
+
+def get_many(ctx: Context, keys: list[str]) -> dict[str, bytes]:
+    """Fetch several keys at once; {key: bytes}. Raises the first failure."""
+    if len(keys) <= 1 or isinstance(_backend(), LocalBackend):
+        return {k: get(ctx, k) for k in keys}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
+        return dict(zip(keys, pool.map(lambda k: get(ctx, k), keys)))
+
+
+class Uploader:
+    """Starts uploads as data arrives (e.g. page images while later pages still render)
+    and waits for all of them in `finish()`."""
+
+    def __init__(self, ctx: Context) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        self.ctx, self.pool, self.futures = ctx, ThreadPoolExecutor(max_workers=PARALLEL), []
+
+    def put(self, key: str, data: bytes, content_type: str) -> None:
+        self.futures.append(self.pool.submit(put, self.ctx, key, data, content_type))
+
+    def finish(self) -> None:
+        try:
+            for f in self.futures:
+                f.result()
+        finally:
+            self.pool.shutdown(wait=True)
 
 
 def exists(ctx: Context, key: str) -> bool:

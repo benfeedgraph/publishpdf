@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import runs, meta, toc_label with context %}
+{% from "_document.html" import doc_block, doc_section with context %}
+
+{#- A PDF page kept as designed (a cover, an infographic spread): its artwork, with its
+    words as real text laid over it. Scales with its box. -#}
+{%- macro designed_page(p, cls) -%}
+<figure class="{{ cls }}">
+  <div class="part" style="--pw:{{ p.w }};--ph:{{ p.h }}">
+    <img class="part-bg" src="{{ base_path }}{{ p.bg }}" width="{{ p.bg_w }}" height="{{ p.bg_h }}" alt=""{% if cls != 'web-cover' %} loading="lazy"{% endif %} decoding="async">
+    <div class="part-t">{{ p.html|safe }}</div>
+  </div>
+</figure>
+{%- endmacro -%}
+
+{#- The web edition: the report as a web page — its own words in the PDF's order, set as
+    readable web type; charts and graphics shown inline, cut from the PDF's artwork with
+    their labels as real text. The PDF stays the official document. -#}
+{% block content %}
+<article class="web" id="top"{% if faq %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
+  <header class="web-hero">
+    <div class="web-hero-in{% if cover %} has-cover{% endif %}">
+      <div class="web-hero-text">
+        <p class="web-eyebrow">{{ meta("company", m.company) }}</p>
+        <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
+        <p class="web-actions">
+          {%- if first_q %}<a class="btn btn-primary" href="#{{ first_q.slug }}">Start reading <span class="arr" aria-hidden="true">↓</span></a>{% endif %}
+          <a class="btn" href="{{ pdf_href }}">Download the PDF</a>
+        </p>
+      </div>
+      {%- if cover %}{{ designed_page(cover, 'web-cover') }}{% endif %}
+    </div>
+  </header>
+
+  {%- if toc %}
+  <nav class="web-toc" aria-label="In this report">
+    <details open>
+      <summary>In this report</summary>
+      <ol>{% for s in toc %}<li><a href="#{{ s.slug }}">{{ toc_label(s, figures) }}</a></li>{% endfor %}</ol>
+    </details>
+  </nav>
+  {%- endif %}
+
+  <div class="web-body doc">
+    {%- if front %}
+    {%- for n in anchors.get(front.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
+    {%- if front_blocks %}
+    <section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in front_blocks %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>
+    {%- endif %}
+    {%- for p in pictures.get(front.id, []) %}{{ designed_page(p, 'web-page') }}{% endfor %}
+    {%- endif %}
+    {%- for s in sections if not (front and s.id == front.id) %}
+    {%- for n in anchors.get(s.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
+    {{ doc_section(s, figures) }}
+    {%- for p in pictures.get(s.id, []) %}{{ designed_page(p, 'web-page') }}{% endfor %}
+    {%- endfor %}
+    <p class="doc-note fine">This page is the web edition of the PDF: the same content, in the same order. Every figure is copied unchanged from the PDF, which remains the official document.</p>
+  </div>
+</article>
+<a class="to-top" href="#top" aria-label="Back to the top">↑</a>
+{% endblock %}
