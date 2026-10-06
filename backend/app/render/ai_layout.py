@@ -16,9 +16,18 @@ from __future__ import annotations
 import hashlib
 import html as html_mod
 import json
+import re
 from typing import Any
 
-from app.render.elements import Element
+from app.render.elements import Element, is_bullet
+
+_LEAD_BULLET = re.compile(r"^(\s*)(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
+
+
+def _unbullet(h: str) -> str:
+    """A list item without its printed bullet (the list draws one)."""
+    return _LEAD_BULLET.sub(r"\1", h, count=1)
+
 
 LAYOUT_VERSION = "1"
 PROMPT_TOKENS = 700            # instructions, per page
@@ -205,36 +214,62 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
             out.append(e.html if e.safe else crop(e, "ai-pic ai-textcrop"))
         return sep.join(out)
 
-    parts = []
-    for sec in sections:
-        t = sec["type"]
-        if t == "heading":
-            tag = {1: "h2", 2: "h3", 3: "h4"}[sec["level"]]
-            parts.append(f'<{tag} class="ai-h ai-h-{"abc"[sec["level"] - 1]}">{text(sec["ids"])}</{tag}>')
-        elif t == "paragraph":
-            parts.append(f'<p class="ai-p">{text(sec["ids"])}</p>')
-        elif t == "list":
-            parts.append('<ul class="ai-list">' + "".join(f"<li>{text(it)}</li>" for it in sec["items"]) + "</ul>")
-        elif t == "cards":
-            cards = []
-            for c in sec["cards"]:
-                pic = crop(by_id[c["picture"]]) if c["picture"] else ""
-                title = f'<h4 class="ai-card-t">{text(c["title"])}</h4>' if c["title"] else ""
-                body = f'<p>{text(c["body"])}</p>' if c["body"] else ""
-                cards.append(f'<div class="ai-card">{pic}{title}{body}</div>')
-            parts.append(f'<div class="ai-cards" style="--cols:{min(4, max(1, len(cards)))}">' + "".join(cards) + "</div>")
-        elif t == "stats":
-            parts.append('<div class="ai-stats">' + "".join(f'<div class="ai-stat">{text(it)}</div>' for it in sec["items"]) + "</div>")
-        elif t == "gallery":
-            items = []
-            for it in sec["items"]:
-                pic = crop(by_id[it["picture"]]) if it["picture"] else ""
-                cap = f'<figcaption>{text(it["caption"])}</figcaption>' if it["caption"] else ""
-                items.append(f'<figure class="ai-tile">{pic}{cap}</figure>')
-            parts.append('<div class="ai-gallery">' + "".join(items) + "</div>")
-        elif t == "picture":
-            cap = f'<figcaption>{text(sec["caption"])}</figcaption>' if sec["caption"] else ""
-            parts.append(f'<figure class="ai-figure">{crop(by_id[sec["picture"]])}{cap}</figure>')
+    def items(ids: list[str]) -> str:
+        """Blocks one after another: each its own paragraph; bullet points as a list."""
+        out, bullets = [], []
+        for i in ids:
+            e = by_id[i]
+            if is_bullet(e):
+                bullets.append(f"<li>{_unbullet(text([i]))}</li>")
+                continue
+            if bullets:
+                out.append('<ul class="ai-list">' + "".join(bullets) + "</ul>")
+                bullets = []
+            out.append(crop(e) if e.kind == "picture" else f"<p>{text([i])}</p>")
+        if bullets:
+            out.append('<ul class="ai-list">' + "".join(bullets) + "</ul>")
+        return "".join(out)
+
+    def draw(secs: list[dict]) -> list[str]:
+        parts = []
+        for sec in secs:
+            t = sec["type"]
+            if t == "heading":
+                tag = {1: "h2", 2: "h3", 3: "h4"}[sec["level"]]
+                parts.append(f'<{tag} class="ai-h ai-h-{"abc"[sec["level"] - 1]}">{text(sec["ids"])}</{tag}>')
+            elif t == "paragraph":
+                parts.append(f'<p class="ai-p">{text(sec["ids"])}</p>')
+            elif t == "list":
+                parts.append('<ul class="ai-list">' + "".join(f"<li>{_unbullet(text(it))}</li>" for it in sec["items"]) + "</ul>")
+            elif t == "chips":
+                parts.append('<ul class="ai-chips">' + "".join(f"<li>{text(it)}</li>" for it in sec["items"]) + "</ul>")
+            elif t == "cards":
+                cards = []
+                for c in sec["cards"]:
+                    pic = crop(by_id[c["picture"]]) if c["picture"] else ""
+                    title = f'<h4 class="ai-card-t">{text(c["title"])}</h4>' if c["title"] else ""
+                    body = "".join(draw(c["flow"])) if "flow" in c else items(c["body"])
+                    cards.append(f'<div class="ai-card">{pic}{title}{body}</div>')
+                parts.append(f'<div class="ai-cards" style="--cols:{min(4, max(1, len(cards)))}">' + "".join(cards) + "</div>")
+            elif t == "stats":
+                parts.append('<div class="ai-stats">' + "".join(f'<div class="ai-stat">{text(it)}</div>' for it in sec["items"]) + "</div>")
+            elif t == "gallery":
+                tiles = []
+                for it in sec["items"]:
+                    pic = crop(by_id[it["picture"]]) if it["picture"] else ""
+                    cap = f'<figcaption>{items(it["caption"])}</figcaption>' if it["caption"] else ""
+                    tiles.append(f'<figure class="ai-tile">{pic}{cap}</figure>')
+                parts.append(f'<div class="ai-gallery" style="--cols:{min(4, max(1, len(tiles)))}">' + "".join(tiles) + "</div>")
+            elif t == "picture":
+                cap = f'<figcaption>{text(sec["caption"])}</figcaption>' if sec["caption"] else ""
+                parts.append(f'<figure class="ai-figure">{crop(by_id[sec["picture"]])}{cap}</figure>')
+            elif t == "media":
+                side = "left" if sec.get("side") == "left" else "right"
+                parts.append(f'<div class="ai-media ai-media-{side}"><figure class="ai-media-pic">{crop(by_id[sec["picture"]])}</figure>'
+                             f'<div class="ai-media-body">{"".join(draw(sec["body"]))}</div></div>')
+        return parts
+
+    parts = draw(sections)
     return '<section class="ai-page">' + "".join(parts) + "</section>"
 
 

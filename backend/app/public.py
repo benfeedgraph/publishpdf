@@ -201,13 +201,42 @@ def healthz() -> dict:
     return {"status": "ok"}
 
 
+def site_by_slug(slug: str) -> Site | None:
+    """A workspace's preview site served by path (<platform>/sites/<slug>/...)."""
+    key = "slug:" + slug.lower()
+    hit = _HOST_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < TTL:
+        return hit[1]
+    site = None
+    with db.session(system_context()) as s:
+        t = s.scalars(select(Tenant).where(Tenant.slug == slug.lower())).first()
+        if t is not None and t.status == "active":
+            live = s.scalars(select(Domain).where(Domain.tenant_id == t.id, Domain.status == "live")).first()
+            site = Site(t.id, t.slug, get_settings().preview_origin(t.slug), True,
+                        f"https://{live.hostname}" if live else None)
+    _HOST_CACHE[key] = (time.monotonic(), site)
+    return site
+
+
+def serve_by_path(slug: str, path: str, request: Request) -> Response:
+    """The same site as its preview host would serve, under /sites/<slug>/ (used where
+    preview hosts don't exist: the hosted platform)."""
+    site = site_by_slug(slug) if re.fullmatch(r"[a-z0-9-]{1,63}", slug.lower()) else None
+    if site is None:
+        return PlainTextResponse("This site isn't set up.", status_code=404)
+    return _serve(site, request.headers.get("host", ""), "/" + unquote(path), request)
+
+
 @app.api_route("/{path:path}", methods=["GET", "HEAD"])
 def serve(path: str, request: Request) -> Response:
     host = request.headers.get("host", "")
     site = resolve_host(host)
     if site is None:
         return PlainTextResponse("This site isn't set up.", status_code=404)
-    req_path = "/" + unquote(path)
+    return _serve(site, host, "/" + unquote(path), request)
+
+
+def _serve(site: Site, host: str, req_path: str, request: Request) -> Response:
     if site.redirect_to:
         qs = f"?{request.url.query}" if request.url.query else ""
         return RedirectResponse(site.redirect_to + req_path + qs, status_code=301)

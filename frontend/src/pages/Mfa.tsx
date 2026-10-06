@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { post } from "../api";
 import { useMe } from "../App";
 import { enterApp, workspacePath } from "../enter";
+import { Button, Loading } from "../components/Spinner";
 
 export default function Mfa() {
   const me = useMe();
@@ -13,18 +14,22 @@ export default function Mfa() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
 
-  if (me.isPending) return <p className="center muted">Loading…</p>;
+  if (me.isPending) return <div className="center"><Loading /></div>;
   if (!me.data) return <Navigate to="/login" replace />;
   if (me.data.fully_authenticated) return <Navigate to={workspacePath(me.data)} replace />;
   const enrolled = me.data.mfa.enrolled;
 
   async function start() {
     setError(null);
+    setStarting(true);
     try {
       setEnrol(await post("/api/auth/mfa/enroll"));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -59,7 +64,7 @@ export default function Mfa() {
             Your role can approve and publish financial reports, so your account needs a second sign-in step. You'll need
             an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, etc.).
           </p>
-          <button className="primary" onClick={start}>Set up two-factor</button>
+          <Button className="primary" busy={starting} busyLabel="Setting up" onClick={start}>Set up two-factor</Button>
         </>
       )}
       {!enrolled && enrol && (
@@ -86,7 +91,7 @@ export default function Mfa() {
             />
           </label>
           {error && <p className="error">{error}</p>}
-          <button className="primary" disabled={busy}>{busy ? "Checking…" : "Continue"}</button>
+          <Button className="primary" busy={busy} busyLabel="Checking your code">Continue</Button>
         </form>
       )}
       {error && !enrolled && !enrol && <p className="error">{error}</p>}

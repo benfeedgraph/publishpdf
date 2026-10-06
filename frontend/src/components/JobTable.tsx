@@ -1,13 +1,17 @@
 import { formatDateTime, type Job } from "../api";
+import { Button } from "./Spinner";
 
 export default function JobTable({
   jobs,
   admin,
   onRerun,
+  rerunning,
 }: {
   jobs: Job[];
   admin?: boolean;
   onRerun?: (id: string) => void;
+  /** The job whose re-run is being requested: its button shows busy. */
+  rerunning?: string | null;
 }) {
   if (jobs.length === 0) return <p className="muted">No jobs yet.</p>;
   return (
@@ -45,7 +49,7 @@ export default function JobTable({
             {admin && (
               <td className="right">
                 {(j.status === "failed" || j.status === "cancelled" || j.status === "succeeded") && (
-                  <button className="link" onClick={() => onRerun?.(j.id)}>Re-run</button>
+                  <Button className="link" busy={rerunning === j.id} disabled={!!rerunning} busyLabel="Re-running" onClick={() => onRerun?.(j.id)}>Re-run</Button>
                 )}
               </td>
             )}

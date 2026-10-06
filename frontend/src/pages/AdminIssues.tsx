@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, CHECK_LABEL } from "../api";
+import { SkeletonRows } from "../components/Spinner";
 
 interface Resp {
   by_check: { check: string; blocking: number; warning: number }[];
@@ -9,7 +10,7 @@ interface Resp {
 
 export default function AdminIssues() {
   const q = useQuery({ queryKey: ["admin-issues"], queryFn: () => api<Resp>("/api/admin/issues"), refetchInterval: 10000 });
-  if (q.isPending) return <p className="muted">Loading…</p>;
+  if (q.isPending) return <><h1>Validation quality</h1><SkeletonRows label="Loading issues" /></>;
   if (q.isError) return <p className="error">{q.error.message}</p>;
   return (
     <>

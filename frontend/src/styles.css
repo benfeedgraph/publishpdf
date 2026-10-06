@@ -414,3 +414,42 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); border-color: #C5
 .ai-estimate .stat { flex: 1 1 160px; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table-wrap { overflow-x: auto; position: relative; max-width: 100%; }
+
+/* ---- loading indicators (components/Spinner.tsx) ---- */
+.spinner { display: inline-block; flex: none; width: 1em; height: 1em; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; vertical-align: -.15em; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes breathe { 50% { opacity: .3; } }
+/* No spinning for people who asked for less motion: a slow fade still says "working". */
+@media (prefers-reduced-motion: reduce) { .spinner { animation: breathe 1.6s ease-in-out infinite; border-right-color: currentColor; } }
+.loading-line { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 10px 0; }
+.loading-line .spinner { color: var(--accent); width: 18px; height: 18px; }
+.is-busy { position: relative; cursor: progress !important; }
+.is-busy > .btn-label { visibility: hidden; }
+.is-busy > .spinner { position: absolute; left: 50%; top: 50%; margin: -.5em 0 0 -.5em; }
+button.is-busy:disabled, button.primary.is-busy:disabled, button.secondary.is-busy:disabled { opacity: 1; }
+button.link.is-busy:disabled { opacity: .8; }
+.btn-label { display: inline-flex; align-items: center; gap: inherit; }
+.sk-rows { display: grid; gap: 10px; padding: 6px 0; }
+.sk-row { height: 18px; }
+.sk-tile { height: 132px; border-radius: 20px; }
+.sk-block { height: 220px; border-radius: 20px; }
+
+/* ---- wizard: where am I, what's next ---- */
+.step-n.upcoming { border-style: dashed; }
+.stepper { position: relative; }   /* keeps the steps' .sr-only text inside the scroller (no page overflow on phones) */
+.step-eyebrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: -8px 0 16px; }
+.step-eyebrow p { margin: 0; }
+.wizard-footer { position: sticky; bottom: 12px; z-index: 5; margin-top: 22px; display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 10px 12px 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.wizard-footer .wf-hint { flex: 1 1 220px; min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+.wizard-footer .wf-hint .spinner { color: var(--accent); }
+.wizard-footer .wf-hint.blocked { color: var(--danger); }
+.wizard-footer .wf-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+@media (max-width: 640px) { .wizard-footer { bottom: 8px; } .wizard-footer .wf-actions { width: 100%; justify-content: flex-end; } }
+.live-next { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.live-next code { min-width: 0; overflow-wrap: anywhere; }
+.dropzone.busy, .dropzone.busy input { cursor: progress; }
+.dz-progress { max-width: 320px; margin: 10px auto 0; }
+
+/* AI credit note: what a report can spend on AI, shown before anything runs */
+.ai-cost-note { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; margin: 14px 0 4px; border-radius: 14px; background: var(--surface-2, #f6f5fe); border: 1px solid var(--border, #e6e3f5); }
+.ai-cost-note.compact { margin-top: 18px; }

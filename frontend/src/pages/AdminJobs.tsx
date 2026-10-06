@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, post, type Job } from "../api";
 import JobTable from "../components/JobTable";
+import { SkeletonRows } from "../components/Spinner";
 
 export default function AdminJobs() {
   const [status, setStatus] = useState("");
@@ -29,8 +30,9 @@ export default function AdminJobs() {
         </select>
       </label>
       {rerun.isError && <p className="error">{rerun.error.message}</p>}
-      {q.isPending && <p className="muted">Loading…</p>}
-      {q.data && <JobTable jobs={q.data.jobs} admin onRerun={(id) => rerun.mutate(id)} />}
+      {q.isPending && <SkeletonRows label="Loading jobs" />}
+      {q.isError && <p className="error">{q.error.message}</p>}
+      {q.data && <JobTable jobs={q.data.jobs} admin onRerun={(id) => rerun.mutate(id)} rerunning={rerun.isPending ? rerun.variables : null} />}
     </>
   );
 }

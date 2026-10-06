@@ -4,6 +4,7 @@ import { api, formatDateTime, REPORT_TYPE_LABEL, useTenantRole, type Report } fr
 import { useMe } from "../App";
 import { Dropzone } from "../components/UploadFlow";
 import { cachedReports, rememberReports } from "../session";
+import { SkeletonCards } from "../components/Spinner";
 
 const STATUS_CLASS: Record<string, string> = {
   Live: "ok", "Needs review": "info", "Validation issues": "bad", Processing: "warn", Failed: "bad", "Draft changes": "info",
@@ -62,7 +63,7 @@ export default function Home() {
         <div className="callout info">You're a reviewer in this workspace: you can review reports, comment and flag issues. Ask an admin to upload new reports.</div>
       )}
 
-      {reports.isPending && <p className="muted">Loading reports…</p>}
+      {reports.isPending && <SkeletonCards count={3} label="Loading reports" />}
       {reports.isError && <p className="error">{reports.error.message}</p>}
       {list.length > 0 && (
         <section>

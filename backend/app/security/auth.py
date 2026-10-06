@@ -79,7 +79,7 @@ def request_magic_link(email: str, ip: str | None = None) -> str | None:
         token = new_token()
         s.add(LoginToken(user_id=user.id, token_hash=hash_token(token),
                          expires_at=_now() + timedelta(minutes=settings.magic_link_ttl_minutes)))
-    link = f"{settings.dashboard_base_url}/auth/verify?token={quote(token)}"
+    link = f"{settings.dashboard_url}/auth/verify?token={quote(token)}"
     emailer.send_soon(email, "Your sign-in link",
                  f"Click to sign in:\n\n{link}\n\n"
                  f"This link expires in {settings.magic_link_ttl_minutes} minutes and works once.\n"
@@ -400,7 +400,7 @@ def create_invite(s: Session, ctx: Context, email: str, role: Role) -> Invite:
     tenant = s.get(Tenant, tenant_id)
     audit.record(s, ctx, "team.invite_sent", target_type="invite", target_id=invite.id,
                  after={"email": email, "role": role.value})
-    link = f"{settings.dashboard_base_url}/invite?token={quote(token)}"
+    link = f"{settings.dashboard_url}/invite?token={quote(token)}"
     emailer.send(email, f"You're invited to {tenant.name if tenant else 'a workspace'}",
                  f"You've been invited as {role.value.replace('_', ' ')}.\n\nAccept:\n{link}\n\n"
                  f"This invitation expires in {settings.invite_ttl_days} days.")

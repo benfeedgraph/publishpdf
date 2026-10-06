@@ -48,6 +48,83 @@ def report_base_path(meta: dict) -> str:
     return f"/{fy}/{meta['period']}/{t}/"
 
 
+CHART_MIN_ROWS = 3
+CHART_MAX_ROWS = 12
+_NO_CHART_ROW = re.compile(r"per share|\beps\b|%|\bratios?\b|\bmargins?\b|\(x\)", re.I)
+
+
+def _cell_figure(cell: dict, figures: dict) -> dict | None:
+    """The one active number a cell holds, or None (text, several figures, excluded)."""
+    fs = [r["f"] for r in cell.get("runs") or [] if "f" in r]
+    if len(fs) != 1 or any(r.get("t", "").strip() for r in cell.get("runs") or [] if "f" not in r):
+        return None
+    f = figures.get(fs[0])
+    if not f or f.get("status") != "active" or f.get("kind") != "number":
+        return None
+    try:
+        float(f.get("value"))
+    except (TypeError, ValueError):
+        return None
+    return f
+
+
+def table_chart(b: dict, figures: dict) -> dict | None:
+    """A bar chart for a table of amounts: the latest period (and the one it is compared
+    with) for each line. Built from the table's own figures — the labels are the PDF's
+    strings, the bar lengths their values. No AI, no credits. None when a chart wouldn't
+    help: too few lines, mixed units, ratios, or no period columns."""
+    cols = b.get("columns") or []
+    periods = [k for k, c in enumerate(cols) if c.get("period") and not c.get("change")]
+    if not periods:
+        return None
+    first = periods[0]
+    p0 = cols[first]["period"]
+    # its comparison: the same kind of period a year earlier, else the next period column
+    second = next((k for k in periods[1:] if cols[k]["period"].get("type") == p0.get("type")
+                   and cols[k]["period"].get("fiscal_year") == (p0.get("fiscal_year") or 0) - 1), None)
+    if second is None and len(periods) > 1:
+        second = periods[1]
+    series = [first] + ([second] if second is not None else [])
+    rows = []
+    for r in b.get("rows") or []:
+        if _NO_CHART_ROW.search(r.get("label_text") or ""):
+            continue
+        cells = r.get("cells") or []
+        fs = [_cell_figure(cells[k], figures) if k < len(cells) else None for k in series]
+        if any(f is None for f in fs):
+            continue
+        rows.append({"label": r["label"], "label_text": r.get("label_text") or "", "figs": fs})
+    units = {f.get("unit") for row in rows for f in row["figs"]}
+    if len(rows) < CHART_MIN_ROWS or len(units) > 1:
+        return None
+    # a total next to its parts flattens every other bar: leave totals to the table
+    parts = [row for row in rows if "total" not in row["label_text"].lower()]
+    if len(parts) >= CHART_MIN_ROWS:
+        rows = parts
+    rows = rows[:CHART_MAX_ROWS]
+    top = max(abs(float(f["value"])) for row in rows for f in row["figs"]) or 1.0
+    for row in rows:
+        row["bars"] = [{"fig": f, "w": round(100 * abs(float(f["value"])) / top, 2),
+                        "neg": float(f["value"]) < 0} for f in row["figs"]]
+    header = (b.get("header_rows") or [[]])[-1]
+    legend = []
+    for k in series:
+        # the header cell over this column (header cells may span columns)
+        at = 0
+        cell = None
+        for h in header:
+            if at <= k < at + (h.get("colspan") or 1):
+                cell = h
+                break
+            at += h.get("colspan") or 1
+        legend.append(cell["runs"] if cell else [{"t": cols[k]["label"]}])
+    return {"rows": rows, "legend": legend, "unit": unit_label_of(b.get("unit"))}
+
+
+def unit_label_of(u: str | None) -> str:
+    return UNIT_LABEL.get(u, u or "")
+
+
 def _env() -> Environment:
     env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html"]),
                       trim_blocks=False, lstrip_blocks=False)
@@ -56,6 +133,7 @@ def _env() -> Environment:
     env.globals["bullet_runs"] = story.bullet_runs
     env.globals["lead_label"] = story.lead_label
     env.globals["linkify"] = story.linkify
+    env.globals["table_chart"] = table_chart
     return env
 
 
@@ -210,27 +288,36 @@ DESIGNED_MAX_WORDS = 300           # never a page of prose with a photo on it
 GRAPHIC_FRAGMENT_WORDS = 5   # a "paragraph" this short, among many, is a label inside a graphic
 
 
-def _ai_pages(schema: dict, pdf_bytes: bytes, layouts: dict[int, dict], base: str, art: dict) -> dict[int, Markup]:
-    """Web sections for pages with an AI layout. The layout is used only if it was made for
-    exactly these elements (same fingerprint); otherwise the page keeps its designed look."""
-    if not layouts:
+def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict[int, dict], base: str,
+               art: dict) -> dict[int, Markup]:
+    """Design-led pages rebuilt as web sections. A paid-for AI layout is used when it was
+    made for exactly these elements (same fingerprint); every other page gets the built-in
+    layout (no AI, no credits). A page that can't be read keeps its designed look."""
+    if not numbers:
         return {}
     import pymupdf
 
-    from app.render import ai_layout, elements
+    from app.render import ai_layout, elements, web_layout
     out: dict[int, Markup] = {}
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
-        for n, lay in sorted(layouts.items()):
+        bands = pages_mod.running_bands(doc, range(1, doc.page_count + 1))
+        for n in sorted(set(numbers)):
             printed = f"pages/p{n:04d}-print.webp"
             if printed not in art or n > doc.page_count:
                 continue
             page = doc[n - 1]
             els = elements.page_elements(page, schema, n, chart_boxes(schema, n))
-            if ai_layout.fingerprint(els) != lay.get("fingerprint"):
+            if not els:
                 continue
-            secs = ai_layout.validate({"sections": lay.get("sections") or []}, els)
-            out[n] = Markup(ai_layout.render(secs, els, printed_src=f"{ORIGIN_PLACEHOLDER}{base}{printed}",
+            lay = layouts.get(n)
+            if lay and ai_layout.fingerprint(els) == lay.get("fingerprint"):
+                secs, drawn = ai_layout.validate({"sections": lay.get("sections") or []}, els), els
+            else:
+                secs, drawn = web_layout.auto_layout(els, bands.get(n))
+            if not secs:
+                continue
+            out[n] = Markup(ai_layout.render(secs, drawn, printed_src=f"{ORIGIN_PLACEHOLDER}{base}{printed}",
                                              W=page.rect.width, H=page.rect.height))
     finally:
         doc.close()
@@ -344,24 +431,36 @@ WEB_CSS = """
 .part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent)}
 .web .doc-note{margin:40px auto 0;padding-top:28px;border-top:1px solid var(--c-border)}
 /* AI-laid-out pages: a design page rebuilt as web sections, in the site's own style */
-.ai-page{padding:clamp(28px,4vw,48px) 0;border-top:1px solid var(--c-border)}
+.ai-page{padding:clamp(12px,2vw,20px) 0}
+.ai-page>:first-child{margin-top:clamp(20px,3vw,36px)}
 .ai-h{color:var(--c-text);text-wrap:balance}
 .ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.1em 0 .5em;letter-spacing:-.025em}
 .ai-h-b{font-size:clamp(1.25em,2.2vw,1.55em);margin:1.4em 0 .6em}
-.ai-h-c{font-size:1.05em;margin:1.2em 0 .5em;color:var(--c-primary);text-transform:uppercase;letter-spacing:.06em}
+.ai-h-c{font-size:1.08em;margin:1.2em 0 .5em;color:var(--c-primary)}
 .ai-p{font-size:1.06em;line-height:1.75;margin:0 0 1em}
 .ai-list{margin:0 0 1.2em;padding-left:1.2em;line-height:1.7}.ai-list li{margin:.3em 0}
 .ai-cards{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:16px;margin:18px 0 26px}
 .ai-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:16px;padding:18px 18px 8px;
   border-top:4px solid var(--c-primary)}
-.ai-card-t{margin:0 0 .5em;font-size:1em;letter-spacing:.04em;text-transform:uppercase;color:var(--c-primary)}
+.ai-card-t{margin:0 0 .6em;font-size:1.02em;letter-spacing:.01em;color:var(--c-primary)}
+.ai-card .ai-p,.ai-card li{font-size:.97em;line-height:1.6}.ai-card .ai-p{margin:0 0 .7em}
+.ai-card .ai-h{font-size:1em;margin:.8em 0 .4em}
 .ai-card p{margin:0 0 .8em;line-height:1.6}
 .ai-card .ai-pic{margin:0 0 12px}
 .ai-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:14px 0 26px}
 .ai-stat{background:var(--c-primary-soft);border-radius:14px;padding:14px 16px;line-height:1.45;font-weight:550}
 .ai-stat data:not([value=""]){font-family:var(--font-heading);font-size:1.35em;font-weight:800;color:var(--c-primary);
   letter-spacing:-.02em}
-.ai-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:18px;margin:18px 0 28px}
+.ai-gallery{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:18px;margin:18px 0 28px}
+.ai-chips{list-style:none;display:flex;flex-wrap:wrap;gap:10px;padding:0;margin:14px 0 24px}
+.ai-chips li{padding:8px 16px;border-radius:999px;background:var(--c-primary-soft);color:var(--c-primary);font-weight:650;
+  font-size:.95em;border:1px solid var(--c-primary-line)}
+.ai-media{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(20px,3vw,36px);align-items:center;margin:22px 0 30px}
+.ai-media-left .ai-media-pic{order:0}.ai-media-right .ai-media-pic{order:2}
+.ai-media-pic{margin:0}.ai-media-pic .ai-pic{width:100%}
+.ai-media-body>:first-child{margin-top:0}
+.ai-card ul.ai-list,.ai-tile ul.ai-list{padding-left:1.1em;margin:0 0 .8em}
+.ai-pic{box-shadow:0 0 0 1px var(--c-border)}
 .ai-tile{margin:0;background:var(--c-background);border:1px solid var(--c-border);border-radius:16px;padding:12px;
   display:flex;flex-direction:column;gap:10px}
 .ai-tile .ai-pic,.ai-card .ai-pic{width:100%}
@@ -370,7 +469,24 @@ WEB_CSS = """
 .ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto;border-radius:10px;background:#fff}
 .ai-pic img{position:absolute;max-width:none;height:auto}
 .ai-textcrop{display:inline-block;vertical-align:middle;margin:0}
-@media (max-width:760px){.ai-cards{grid-template-columns:1fr}}
+/* Tables of amounts get a bar chart above them, drawn from the table's own figures */
+.tchart{margin:22px 0 10px;padding:18px 20px 14px;border:1px solid var(--c-border);border-radius:16px;background:var(--c-surface)}
+.tchart-legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 14px;font-size:.86em;color:var(--c-muted)}
+.tchart-legend span{display:inline-flex;align-items:center;gap:7px}
+.tchart-legend i{width:12px;height:12px;border-radius:3px;background:var(--c-primary)}
+.tchart-legend .s1 i,.tchart .tc-b.s1{background:color-mix(in srgb,var(--c-primary) 35%,var(--c-background))}
+.tc-row{display:grid;grid-template-columns:minmax(0,34%) minmax(0,1fr);gap:4px 14px;align-items:center;padding:6px 0;
+  border-top:1px solid color-mix(in srgb,var(--c-border) 60%,transparent)}
+.tc-row:first-of-type{border-top:0}
+.tc-l{font-size:.9em;line-height:1.35}
+.tc-bars{display:grid;gap:4px}
+.tc-bar{display:flex;align-items:center;gap:8px;font-size:.84em;font-variant-numeric:tabular-nums}
+.tc-b{display:block;height:12px;min-width:2px;width:var(--w);border-radius:0 6px 6px 0;background:var(--c-primary)}
+.tc-b.neg{background:repeating-linear-gradient(135deg,var(--c-secondary) 0 4px,color-mix(in srgb,var(--c-secondary) 60%,#fff) 4px 8px)}
+.tchart-note{margin:10px 0 0;font-size:.8em;color:var(--c-muted)}
+@media (max-width:560px){.tc-row{grid-template-columns:1fr}}
+@media (max-width:760px){.ai-cards,.ai-media{grid-template-columns:1fr}.ai-media-right .ai-media-pic{order:0}.ai-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.ai-gallery{grid-template-columns:1fr}}
 .to-top{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
 @media (max-width:860px){
   .web-hero-in.has-cover{grid-template-columns:1fr}
@@ -505,10 +621,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                   if n == 1 or n in vis_boxes or n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages)}
         shown_whole = whole_pages(schema)
         layouts = {n: lay for n, lay in (layouts or {}).items() if n in shown_whole}
+        # Pages rebuilt as web sections need the page as printed, to cut their pictures from.
+        rebuilt = {n for n in wanted if n != 1 and (n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS
+                                                                          or n in table_pages))}
         page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
                                                    max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
                                                    skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
-                                                   keep_printed=set(layouts))
+                                                   keep_printed=rebuilt)
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
         # Charts and graphics: cut from their page's artwork, labels as real text on top.
@@ -559,7 +678,10 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         anchors: dict[str, list[int]] = {}
         for pg, sid in sorted(first.items()):
             anchors.setdefault(sid, []).append(pg)
-        ai_pages = _ai_pages(schema, pdf_bytes, layouts, base, art)
+        # Picture-led pages as web sections, not as pictures of the page.
+        ai_pages = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+        for n in ai_pages:
+            files.pop(f"{base.lstrip('/')}pages/p{n:04d}.webp", None)
         qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
         front = sections[0] if sections and not sections[0].get("heading") else None
         front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])

@@ -3,6 +3,8 @@ import { useState, type DragEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { PERIOD_OPTIONS, post, REPORT_TYPE_LABEL, upload, type ReportType } from "../api";
 import { IconCheck, IconClose, IconUpload } from "./Icons";
+import { Button, Spinner } from "./Spinner";
+import { AiCostNote } from "./AiCostNote";
 
 interface Inspected {
   source_file_id: string;
@@ -67,12 +69,17 @@ export function Dropzone({ tenantId, compact = false }: { tenantId: string; comp
 
   return (
     <>
-      <label className={`dropzone ${over ? "over" : ""}`} style={compact ? { padding: "22px 18px" } : undefined}
+      <label className={`dropzone ${over ? "over" : ""} ${busy ? "busy" : ""}`} style={compact ? { padding: "22px 18px" } : undefined} aria-busy={busy || undefined}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={onDrop}>
         <input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(e) => handle(e.target.files?.[0])} aria-label="Upload a report PDF" />
-        <div className="dz-icon"><IconUpload /></div>
-        <p className="dz-title">{busy ? (progress !== null ? `Uploading… ${progress}%` : "Reading your PDF…") : "Drop a report PDF here, or click to choose"}</p>
-        <p className="muted small" style={{ margin: 0 }}>Quarterly results, investor presentations, annual reports — 100+ pages is fine.</p>
+        <div className="dz-icon">{busy ? <Spinner size={22} label={progress !== null ? "Uploading" : "Reading your PDF"} /> : <IconUpload />}</div>
+        <p className="dz-title">{busy ? (progress !== null ? `Uploading your PDF — ${progress}%` : "Reading your PDF") : "Drop a report PDF here, or click to choose"}</p>
+        {busy ? (
+          <div className={`progress dz-progress ${progress === null ? "indeterminate" : ""}`} role="progressbar" aria-label="Upload progress"
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress ?? undefined}><span style={{ width: `${progress ?? 35}%` }} /></div>
+        ) : (
+          <p className="muted small" style={{ margin: 0 }}>Quarterly results, investor presentations, annual reports — 100+ pages is fine.</p>
+        )}
         {error && <p className="error" style={{ marginTop: 10 }}>{error}</p>}
       </label>
       {inspected && <ConfirmModal tenantId={tenantId} data={inspected} onClose={() => setInspected(null)} />}
@@ -133,10 +140,11 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
           <label className="field span2"><span className="label">Reporting unit <Tag k="reporting_unit" /></span><input required value={unit} onChange={(e) => setUnit(e.target.value)} />
             <span className="hint">Used only where a table doesn't state its unit — those tables are flagged for you to confirm.</span></label>
         </div>
+        <AiCostNote tenantId={tenantId} compact />
         {error && <p className="error" role="alert">{error}</p>}
         <div className="btn-row" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="secondary" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={busy}>{busy ? "Starting…" : "Start processing"}</button>
+          <Button className="primary" busy={busy} busyLabel="Starting processing">Start processing</Button>
         </div>
       </form>
     </div>

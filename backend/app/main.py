@@ -137,6 +137,18 @@ def create_app() -> FastAPI:
         from app.extraction.jsonschema_check import SCHEMA_PATH
         return Response(SCHEMA_PATH.read_text(), media_type="application/schema+json")
 
+    # Preview sites by path (<platform>/sites/<slug>/...): the hosted platform has no
+    # preview hosts or separate site server, so the API serves them too.
+    @app.api_route("/sites/{slug}", methods=["GET", "HEAD"], include_in_schema=False)
+    def site_root(slug: str) -> Response:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(f"/sites/{slug}/", status_code=301)
+
+    @app.api_route("/sites/{slug}/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def site_page(slug: str, path: str, request: Request) -> Response:
+        from app import public
+        return public.serve_by_path(slug, path, request)
+
     app.include_router(auth_routes.router)
     app.include_router(tenant_routes.router)
     app.include_router(report_routes.router)

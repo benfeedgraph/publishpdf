@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api, formatDateTime } from "../api";
+import { SkeletonRows } from "../components/Spinner";
 
 interface Entry {
   id: number;
@@ -41,7 +42,7 @@ export default function AuditLog() {
     <>
       <h1>Audit log</h1>
       <p className="muted">Every upload, figure edit, approval, publish, and team, domain and analytics change. Entries can't be edited or deleted.</p>
-      {q.isPending && <p className="muted">Loading…</p>}
+      {q.isPending && <SkeletonRows rows={8} label="Loading the audit log" />}
       {q.isError && <p className="error">{q.error.message}</p>}
       {q.data && q.data.entries.length === 0 && <p className="muted">No activity yet.</p>}
       {q.data && q.data.entries.length > 0 && (

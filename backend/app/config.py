@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     ocr_confidence_threshold: float = Field(default=0.95, alias="OCR_CONFIDENCE_THRESHOLD")
 
     # --- Public sites ------------------------------------------------------------
+    # Where preview sites are served by path: <base>/<tenant slug>/... (the API answers
+    # /sites/<slug>/; the dashboard domain forwards /sites to it). Unset: derived — a
+    # localhost PREVIEW_URL_PATTERN is never used outside development.
+    public_sites_base_url: str | None = Field(default=None, alias="PUBLIC_SITES_BASE_URL")
     # Scheme and port suffix of tenant sites. Production: https and "".
     public_scheme: str = Field(default="https", alias="PUBLIC_SCHEME")
     public_port_suffix: str = Field(default="", alias="PUBLIC_PORT_SUFFIX")
@@ -181,12 +185,13 @@ class Settings(BaseSettings):
     anthropic_price_out_per_m: float = Field(default=10.00, alias="ANTHROPIC_PRICE_OUT_PER_M")
     # What one credit is worth in USD; estimates and usage are shown in credits.
     ai_credit_usd: float = Field(default=0.01, alias="AI_CREDIT_USD")
-    # Run the AI double-check by itself, once per version, when its estimate is at most this
-    # many credits (and within the workspace's monthly limit). 0 = off: the button only.
-    ai_auto_check_max_credits: int = Field(default=0, alias="AI_AUTO_CHECK_MAX_CREDITS")
-    # AI layout of design-led pages (web sections instead of the page as a picture): at most
-    # this many credits per render; cached per PDF, so re-renders cost nothing. 0 = off.
-    ai_layout_max_credits: int = Field(default=5, alias="AI_LAYOUT_MAX_CREDITS")
+    # The AI double-check runs by itself, once per version, on flagged figures (those read from
+    # images first) — as many as fit in this many credits, within the workspace's monthly
+    # limit. Shown to the user before upload. 0 = off: the button only.
+    ai_auto_check_max_credits: int = Field(default=20, alias="AI_AUTO_CHECK_MAX_CREDITS")
+    # AI layout of design-led pages, on top of the built-in layout (which is free and always
+    # on): at most this many credits per render; cached per PDF. 0 = off (the default).
+    ai_layout_max_credits: int = Field(default=0, alias="AI_LAYOUT_MAX_CREDITS")
 
     # --- Jobs -----------------------------------------------------------------
     job_max_attempts: int = Field(default=3, alias="JOB_MAX_ATTEMPTS")
@@ -199,6 +204,30 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env == "production"
+
+    @property
+    def dashboard_url(self) -> str:
+        """Where emailed links point. A localhost DASHBOARD_BASE_URL (a laptop's .env) is
+        never sent from a deployed platform: the platform domain is used instead."""
+        import os
+        url = self.dashboard_base_url.rstrip("/")
+        deployed = self.is_production or bool(os.environ.get("VERCEL") or os.environ.get("RAILWAY_ENVIRONMENT"))
+        if deployed and any(m in url for m in ("localhost", "127.0.0.1")):
+            return f"https://{self.platform_domain}"
+        return url
+
+    def preview_origin(self, slug: str) -> str:
+        """The workspace's preview site. A host pattern made for a laptop (localhost) is
+        only used in local development; anywhere else the site is served by path on the
+        platform domain, which needs no wildcard DNS or separate server."""
+        import os
+        if self.public_sites_base_url:
+            return f"{self.public_sites_base_url.rstrip('/')}/{slug}"
+        local = any(m in self.preview_url_pattern for m in ("localhost", "127.0.0.1"))
+        deployed = self.is_production or bool(os.environ.get("VERCEL") or os.environ.get("RAILWAY_ENVIRONMENT"))
+        if local and deployed:
+            return f"https://{self.platform_domain}/sites/{slug}"
+        return f"{self.public_scheme}://{self.preview_url_pattern.replace('{tenant_slug}', slug)}{self.public_port_suffix}"
 
 
 @lru_cache

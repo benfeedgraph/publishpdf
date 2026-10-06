@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { api, del, post, put, upload, useTenantRole } from "../api";
 import { useMe } from "../App";
 import DesignPicker, { type ThemeT } from "../components/DesignPicker";
+import { Button, Spinner } from "../components/Spinner";
 
 export default function Theme() {
   const { tenantId } = useParams();
@@ -19,9 +20,11 @@ export default function Theme() {
   });
   const applyLive = useMutation({
     mutationFn: () => post<{ drafts_created: string[] }>(`/api/tenants/${tenantId}/theme/apply-to-live`),
+    onError: (e: Error) => setMsg(e.message),
     onSuccess: (r) => setMsg(r.drafts_created.length ? `Created ${r.drafts_created.length} new draft(s) in this design. Review and publish them from Reports.` : "No published reports yet."),
   });
-  if (!settings.data) return <p className="muted">Loading…</p>;
+  if (settings.isError) return <p className="error">{settings.error.message}</p>;
+  if (!settings.data) return <><h1>Brand & design</h1><div className="sk sk-line" /><div className="sk sk-block" /></>;
 
   return (
     <div className="stack">
@@ -30,7 +33,7 @@ export default function Theme() {
           <h1>Brand & design</h1>
           <p className="muted">The default look for your report pages. Each report can also have its own design, chosen during its Design step.</p>
         </div>
-        {isAdmin && <button className="secondary" disabled={applyLive.isPending} onClick={() => applyLive.mutate()}>Apply to published reports…</button>}
+        {isAdmin && <Button className="secondary" busy={applyLive.isPending} busyLabel="Creating drafts in this design" onClick={() => applyLive.mutate()}>Apply to published reports…</Button>}
       </div>
       {msg && <p className="callout info" role="status">{msg}</p>}
       <Logo tenantId={tenantId!} has={!!settings.data.theme.logo} disabled={!isAdmin} onChange={() => qc.invalidateQueries({ queryKey: ["settings", tenantId] })} />
@@ -45,6 +48,7 @@ export default function Theme() {
 function Logo({ tenantId, has, onChange, disabled }: { tenantId: string; has: boolean; onChange: () => void; disabled: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [v, setV] = useState(0);
+  const [busy, setBusy] = useState<null | "upload" | "remove">(null);
   return (
     <div className="card row" style={{ justifyContent: "space-between" }}>
       <div className="row">
@@ -53,14 +57,22 @@ function Logo({ tenantId, has, onChange, disabled }: { tenantId: string; has: bo
       </div>
       {!disabled && (
         <div className="btn-row">
-          <label className="button secondary">{has ? "Replace logo" : "Upload logo"}
-            <input type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
+          <label className={`button secondary ${busy === "upload" ? "is-busy" : ""}`} aria-busy={busy === "upload" || undefined}>
+            <span className="btn-label">{has ? "Replace logo" : "Upload logo"}</span>
+            {busy === "upload" && <Spinner label="Uploading the logo" />}
+            <input type="file" hidden disabled={busy !== null} accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
               const f = e.target.files?.[0]; if (!f) return;
               const form = new FormData(); form.append("file", f);
+              setBusy("upload");
               try { await upload(`/api/tenants/${tenantId}/theme/logo`, form); setErr(null); setV((x) => x + 1); onChange(); } catch (x) { setErr((x as Error).message); }
+              finally { setBusy(null); e.target.value = ""; }
             }} />
           </label>
-          {has && <button className="link danger" onClick={async () => { await del(`/api/tenants/${tenantId}/theme/logo`); onChange(); }}>Remove</button>}
+          {has && <Button className="link danger" busy={busy === "remove"} disabled={busy !== null} busyLabel="Removing the logo" onClick={async () => {
+            setBusy("remove");
+            try { await del(`/api/tenants/${tenantId}/theme/logo`); setErr(null); onChange(); } catch (x) { setErr((x as Error).message); }
+            finally { setBusy(null); }
+          }}>Remove</Button>}
         </div>
       )}
       {err && <p className="error">{err}</p>}

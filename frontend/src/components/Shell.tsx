@@ -1,9 +1,10 @@
 import { forgetMe } from "../session";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink, useMatch, useNavigate } from "react-router-dom";
 import { post, ROLE_LABEL, type Me } from "../api";
 import { IconBuilding, IconChart, IconDesign, IconGear, IconGlobe, IconList, IconLogout, IconReports, IconShield, IconUsers } from "./Icons";
+import { Button } from "./Spinner";
 
 export default function Shell({ me, children }: { me: Me; children: ReactNode }) {
   const match = useMatch("/t/:tenantId/*");
@@ -13,8 +14,10 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  const [leaving, setLeaving] = useState(false);
   async function signOut() {
-    await post("/api/auth/logout");
+    setLeaving(true);
+    try { await post("/api/auth/logout"); } finally { setLeaving(false); }
     forgetMe();
     qc.clear();
     navigate("/login");
@@ -59,7 +62,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
             <div className="email" title={me.user.email}>{me.user.name || me.user.email}</div>
             {tenant && <div className="muted small">{ROLE_LABEL[tenant.role]}</div>}
           </div>
-          <button className="link" onClick={signOut} title="Sign out" aria-label="Sign out"><IconLogout /></button>
+          <Button className="link" busy={leaving} busyLabel="Signing out" onClick={signOut} title="Sign out" aria-label="Sign out"><IconLogout /></Button>
         </div>
       </aside>
       <main className="content">{children}</main>

@@ -10,6 +10,10 @@
       "destination": "https://publishpdf.vercel.app/api/:path*"
     },
     {
+      "source": "/sites/:path*",
+      "destination": "https://publishpdf.vercel.app/sites/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/app.html"
     }

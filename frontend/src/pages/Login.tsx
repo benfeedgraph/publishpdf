@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { post } from "../api";
+import { post, type Me } from "../api";
 import { enterApp } from "../enter";
 import { IconCheckCircle } from "../components/Icons";
+import { Button, Spinner } from "../components/Spinner";
 
 type Step = "email" | "code" | "profile";
 
@@ -52,12 +53,12 @@ export default function Login() {
     setBusy("verify");
     setError(null);
     try {
-      const r = await post<{ status: string; signup_token?: string }>("/api/auth/code/verify", { email, code });
+      const r = await post<{ status: string; signup_token?: string; me?: Me | null }>("/api/auth/code/verify", { email, code });
       if (r.status === "needs_profile") {
         setSignupToken(r.signup_token ?? null);
         setStep("profile");
       } else {
-        await done();
+        await done(r);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -73,8 +74,7 @@ export default function Login() {
     setBusy("signup");
     setError(null);
     try {
-      await post("/api/auth/signup", { signup_token: signupToken, name, company });
-      await done();
+      await done(await post<{ me?: Me | null }>("/api/auth/signup", { signup_token: signupToken, name, company }));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -82,8 +82,8 @@ export default function Login() {
     }
   }
 
-  async function done() {
-    await enterApp(qc, navigate);
+  async function done(signedIn?: { me?: Me | null }) {
+    await enterApp(qc, navigate, signedIn);
   }
 
   async function useDemo() {
@@ -91,8 +91,7 @@ export default function Login() {
     setError(null);
     setDemoError(null);
     try {
-      await post("/api/auth/demo");
-      await done();
+      await done(await post<{ me?: Me | null }>("/api/auth/demo"));
     } catch (err) {
       setDemoError((err as Error).message);
     } finally {
@@ -146,7 +145,7 @@ export default function Login() {
                 <input type="email" required autoFocus autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
               </label>
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy !== null}>{busy === "code" ? "Sending…" : "Continue"}</button>
+              <Button className="primary lg" disabled={busy !== null} busy={busy === "code"} busyLabel="Sending your code">Continue</Button>
             </form>
           )}
 
@@ -156,7 +155,7 @@ export default function Login() {
               <button type="button" className="demo-card" disabled={busy !== null} onClick={useDemo}>
                 <span className="demo-copy">
                   <span className="demo-kicker">Just exploring the tool?</span>
-                  <span className="demo-action">{busy === "demo" ? "Signing in…" : "Use the demo account"}</span>
+                  <span className="demo-action">{busy === "demo" ? <><Spinner decorative /> Signing in</> : "Use the demo account"}</span>
                 </span>
                 <span className="demo-email">demo@publishpdf.ai</span>
               </button>
@@ -176,14 +175,14 @@ export default function Login() {
                 ))}
               </div>
               {devCode && <p className="callout info small">Development mode (no email is sent). Your code is <strong className="mono">{devCode}</strong>{" "}
-                <button type="button" className="link" onClick={() => { setDigits(devCode.split("")); verify(devCode); }}>Use it</button></p>}
+                <button type="button" className="link" disabled={busy !== null} onClick={() => { setDigits(devCode.split("")); verify(devCode); }}>Use it</button></p>}
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy !== null || digits.some((x) => !x)}>{busy === "verify" ? "Checking…" : "Verify"}</button>
+              <Button className="primary lg" disabled={busy !== null || digits.some((x) => !x)} busy={busy === "verify"} busyLabel="Checking your code">Verify</Button>
               <div className="row" style={{ marginTop: 14, justifyContent: "space-between" }}>
                 <button type="button" className="link" onClick={() => { setStep("email"); setError(null); }}>Use a different email</button>
-                <button type="button" className="link" disabled={resendIn > 0 || busy !== null} onClick={() => sendCode()}>
+                <Button type="button" className="link" disabled={resendIn > 0 || busy !== null} busy={busy === "code"} busyLabel="Sending a new code" onClick={() => sendCode()}>
                   {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
-                </button>
+                </Button>
               </div>
             </form>
           )}
@@ -201,7 +200,7 @@ export default function Login() {
                 <input required value={company} onChange={(e) => setCompany(e.target.value)} autoComplete="organization" placeholder="e.g. Acme Industries Limited" />
               </label>
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary lg" disabled={busy !== null}>{busy === "signup" ? "Creating…" : "Create workspace"}</button>
+              <Button className="primary lg" disabled={busy !== null} busy={busy === "signup"} busyLabel="Creating your workspace">Create workspace</Button>
             </form>
           )}
         </div>

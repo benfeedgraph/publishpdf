@@ -105,6 +105,30 @@ def test_clean_pdf_goes_all_the_way_to_a_public_page(admin_client):
     assert pub.get("/fy2026/q2/results/figures.json", headers={"host": host}).json()["figures"]
     pdf = pub.get("/fy2026/q2/results/source.pdf", headers={"host": host})
     assert pdf.content.startswith(b"%PDF-")
+    # the same site by path on the API (the hosted platform: no preview hosts, no site server)
+    from app.config import get_settings
+    cfg = get_settings()
+    base = f"https://{cfg.platform_domain}/sites/{t.slug}"
+    old = (cfg.public_sites_base_url, cfg.preview_url_pattern)
+    cfg.public_sites_base_url = None
+    cfg.preview_url_pattern = "{tenant_slug}.preview.localhost"          # copied from a laptop's .env
+    import os
+    os.environ["VERCEL"] = "1"
+    try:
+        clear_caches()
+        assert cfg.preview_origin(t.slug) == base                          # never localhost once deployed
+        assert client.get(f"/api/tenants/{t.id}/settings").json()["site_origin"] == base
+        by_path = client.get(f"/sites/{t.slug}/fy2026/q2/results/")
+        assert by_path.status_code == 200 and by_path.headers["x-robots-tag"].startswith("noindex")
+        assert f'<link rel="canonical" href="{base}/fy2026/q2/results/">' in by_path.text
+        assert "localhost" not in by_path.text and ">1,234.56<" in by_path.text
+        assert client.get(f"/sites/{t.slug}/fy2026/q2/results/source.pdf").content.startswith(b"%PDF-")
+        assert client.get(f"/sites/{t.slug}", follow_redirects=False).headers["location"] == f"/sites/{t.slug}/"
+        assert client.get("/sites/no-such-workspace/").status_code == 404
+    finally:
+        os.environ.pop("VERCEL", None)
+        cfg.public_sites_base_url, cfg.preview_url_pattern = old
+        clear_caches()
     # other tenants' hosts don't see it
     other = make_tenant()
     assert pub.get("/fy2026/q2/results/", headers={"host": f"{other.slug}.preview.platform.example.com"}).status_code == 404

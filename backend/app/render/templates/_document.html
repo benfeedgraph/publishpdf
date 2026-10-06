@@ -17,6 +17,21 @@
 </div>
 {%- endmacro -%}
 
+{#- A bar chart drawn from a table's own figures (site.table_chart): every label is the
+    PDF's string via fig(); bar lengths come from the same values. -#}
+{%- macro chart_of(b, figures) -%}
+{%- set ch = table_chart(b, figures) -%}
+{%- if ch %}
+<figure class="tchart" aria-hidden="true">
+<div class="tchart-legend">{% for l in ch.legend %}<span class="s{{ loop.index0 }}"><i></i>{{ runs(l, figures) }}</span>{% endfor %}</div>
+{%- for row in ch.rows %}
+<div class="tc-row"><span class="tc-l">{{ runs(row.label, figures) }}</span><span class="tc-bars">{% for bar in row.bars %}<span class="tc-bar"><span class="tc-b s{{ loop.index0 }}{% if bar.neg %} neg{% endif %}" style="--w:{{ bar.w }}%"></span>{{ fig(bar.fig) }}</span>{% endfor %}</span></div>
+{%- endfor %}
+<figcaption class="tchart-note">Drawn from the table below{% if ch.unit %} ({{ ch.unit }}){% endif %}.</figcaption>
+</figure>
+{%- endif %}
+{%- endmacro -%}
+
 {%- macro vis_crop(c) -%}
 <figure class="web-vis" style="--vw:{{ (c.w * 1.6)|round|int }}px">
   <div class="rf-vis" style="aspect-ratio:{{ c.w }}/{{ c.h }}"><img src="{{ base_path }}{{ c.bg }}" alt="" loading="lazy" decoding="async" style="width:{{ c.img_w }}%;left:-{{ c.left }}%;top:-{{ c.top }}%"><div class="rf-vis-t">{{ c.html|safe }}</div></div>
@@ -45,7 +60,7 @@
 {%- elif b.type == 'chart' -%}
 <figure class="chart-missing"><figcaption>This chart is an image in the PDF. <a href="{{ pdf_href }}#page={{ b.source.page }}">See it in the original PDF</a>.</figcaption></figure>
 {%- elif b.type == 'table' and index_links.get(b.id) -%}{% if not (crops is defined) %}{{ index_table(b, figures, index_links[b.id]) }}{% endif %}
-{%- elif b.type == 'table' -%}{{ table(b, figures, section, m) }}
+{%- elif b.type == 'table' -%}{{ chart_of(b, figures) }}{{ table(b, figures, section, m) }}
 {%- elif b.type == 'stat' -%}<div class="stat-tile"><span class="stat-label">{{ runs(b.label, figures) }}</span><span class="stat-value">{{ runs(b.value, figures) }}</span></div>
 {%- endif -%}
 {%- endmacro -%}

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { post } from "../api";
 import { enterApp } from "../enter";
+import { Spinner } from "../components/Spinner";
 
 /** Magic-link landing. The token is exchanged by an explicit POST (not on GET by the
  * server), so email link scanners that prefetch the URL can't burn the token. */
@@ -26,7 +27,7 @@ export default function Verify() {
 
   return (
     <div className="auth-card">
-      <h1>Signing you in…</h1>
+      <h1 className="row" style={{ gap: 12 }}>{!error && <Spinner size={20} label="Signing you in" />}{error ? "Couldn't sign you in" : "Signing you in"}</h1>
       {error && (
         <>
           <p className="error">{error}</p>

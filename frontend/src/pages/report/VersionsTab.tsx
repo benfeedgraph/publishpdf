@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, formatDateTime, post, useTenantRole, VERSION_STATUS_LABEL, type Report } from "../../api";
 import { useMe } from "../../App";
+import { Button } from "../../components/Spinner";
 import { STATUS_CLASS } from "./ReportPage";
 
 export default function VersionsTab({ tenantId, report }: { tenantId: string; report: Report }) {
@@ -39,10 +40,10 @@ export default function VersionsTab({ tenantId, report }: { tenantId: string; re
               <td className="small">{v.validation ? `${v.validation.blocking} blocking · ${v.validation.warnings} warnings` : "—"}</td>
               <td className="right nowrap">
                 {isAdmin && v.published_at && !v.is_live && (
-                  <button className="link" disabled={rollback.isPending} onClick={() => confirm(`Make v${v.version_no} live again?`) && rollback.mutate(v.id)}>Roll back to this</button>
+                  <Button className="link" disabled={rollback.isPending} busy={rollback.isPending && rollback.variables === v.id} busyLabel="Rolling back" onClick={() => confirm(`Make v${v.version_no} live again?`) && rollback.mutate(v.id)}>Roll back to this</Button>
                 )}
                 {isAdmin && v.schema_sha256 && v.published_at && (
-                  <> {" "}<button className="link" disabled={draft.isPending} onClick={() => draft.mutate(v.id)}>New draft from this</button></>
+                  <> {" "}<Button className="link" disabled={draft.isPending} busy={draft.isPending && draft.variables === v.id} busyLabel="Creating a draft" onClick={() => draft.mutate(v.id)}>New draft from this</Button></>
                 )}
               </td>
             </tr>

@@ -344,9 +344,10 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _maybe_auto_ai_check(s, ctx: Context, v: ReportVersion, issues: list, schema: dict) -> None:
-    """When OCR isn't sure, let the AI take a look — automatically, but only once per
-    version, only when the estimate is within AI_AUTO_CHECK_MAX_CREDITS, and only within the
-    workspace's monthly AI limit. Anything bigger stays a button press with the estimate."""
+    """When OCR isn't sure (numbers read from images), let the AI take a look —
+    automatically, once per version, on as many flagged figures as fit in
+    AI_AUTO_CHECK_MAX_CREDITS (figures read from images first), within the workspace's
+    monthly AI limit. The rest stay a button press with its estimate."""
     from app import ai_usage
     cfg = get_settings()
     cap = cfg.ai_auto_check_max_credits
@@ -356,19 +357,26 @@ def _maybe_auto_ai_check(s, ctx: Context, v: ReportVersion, issues: list, schema
                               for i in issues], schema)
     if not fids:
         return
-    est = ai_check.estimate(len(fids))
-    if est["credits"] > cap:
+    try:
+        allowance = ai_usage.allowance(ctx)
+        if allowance["remaining"] is not None:
+            cap = min(cap, allowance["remaining"])
+    except Exception:  # noqa: BLE001 - the stage re-checks the limit anyway
+        pass
+    n = ai_check.items_within(cap, len(fids))
+    if n <= 0:
         return
+    est = ai_check.estimate(n)
     try:
         ai_usage.check(ctx, est["credits"])
     except ai_usage.LimitReached:
         return
-    job = jobs.enqueue(s, ctx, "pipeline.ai_check", {"version_id": str(v.id)},
+    job = jobs.enqueue(s, ctx, "pipeline.ai_check", {"version_id": str(v.id), "max_items": n, "automatic": True},
                        idempotency_key=f"ai_check_auto:{v.id}", max_attempts=1)
     if job.version_id is None:
         job.version_id = v.id
         audit.record(s, ctx, "report.ai_check_requested", target_type="report_version", target_id=v.id,
-                     after={**est, "automatic": True, "cap_credits": cap})
+                     after={**est, "automatic": True, "cap_credits": cap, "flagged": len(fids)})
 
 
 def mark_failed_versions() -> None:  # pragma: no cover - hook for operators
@@ -395,6 +403,8 @@ def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
                                                           ValidationIssue.run_no == run)).all()
         schema = json.loads(json.dumps(v.schema_json))
         fids = ai_check.eligible(issues, schema)
+        if payload.get("max_items"):
+            fids = fids[:int(payload["max_items"])]
         sha, vid = v.source_sha256, v.id
     if not fids:
         return {"items": 0}

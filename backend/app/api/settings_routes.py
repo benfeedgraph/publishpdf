@@ -38,7 +38,18 @@ def get_settings_(ctx: Context = Depends(require("report.view"))) -> dict:
                 "effective_disclaimer": effective_disclaimer(st), "robots_policy": st.robots_policy,
                 "ga4_measurement_id": st.ga4_measurement_id, "consent_banner_enabled": st.consent_banner_enabled,
                 "llm_assist_enabled": st.llm_assist_enabled, "site_origin": origin, "custom_domain_live": custom,
-                "fonts": {"system": list(theming.SYSTEM_FONTS), "google": sorted(theming.GOOGLE_FONTS)}}
+                "fonts": {"system": list(theming.SYSTEM_FONTS), "google": sorted(theming.GOOGLE_FONTS)},
+                "ai_costs": _ai_costs()}
+
+
+def _ai_costs() -> dict:
+    """What a report may spend on AI, shown before upload: the built-in page layout and
+    every check are free; the AI double-check of figures read from images is capped."""
+    from app.config import get_settings as cfg_
+    c = cfg_()
+    on = bool(c.gemini_api_key)
+    return {"ai_available": on, "auto_check_cap_credits": c.ai_auto_check_max_credits if on else 0,
+            "layout_cap_credits": c.ai_layout_max_credits if on else 0, "credit_usd": c.ai_credit_usd}
 
 
 class SettingsIn(BaseModel):
@@ -392,7 +403,7 @@ def get_domain(ctx: Context = Depends(require("report.view"))) -> dict:
         origin, custom = public_origin(s, ctx)
         from app.config import get_settings
         cfg = get_settings()
-        preview = f"{cfg.public_scheme}://{cfg.preview_url_pattern.replace('{tenant_slug}', tenant.slug)}{cfg.public_port_suffix}"
+        preview = cfg.preview_origin(tenant.slug)
         return {"domain": _domain_json(d, tenant.name), "preview_origin": preview, "site_origin": origin,
                 "custom_domain_live": custom}
 

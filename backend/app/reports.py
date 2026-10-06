@@ -520,8 +520,7 @@ def public_origin(s: Session, ctx: Context) -> tuple[str, bool]:
         return f"https://{d.hostname}", True
     tenant = s.get(Tenant, ctx.require_tenant())
     assert tenant is not None
-    host = cfg.preview_url_pattern.replace("{tenant_slug}", tenant.slug)
-    return f"{cfg.public_scheme}://{host}{cfg.public_port_suffix}", False
+    return cfg.preview_origin(tenant.slug), False
 
 
 def rebuild_site(s: Session, ctx: Context) -> dict:

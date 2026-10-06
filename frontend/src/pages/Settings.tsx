@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { api, post, put, useTenantRole } from "../api";
 import { useMe } from "../App";
 import AiUsagePanel, { type AiUsageSummary } from "../components/AiUsage";
+import { Button, SkeletonRows } from "../components/Spinner";
 
 interface S { disclaimer: string | null; effective_disclaimer: string | null; robots_policy: string; llm_assist_enabled: boolean }
 
@@ -29,7 +30,8 @@ export default function Settings() {
     onSuccess: () => { setMsg("Saved."); qc.invalidateQueries({ queryKey: ["settings", tenantId] }); },
     onError: (e: Error) => setMsg(e.message),
   });
-  if (!q.data) return <p className="muted">Loading…</p>;
+  if (q.isError) return <p className="error">{q.error.message}</p>;
+  if (!q.data) return <><h1>Settings</h1><div className="sk sk-block" /></>;
   function submit(e: FormEvent) { e.preventDefault(); save.mutate(); }
   return (
     <>
@@ -55,7 +57,7 @@ export default function Settings() {
           <p className="muted small">Off by default. Only section headings with every digit removed are sent; the model can only pick a section type. It never sees, produces or changes a figure. Requires the platform operator to have configured a provider.</p>
           <p className="muted small">When on, it runs automatically on each upload and re-run where some headings are left unlabelled, and uses AI credits. Every call is recorded below under AI usage with its real cost, and it stops running once your workspace reaches its monthly AI credit limit.</p>
         </div>
-        {isAdmin && <div><button className="primary" disabled={save.isPending}>Save settings</button> {msg && <span className="small" role="status">{msg}</span>}</div>}
+        {isAdmin && <div><Button className="primary" busy={save.isPending} busyLabel="Saving settings">Save settings</Button> {msg && <span className="small" role="status">{msg}</span>}</div>}
       </form>
       <AiUsageCard tenantId={tenantId!} />
       <TwoFactor />
@@ -68,7 +70,7 @@ function AiUsageCard({ tenantId }: { tenantId: string }) {
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <h2>AI usage</h2>
-      {q.isError ? <p className="error small">{q.error.message}</p> : q.data ? <AiUsagePanel data={q.data} tenantId={tenantId} /> : <p className="muted small">Loading…</p>}
+      {q.isError ? <p className="error small">{q.error.message}</p> : q.data ? <AiUsagePanel data={q.data} tenantId={tenantId} /> : <SkeletonRows rows={3} label="Loading AI usage" />}
     </div>
   );
 }
@@ -79,6 +81,7 @@ function TwoFactor() {
   const [enrol, setEnrol] = useState<{ otpauth_uri: string; qr_svg: string } | null>(null);
   const [code, setCode] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState<null | "enrol" | "confirm">(null);
   if (!me.data) return null;
   const on = me.data.mfa.enrolled;
   return (
@@ -87,16 +90,18 @@ function TwoFactor() {
       {on ? <p className="ok-text">On. You'll be asked for a code from your authenticator app each time you sign in.</p> : (
         <>
           <p className="muted small">Add a second step with an authenticator app (Google Authenticator, 1Password…) on top of the email code.</p>
-          {!enrol && <button className="secondary" onClick={async () => { try { setEnrol(await post("/api/auth/mfa/enroll")); } catch (e) { setMsg((e as Error).message); } }}>Set up two-factor</button>}
+          {!enrol && <Button className="secondary" busy={busy === "enrol"} busyLabel="Setting up" onClick={async () => { setBusy("enrol"); try { setEnrol(await post("/api/auth/mfa/enroll")); } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); } }}>Set up two-factor</Button>}
           {enrol && (
             <form className="stack" onSubmit={async (e) => {
               e.preventDefault();
+              setBusy("confirm");
               try { await post("/api/auth/mfa/confirm", { code }); await qc.invalidateQueries({ queryKey: ["me"] }); setEnrol(null); setMsg("Two-factor is on."); }
               catch (err) { setMsg((err as Error).message); }
+              finally { setBusy(null); }
             }}>
               <div className="qr" dangerouslySetInnerHTML={{ __html: enrol.qr_svg }} />
               <label className="field" style={{ maxWidth: 220 }}><span className="label">6-digit code from the app</span><input inputMode="numeric" required value={code} onChange={(e) => setCode(e.target.value)} /></label>
-              <div><button className="primary">Turn on</button></div>
+              <div><Button className="primary" busy={busy === "confirm"} busyLabel="Turning on two-factor">Turn on</Button></div>
             </form>
           )}
         </>

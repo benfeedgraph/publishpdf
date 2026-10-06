@@ -36,6 +36,14 @@ class Element:
     meta: dict = field(default_factory=dict)
 
 
+def is_bullet(e: "Element") -> bool:
+    """A bullet point: typed ("• ...") or drawn as a small shape before the text."""
+    return e.kind == "text" and (bool(e.meta.get("bullet")) or bool(BULLET.match(e.text)))
+
+
+BULLET = re.compile(r"^\s*(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
+
+
 def _hex(c: int) -> str:
     return f"#{c:06x}"
 
@@ -70,10 +78,13 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
             boxes.append(list(bb))
     pictures = _merge(boxes)
     pieces = pages_mod.page_pieces(page, schema, n)
+    marks = _bullet_marks(page)
     out: list[Element] = []
     for blk in text_blocks:
         bx = tuple(blk["bbox"])
-        if any(_inside(bx, p) for p in pictures):
+        first = blk["lines"][0]["bbox"] if blk.get("lines") else bx
+        bullet = _has_mark(bx, (first[1], first[3]), marks)
+        if not bullet and any(_inside(bx, p) for p in pictures):
             continue                                   # a label on a picture stays in the picture
         spans = [s for ln in blk["lines"] for s in ln["spans"] if s["text"].strip()]
         if not spans:
@@ -90,13 +101,49 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         shown_digits = sum(len(_DIGIT.findall(figures[p.fid]["raw"])) for p in mine if p.fid)
         safe = len(_DIGIT.findall(text)) <= shown_digits and bool(mine)
         out.append(Element(f"t{len(out) + 1}", "text", bx, text=text, html=html_, size=size, bold=bold,
-                           color=_hex(color), safe=safe, lines=len(blk["lines"])))
+                           color=_hex(color), safe=safe, lines=len(blk["lines"]), meta={"bullet": True} if bullet else {}))
     n_text = len(out)
     for k, p in enumerate(pictures, start=1):
-        out.append(Element(f"p{k}", "picture", tuple(p)))
+        out.append(Element(f"p{k}", "picture", _trim(p, [e.bbox for e in out[:n_text]])))
     out.sort(key=lambda e: (round(e.bbox[1] / 6), e.bbox[0]))
     assert len([e for e in out if e.kind == "text"]) == n_text
     return out
+
+
+def _trim(pic: tuple, texts: list[tuple]) -> tuple:
+    """A picture's crop never shows words that are also set as text: an edge that runs
+    into a text block is pulled back to clear it — the
+    side that keeps more of the picture. A trim that would leave less than a third of the
+    picture is not made."""
+    x0, y0, x1, y1 = pic
+    for t in texts:
+        if _overlap(t, (x0, y0, x1, y1)) <= 0:
+            continue
+        options = [(x0, y0, x1, min(y1, t[1] - 1)) if (t[1] + t[3]) / 2 > (y0 + y1) / 2 else (x0, max(y0, t[3] + 1), x1, y1),
+                   (x0, y0, min(x1, t[0] - 1), y1) if (t[0] + t[2]) / 2 > (x0 + x1) / 2 else (max(x0, t[2] + 1), y0, x1, y1)]
+        best = max(options, key=lambda o: max(0.0, o[2] - o[0]) * max(0.0, o[3] - o[1]))
+        if (best[2] - best[0]) * (best[3] - best[1]) >= (pic[2] - pic[0]) * (pic[3] - pic[1]) / 3 and best[2] > best[0] and best[3] > best[1]:
+            x0, y0, x1, y1 = best
+    return (x0, y0, x1, y1)
+
+
+def _bullet_marks(page: pymupdf.Page) -> list[tuple]:
+    """Bullet points a design tool drew as small filled shapes rather than typed."""
+    marks = []
+    try:
+        for d in page.get_drawings():
+            r = d.get("rect")
+            if r is not None and d.get("fill") is not None and 1.5 <= r.width <= 7 and 1.5 <= r.height <= 7 \
+                    and abs(r.width - r.height) <= 1.5:
+                marks.append((r.x0, r.y0, r.x1, r.y1))
+    except Exception:  # noqa: BLE001 - no bullets found is a safe answer
+        pass
+    return marks
+
+
+def _has_mark(bx: tuple, first_line: tuple, marks: list[tuple]) -> bool:
+    ly0, ly1 = first_line
+    return any(bx[0] - 16 <= m[2] <= bx[0] + 1 and ly0 - 2 <= (m[1] + m[3]) / 2 <= ly1 + 2 for m in marks)
 
 
 def _split_columns(blocks: list[dict]) -> list[dict]:

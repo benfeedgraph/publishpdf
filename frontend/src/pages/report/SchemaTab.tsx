@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Figure, type Report, type Run, type SchemaDoc, type VersionDetail } from "../../api";
 import PdfRegion from "../../components/PdfRegion";
+import { Loading } from "../../components/Spinner";
 
 const SECTION_LABEL: Record<string, string> = {
   highlights: "Highlights", profit_and_loss: "Profit and loss", balance_sheet: "Balance sheet", cash_flow: "Cash flow",
@@ -30,7 +31,7 @@ export default function SchemaTab({ tenantId, report, version }: { tenantId: str
   const schema = useQuery({ queryKey: ["schema", version.id, version.schema_sha256], queryFn: () => api<SchemaDoc>(`${base}/schema`), enabled: !!version.schema_sha256 });
   const raw = useMemo(() => (schema.data ? JSON.stringify(schema.data, null, 2) : ""), [schema.data]);
   if (!version.schema_sha256) return <p className="muted">The schema will appear when the PDF has been read.</p>;
-  if (schema.isPending) return <p className="muted">Loading schema…</p>;
+  if (schema.isPending) return <Loading label="Loading the extracted data" />;
   if (schema.isError) return <p className="error">{schema.error.message}</p>;
   const s = schema.data;
   const figs = Object.values(s.figures);

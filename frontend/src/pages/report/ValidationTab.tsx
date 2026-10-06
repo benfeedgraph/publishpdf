@@ -5,6 +5,7 @@ import { api, CHECK_LABEL, post, useTenantRole, type Issue, type Report, type Ve
 import { useMe } from "../../App";
 import PdfCrop from "../../components/PdfCrop";
 import PdfRegion from "../../components/PdfRegion";
+import { Button, Loading, SkeletonRows, Spinner } from "../../components/Spinner";
 
 interface IssuesResp {
   run: number;
@@ -54,8 +55,8 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
     qc.invalidateQueries({ queryKey: ["report", report.id] });
   };
 
-  if (version.status === "processing" && !q.data?.issues.length) return <p className="muted">Checks are running… this page updates automatically.</p>;
-  if (q.isPending) return <p className="muted">Loading…</p>;
+  if (version.status === "processing" && !q.data?.issues.length) return <Loading label="Checks are running">Checks are running — this page updates automatically.</Loading>;
+  if (q.isPending) return <SkeletonRows label="Loading issues" />;
   if (q.isError) return <p className="error">{q.error.message}</p>;
   const s = q.data.summary;
 
@@ -69,7 +70,7 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
           <div className="stat"><span className={`stat-n ${s.blocking ? "error" : ""}`}>{s.blocking}</span><span className="stat-l">blocking</span></div>
         </div>
       )}
-      {version.status === "processing" && <p className="callout info small">Re-checking after your changes… results below may be from the previous run.</p>}
+      {version.status === "processing" && <p className="callout info small row" style={{ gap: 8 }}><Spinner label="Re-checking" /> Re-checking after your changes — results below may be from the previous run.</p>}
       {!embedded && s && s.blocking === 0 && version.status === "needs_review" && (
         <p className="callout ok">No blocking issues. Review the page in <strong>Preview & publish</strong>.</p>
       )}
@@ -166,14 +167,14 @@ function IssueDetail({ issue, base, version, isAdmin, onDone }: { issue: Issue; 
           {editing && issue.fid ? (
             <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.mutate({ action: "edit", value, note }); }}>
               <input aria-label="Corrected value exactly as printed" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-              <button className="primary" disabled={act.isPending}>Save value</button>
+              <Button className="primary" busy={act.isPending} busyLabel="Saving the value">Save value</Button>
               <button type="button" className="link" onClick={() => setEditing(false)}>Cancel</button>
             </form>
           ) : (
             <div className="btn-row">
-              <button className="primary" disabled={act.isPending} onClick={() => act.mutate({ action: "confirm", note })}>Confirm correct</button>
-              {issue.fid && <button className="secondary" onClick={() => setEditing(true)}>Edit value</button>}
-              {issue.fid && <button className="secondary" disabled={act.isPending} onClick={() => act.mutate({ action: "not_a_figure", note })}>Mark as not a figure</button>}
+              <Button className="primary" busy={act.isPending && act.variables?.action === "confirm"} disabled={act.isPending} busyLabel="Confirming" onClick={() => act.mutate({ action: "confirm", note })}>Confirm correct</Button>
+              {issue.fid && <button className="secondary" disabled={act.isPending} onClick={() => setEditing(true)}>Edit value</button>}
+              {issue.fid && <Button className="secondary" busy={act.isPending && act.variables?.action === "not_a_figure"} disabled={act.isPending} busyLabel="Saving" onClick={() => act.mutate({ action: "not_a_figure", note })}>Mark as not a figure</Button>}
             </div>
           )}
           <p className="muted small">Every action is logged with your name, the time and the old and new value, and the checks run again.</p>
@@ -182,7 +183,7 @@ function IssueDetail({ issue, base, version, isAdmin, onDone }: { issue: Issue; 
       {!readonly && !isAdmin && (
         <form className="actions" onSubmit={(e) => { e.preventDefault(); flag.mutate(); }}>
           <label className="field"><span className="label">Flag this for an admin</span><input required minLength={3} value={flagNote} onChange={(e) => setFlagNote(e.target.value)} placeholder="What looks wrong?" /></label>
-          <button className="secondary" disabled={flag.isPending}>Flag issue</button>
+          <Button className="secondary" busy={flag.isPending} busyLabel="Sending the flag">Flag issue</Button>
         </form>
       )}
     </aside>
@@ -218,8 +219,8 @@ function ReviewGrid({ items, base, version, canDecide, onDone }: { items: Issue[
         <span className="btn-row">
           <button className="link" onClick={() => setOff(new Set())}>Select all</button>
           <button className="link" onClick={() => setOff(new Set(shown.map((i) => i.id)))}>Select none</button>
-          {canDecide && <button className="secondary" disabled={!picked.length || bulk.isPending} onClick={() => run("not_a_figure")}>Not figures</button>}
-          {canDecide && <button className="primary" disabled={!picked.length || bulk.isPending} onClick={() => run("confirm")}>{bulk.isPending ? "Saving…" : `Confirm ${picked.length} correct`}</button>}
+          {canDecide && <Button className="secondary" disabled={!picked.length || bulk.isPending} busy={bulk.isPending && bulk.variables === "not_a_figure"} busyLabel="Saving" onClick={() => run("not_a_figure")}>Not figures</Button>}
+          {canDecide && <Button className="primary" disabled={!picked.length || bulk.isPending} busy={bulk.isPending && bulk.variables === "confirm"} busyLabel="Saving" onClick={() => run("confirm")}>{`Confirm ${picked.length} correct`}</Button>}
         </span>
       </div>
       {err && <p className="error" role="alert">{err}</p>}

@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, formatDateTime, post, ROLE_LABEL, type Role } from "../api";
 import { useMe } from "../App";
+import { Button, SkeletonRows, Spinner } from "../components/Spinner";
 
 interface Members {
   members: { user_id: string; email: string; name: string | null; role: Role; mfa_enrolled: boolean }[];
@@ -69,10 +70,10 @@ export default function Team() {
             <option value="client_reviewer">Reviewer</option>
             <option value="client_admin">Admin</option>
           </select>
-          <button className="primary" disabled={invite.isPending}>Send invitation</button>
+          <Button className="primary" busy={invite.isPending} busyLabel="Sending the invitation">Send invitation</Button>
         </form>
       )}
-      {members.isPending && <p className="muted">Loading…</p>}
+      {members.isPending && <SkeletonRows label="Loading the team" />}
       {members.data && (
         <table>
           <thead>
@@ -89,14 +90,18 @@ export default function Team() {
                 <td>{m.email}</td>
                 <td>
                   {canManage ? (
-                    <select
-                      value={m.role}
-                      aria-label={`Role for ${m.email}`}
-                      onChange={(e) => changeRole.mutate({ userId: m.user_id, role: e.target.value as Role })}
-                    >
-                      <option value="client_reviewer">Reviewer</option>
-                      <option value="client_admin">Admin</option>
-                    </select>
+                    <span className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                      <select
+                        value={changeRole.isPending && changeRole.variables?.userId === m.user_id ? changeRole.variables.role : m.role}
+                        aria-label={`Role for ${m.email}`}
+                        disabled={changeRole.isPending && changeRole.variables?.userId === m.user_id}
+                        onChange={(e) => changeRole.mutate({ userId: m.user_id, role: e.target.value as Role })}
+                      >
+                        <option value="client_reviewer">Reviewer</option>
+                        <option value="client_admin">Admin</option>
+                      </select>
+                      {changeRole.isPending && changeRole.variables?.userId === m.user_id && <Spinner label="Changing the role" />}
+                    </span>
                   ) : (
                     ROLE_LABEL[m.role]
                   )}
@@ -104,12 +109,14 @@ export default function Team() {
                 <td>{m.mfa_enrolled ? "On" : m.role === "client_admin" ? "Pending setup" : "Not required"}</td>
                 {canManage && (
                   <td className="right">
-                    <button
+                    <Button
                       className="link danger"
+                      busy={remove.isPending && remove.variables === m.user_id}
+                      busyLabel="Removing"
                       onClick={() => confirm(`Remove ${m.email} from this workspace?`) && remove.mutate(m.user_id)}
                     >
                       Remove
-                    </button>
+                    </Button>
                   </td>
                 )}
               </tr>
@@ -121,7 +128,7 @@ export default function Team() {
                 <td>Invited · expires {formatDateTime(i.expires_at)}</td>
                 {canManage && (
                   <td className="right">
-                    <button className="link danger" onClick={() => revoke.mutate(i.id)}>Revoke</button>
+                    <Button className="link danger" busy={revoke.isPending && revoke.variables === i.id} busyLabel="Revoking" onClick={() => revoke.mutate(i.id)}>Revoke</Button>
                   </td>
                 )}
               </tr>

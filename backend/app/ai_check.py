@@ -60,8 +60,22 @@ def eligible(issues: list, schema: dict) -> list[str]:
             continue
         seen.add(fid)
         out.append(fid)
-    # Deterministic order (page, then figure), so a run is reproducible.
-    return sorted(out, key=lambda fid: (schema["figures"][fid]["source"]["page"], fid))
+    # Figures read from images (OCR) first — those are the ones a person would otherwise
+    # have to look at — then page order, so a run is reproducible.
+    return sorted(out, key=lambda fid: (schema["figures"][fid].get("method") != "ocr",
+                                        schema["figures"][fid]["source"]["page"], fid))
+
+
+def items_within(credits: int, n_items: int) -> int:
+    """How many of n_items the estimate fits in `credits` (0 if not even one batch)."""
+    lo, hi = 0, n_items
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if estimate(mid)["credits"] <= credits:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
 
 
 def estimate(n_items: int) -> dict[str, Any]:

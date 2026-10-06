@@ -11,8 +11,9 @@ export function workspacePath(me: Me): string {
   return "/";
 }
 
-export async function enterApp(qc: QueryClient, navigate: NavigateFunction) {
-  const me = await api<Me>("/api/auth/me");
+/** `signedIn` is the sign-in response: it already says who is signed in, so no second call. */
+export async function enterApp(qc: QueryClient, navigate: NavigateFunction, signedIn?: { me?: Me | null }) {
+  const me = signedIn?.me ?? await api<Me>("/api/auth/me");
   qc.setQueryData(["me"], me);
   navigate(workspacePath(me), { replace: true });
 }

@@ -9,7 +9,7 @@ from app.api.deps import auth_state, client_ip, partial_auth
 from app.config import get_settings
 from app.models import Membership, Tenant
 from app.security import auth
-from app.security.auth import AuthError, AuthState
+from app.security.auth import AuthError, AuthState, resolve_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -76,12 +76,12 @@ def verify_code(body: CodeVerifyIn, request: Request, response: Response) -> dic
         raise HTTPException(400, str(e)) from e
     if r.session_token:
         _set_session_cookie(response, r.session_token)
-        return {"status": "signed_in"}
+        return _signed_in(r.session_token)
     return {"status": "needs_profile", "signup_token": r.signup_token}
 
 
 @router.post("/demo")
-def demo_login(request: Request, response: Response) -> dict[str, str]:
+def demo_login(request: Request, response: Response) -> dict:
     """Public sign-in for the shared demo account. No email code."""
     try:
         token = auth.sign_in_demo(client_ip(request), request.headers.get("user-agent"))
@@ -89,7 +89,7 @@ def demo_login(request: Request, response: Response) -> dict[str, str]:
         status = 429 if str(e).startswith("The demo is busy") else 400
         raise HTTPException(status, str(e)) from e
     _set_session_cookie(response, token)
-    return {"status": "signed_in"}
+    return _signed_in(token)
 
 
 @router.post("/signup")
@@ -100,7 +100,7 @@ def signup(body: SignupIn, request: Request, response: Response) -> dict:
     except AuthError as e:
         raise HTTPException(400, str(e)) from e
     _set_session_cookie(response, token)
-    return {"status": "signed_in"}
+    return _signed_in(token)
 
 
 @router.post("/verify")
@@ -111,6 +111,13 @@ def verify(body: TokenIn, request: Request, response: Response) -> dict[str, str
         raise HTTPException(400, str(e)) from e
     _set_session_cookie(response, token)
     return {"status": "signed_in"}
+
+
+def _signed_in(token: str) -> dict:
+    """The sign-in response carries what /me would say, so the dashboard opens without a
+    second round trip (from India to the API that is most of a second)."""
+    state = resolve_session(token)
+    return {"status": "signed_in", "me": me(state) if state is not None else None}
 
 
 @router.get("/me")

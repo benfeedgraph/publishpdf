@@ -230,9 +230,9 @@ def test_phone_view_reads_a_three_column_panel_column_by_column():
                      "col2 line0 col2 line1 col2 line2"]
 
 
-def test_a_design_led_page_is_shown_whole_not_cut_into_pieces():
-    """A product spread (pictures with short captions) reads better as designed; a page of
-    prose becomes web text. The spread's captions aren't repeated as loose paragraphs."""
+def test_a_design_led_page_is_rebuilt_as_web_sections_not_a_picture_of_the_page():
+    """A product spread (pictures with short captions) becomes a web picture grid with no AI
+    (built-in layout, no credits); a page of prose becomes web text. Each caption appears once."""
     doc = pymupdf.open()
     prose = doc.new_page()
     assert prose.insert_textbox(pymupdf.Rect(72, 90, 520, 700), (BODY + " ") * 4, fontname="helv", fontsize=11) >= 0
@@ -244,7 +244,8 @@ def test_a_design_led_page_is_shown_whole_not_cut_into_pieces():
     schema, _ = extract(pdf, META)
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     html_ = [v for k, v in files.items() if k.endswith(".html")][0].decode()
-    assert 'class="web-page"' in html_                                  # the spread, whole
-    assert html_.count("Caption for brand range A") == 1                 # once: on the spread itself
+    assert 'class="web-page"' not in html_                              # never the page as a picture
+    assert 'class="ai-page"' in html_ and "ai-gallery" in html_          # a grid of pictures + captions
+    assert html_.count("Caption for brand range A") == 1                 # once, as a caption
     assert "<p>The Company continued to invest behind its brands" in html_   # the prose page is web text
     assert validation.check_bundle(schema, files) == []

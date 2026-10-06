@@ -4,7 +4,9 @@ import type React from "react";
 import { api, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import { IconAlert, IconCheck, IconSparkle } from "../../components/Icons";
+import { Button, Spinner } from "../../components/Spinner";
 import ValidationTab from "./ValidationTab";
+import WizardFooter from "./WizardFooter";
 
 interface Agent { key: string; name: string; description: string; ran: boolean; confirmed: number; blocking: number; warnings: number }
 
@@ -44,12 +46,26 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
+  // Same rule as the stepper: the step is done once the version is out of processing,
+  // failed and validation_issues.
+  const open = version.open_blocking;
+  const next = {
+    label: "Next: Design →", onClick: onContinue,
+    disabled: processing || version.status === "failed" || version.status === "validation_issues", waiting: processing,
+    reason: processing ? `${p.label}… the next step unlocks automatically when the checks finish.`
+      : version.status === "failed" ? (isAdmin ? "Processing failed — use Try again above." : "Processing failed — ask a workspace admin to try again.")
+      : open > 0 ? `Resolve ${open} blocking figure${open === 1 ? "" : "s"} first.` : "Resolve the blocking items first.",
+  };
+
   if (version.status === "failed") {
     return (
-      <div className="card">
-        <div className="callout bad" role="alert"><strong>We couldn't process this PDF.</strong> {version.error ?? "Something went wrong."}</div>
-        {isAdmin && <button className="primary" onClick={() => rerun.mutate()} disabled={rerun.isPending}>Try again</button>}
-      </div>
+      <>
+        <div className="card">
+          <div className="callout bad" role="alert"><strong>We couldn't process this PDF.</strong> {version.error ?? "Something went wrong."}</div>
+          {isAdmin && <Button className="primary" onClick={() => rerun.mutate()} busy={rerun.isPending} busyLabel="Restarting">Try again</Button>}
+        </div>
+        <WizardFooter next={next} />
+      </>
     );
   }
 
@@ -58,7 +74,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
       {processing && (
         <div className="card">
           <div className="toolbar" style={{ justifyContent: "space-between", marginBottom: 10 }}>
-            <h2 style={{ margin: 0 }}>{p.label}…</h2>
+            <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}><Spinner label="Processing" /> {p.label}…</h2>
             <span className="muted small">{version.pages.length ? `${version.pages.length} pages` : version.page_count ? `${version.page_count} pages` : ""}</span>
           </div>
           <div className={`progress ${p.exact ? "" : "indeterminate"}`}><span style={{ width: `${p.pct}%` }} /></div>
@@ -128,9 +144,8 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           )}
 
           {!processing && s.blocking === 0 && (
-            <div className="callout ok row" style={{ justifyContent: "space-between" }}>
-              <span><strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look.</span>
-              <button className="primary" onClick={onContinue}>Continue to design →</button>
+            <div className="callout ok">
+              <strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look — use <strong>Next: Design</strong> below.
             </div>
           )}
           {!processing && s.blocking > 0 && (
@@ -144,16 +159,17 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
       {isAdmin && !processing && version.published_at === null && (
         <p className="muted small">
           Checks improved since this ran?{" "}
-          <button className="link" disabled={rerun.isPending} onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</button>
+          <Button className="link" busy={rerun.isPending} busyLabel="Restarting the checks" onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</Button>
         </p>
       )}
+      <WizardFooter next={next} hint="Every figure is checked. Next, choose how the page should look." />
     </div>
   );
 }
 
 interface AiEstimate { items: number; requests: number; input_tokens: number; output_tokens: number; usd: number; credits: number; model: string; credit_usd: number }
 interface AiAllowance { limit: number | null; used: number; remaining: number | null }
-interface AiState { available: boolean; estimate: AiEstimate; allowance?: AiAllowance; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
+interface AiState { available: boolean; auto_cap_credits?: number; estimate: AiEstimate; allowance?: AiAllowance; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
 
 /** Opt-in AI double-check of the flagged figures, with the cost shown before it runs. */
 function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; reportId: string; versionId: string }) {
@@ -188,6 +204,9 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
         </div>
       )}
       {!available && <p className="callout info small">AI double-check isn't set up yet: add a Gemini key to the platform settings.</p>}
+      {available && !!q.data.auto_cap_credits && (
+        <p className="muted small">Runs automatically on figures read from images, up to {q.data.auto_cap_credits} credits per report. Anything beyond that is your call, with the estimate above.</p>
+      )}
       {a && a.limit !== null && (
         <p className="muted small">This month: {a.used} of {a.limit} AI credits used · {a.remaining} left.</p>
       )}
@@ -195,12 +214,12 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
         <p className="callout warn small">This check needs {e.credits} credits, but your workspace has {a?.remaining} of its monthly AI credits left. Ask your PublishPDF contact to raise the limit.</p>
       )}
       {available && e.items > 0 && !running && !overLimit && (
-        <button className="primary" disabled={start.isPending}
+        <Button className="primary" busy={start.isPending} busyLabel="Starting the AI double-check"
           onClick={() => { if (window.confirm(`Run the AI double-check on ${e.items} figures for about ${e.credits} credits ($${e.usd.toFixed(4)})?`)) start.mutate(e.credits); }}>
           Run AI double-check · ≈ {e.credits} credits
-        </button>
+        </Button>
       )}
-      {running && <p className="callout info small">AI double-check running… this updates automatically.</p>}
+      {running && <p className="callout info small row" style={{ gap: 8 }}><Spinner label="AI double-check running" /> AI double-check running — this updates automatically.</p>}
       {err && <p className="error" role="alert">{err}</p>}
       {done && last?.result && (
         <p className="small" style={{ marginBottom: 0 }}>Last run: <strong>{last.result.confirmed}</strong> confirmed · <strong>{last.result.disagreed}</strong> need you · used <strong>{last.result.credits}</strong> credits (${last.result.usd.toFixed(4)}, {(last.result.input_tokens + last.result.output_tokens).toLocaleString()} tokens).</p>

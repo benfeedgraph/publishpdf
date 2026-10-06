@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, del, formatDateTime, post, useTenantRole } from "../api";
 import { useMe } from "../App";
+import { Button } from "../components/Spinner";
 
 interface DomainT {
   id: string; hostname: string; status: string; failure_code: string | null; failure_reason: string | null;
@@ -35,9 +36,9 @@ export default function Domain() {
   const refresh = () => qc.invalidateQueries({ queryKey: key });
   const add = useMutation({ mutationFn: () => post(`/api/tenants/${tenantId}/domain`, { hostname: host }), onSuccess: () => { setErr(null); refresh(); }, onError: (e: Error) => setErr(e.message) });
   const check = useMutation({ mutationFn: () => post(`/api/tenants/${tenantId}/domain/check`), onSuccess: refresh, onError: (e: Error) => setErr(e.message) });
-  const remove = useMutation({ mutationFn: () => del(`/api/tenants/${tenantId}/domain`), onSuccess: refresh });
+  const remove = useMutation({ mutationFn: () => del(`/api/tenants/${tenantId}/domain`), onSuccess: refresh, onError: (e: Error) => setErr(e.message) });
 
-  if (q.isPending) return <p className="muted">Loading…</p>;
+  if (q.isPending) return <><h1>Custom domain</h1><div className="sk sk-line" /><div className="sk sk-block" /></>;
   if (q.isError) return <p className="error">{q.error.message}</p>;
   const { domain: d, preview_origin } = q.data;
   function submit(e: FormEvent) { e.preventDefault(); add.mutate(); }
@@ -49,7 +50,7 @@ export default function Domain() {
       {!d && isAdmin && (
         <form className="card inline-form" onSubmit={submit}>
           <input required value={host} onChange={(e) => setHost(e.target.value)} placeholder="investors.yourcompany.com" aria-label="Subdomain" />
-          <button className="primary" disabled={add.isPending}>Connect subdomain</button>
+          <Button className="primary" busy={add.isPending} busyLabel="Connecting">Connect subdomain</Button>
           {err && <p className="error" role="alert">{err}</p>}
           <p className="muted small">Use a subdomain, not your main domain: a root domain can't point to us and would replace your website.</p>
         </form>
@@ -74,8 +75,8 @@ export default function Domain() {
             <p className="muted small">Last checked {formatDateTime(d.last_checked_at)} · we re-check automatically.</p>
             {isAdmin && (
               <div className="btn-row">
-                <button className="primary" disabled={check.isPending} onClick={() => check.mutate()}>{check.isPending ? "Checking…" : "Check now"}</button>
-                <button className="link danger" onClick={() => confirm(`Disconnect ${d.hostname}? The site will only be available at the preview address.`) && remove.mutate()}>Disconnect</button>
+                <Button className="primary" busy={check.isPending} busyLabel="Checking DNS" onClick={() => check.mutate()}>Check now</Button>
+                <Button className="link danger" busy={remove.isPending} busyLabel="Disconnecting" onClick={() => confirm(`Disconnect ${d.hostname}? The site will only be available at the preview address.`) && remove.mutate()}>Disconnect</Button>
               </div>
             )}
             {err && <p className="error">{err}</p>}

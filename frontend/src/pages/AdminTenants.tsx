@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, formatDateTime, post } from "../api";
+import { Button, SkeletonRows } from "../components/Spinner";
 
 interface TenantRow {
   id: string;
@@ -86,10 +87,10 @@ export default function AdminTenants() {
           </label>
         </div>
         {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={create.isPending}>Create tenant</button>
+        <Button className="primary" busy={create.isPending} busyLabel="Creating the tenant">Create tenant</Button>
       </form>
 
-      {q.isPending && <p className="muted">Loading…</p>}
+      {q.isPending && <SkeletonRows label="Loading tenants" />}
       {q.data && (
         <table>
           <thead>
@@ -113,8 +114,10 @@ export default function AdminTenants() {
                 <td><span className={`status status-${t.status}`}>{t.status}</span></td>
                 <td className="nowrap">{formatDateTime(t.created_at)}</td>
                 <td className="right">
-                  <button
+                  <Button
                     className={`link ${t.status === "active" ? "danger" : ""}`}
+                    busy={setStatus.isPending && setStatus.variables?.id === t.id}
+                    busyLabel="Updating"
                     onClick={() => {
                       const next = t.status === "active" ? "suspended" : "active";
                       if (next === "active" || confirm(`Suspend ${t.name}? Its users lose access immediately.`))
@@ -122,7 +125,7 @@ export default function AdminTenants() {
                     }}
                   >
                     {t.status === "active" ? "Suspend" : "Reactivate"}
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}

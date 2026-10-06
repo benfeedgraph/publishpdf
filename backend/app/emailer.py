@@ -27,6 +27,10 @@ OUTBOX: list[SentEmail] = []  # console backend only
 
 def send(to: str, subject: str, body: str) -> None:
     settings = get_settings()
+    if settings.email_backend == "smtp" and (settings.smtp_host or "").lower() == "smtp.resend.com" \
+            and settings.smtp_password:
+        _send_resend_api(settings, to, subject, body)
+        return
     if settings.email_backend == "smtp":
         if not settings.smtp_host:
             raise RuntimeError("SMTP_HOST is required when EMAIL_BACKEND=smtp")
@@ -43,6 +47,19 @@ def send(to: str, subject: str, body: str) -> None:
         raise RuntimeError("console email backend is not allowed in production")
     OUTBOX.append(SentEmail(to, subject, body))
     log.warning("[console email] to=%s subject=%s\n%s", to, subject, body)
+
+
+def _send_resend_api(settings, to: str, subject: str, body: str) -> None:
+    """Resend's HTTPS API with the same key as its SMTP login: one request instead of an
+    SMTP conversation (connect, STARTTLS, login, send — about ten round trips), which is
+    what a person waits on for their sign-in code."""
+    import httpx
+
+    r = httpx.post("https://api.resend.com/emails", timeout=15,
+                   headers={"Authorization": f"Bearer {settings.smtp_password}"},
+                   json={"from": settings.email_from, "to": [to], "subject": subject, "text": body})
+    if r.status_code >= 400:
+        raise RuntimeError(f"Resend refused the email ({r.status_code}): {r.text[:200]}")
 
 
 def _serverless() -> bool:

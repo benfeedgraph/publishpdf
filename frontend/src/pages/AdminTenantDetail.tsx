@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import AiUsagePanel, { type AiUsageSummary } from "../components/AiUsage";
 import { api, post, put, REPORT_TYPE_LABEL, ROLE_LABEL, type Job, type Report, type Role } from "../api";
 import JobTable from "../components/JobTable";
+import { Button } from "../components/Spinner";
 
 interface Detail {
   tenant: { id: string; slug: string; name: string; status: string; created_at: string; ai_monthly_credit_limit: number | null };
@@ -19,7 +20,7 @@ export default function AdminTenantDetail() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["admin-tenant", id], queryFn: () => api<Detail>(`/api/admin/tenants/${id}`), refetchInterval: 5000 });
   const rerun = useMutation({ mutationFn: (jid: string) => post(`/api/admin/jobs/${jid}/rerun`), onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-tenant", id] }) });
-  if (q.isPending) return <p className="muted">Loading…</p>;
+  if (q.isPending) return <><div className="sk sk-title" /><div className="sk sk-block" /></>;
   if (q.isError) return <p className="error">{q.error.message}</p>;
   const d = q.data;
   return (
@@ -57,7 +58,7 @@ export default function AdminTenantDetail() {
         </table>
       )}
       <h2>Processing jobs</h2>
-      <JobTable jobs={d.jobs} admin onRerun={(jid) => rerun.mutate(jid)} />
+      <JobTable jobs={d.jobs} admin onRerun={(jid) => rerun.mutate(jid)} rerunning={rerun.isPending ? rerun.variables : null} />
     </>
   );
 }
@@ -79,7 +80,7 @@ function AiLimitForm({ tenantId, current }: { tenantId: string; current: number 
       <label className="small" htmlFor="ai-limit">Monthly AI credit limit</label>
       <input id="ai-limit" inputMode="numeric" placeholder="No limit" value={value} style={{ width: 120 }}
         onChange={(e) => { setValue(e.target.value); setMsg(null); }} aria-invalid={!valid} />
-      <button className="secondary" disabled={!valid || save.isPending}>Save limit</button>
+      <Button className="secondary" disabled={!valid} busy={save.isPending} busyLabel="Saving the limit">Save limit</Button>
       <span className="muted small">Leave blank for no limit. 0 turns AI off for this workspace.</span>
       {!valid && <span className="error small">Whole number, 0 or more.</span>}
       {msg && <span className="small" role="status">{msg}</span>}

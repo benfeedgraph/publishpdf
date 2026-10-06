@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, put, useTenantRole } from "../api";
 import { useMe } from "../App";
+import { Button, SkeletonRows, Spinner } from "../components/Spinner";
 
 interface Stats {
   days: number;
@@ -46,7 +47,7 @@ export default function Analytics() {
           <label className="field"><span className="label">Why no banner? (recorded in the audit log)</span>
             <input required value={ack} onChange={(e) => setAck(e.target.value)} placeholder="e.g. Legal confirmed another lawful basis for our markets" /></label>
         )}
-        {isAdmin && <div><button className="primary" disabled={save.isPending}>Save</button></div>}
+        {isAdmin && <div><Button className="primary" busy={save.isPending} busyLabel="Saving">Save</Button></div>}
         {msg && <p className="small" role="status">{msg}</p>}
       </form>
 
@@ -54,7 +55,10 @@ export default function Analytics() {
         <div className="toolbar">
           <h2>Visits (from our servers, no cookies)</h2>
           <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Period"><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select>
+          {stats.isFetching && !stats.isPending && <Spinner label="Updating" />}
         </div>
+        {stats.isPending && <SkeletonRows label="Loading visits" />}
+        {stats.isError && <p className="error">{stats.error.message}</p>}
         {stats.data && stats.data.daily.length === 0 && <p className="muted">No visits yet.</p>}
         {stats.data && stats.data.daily.length > 0 && (
           <>

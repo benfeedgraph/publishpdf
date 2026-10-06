@@ -45,8 +45,9 @@ def test_existing_user_signs_in_with_a_code(client):
     r = client.post("/api/auth/code", json={"email": u.email})
     assert r.status_code == 202 and "dev_code" not in r.json()        # only in development
     r = client.post("/api/auth/code/verify", json={"email": u.email, "code": _last_code(u.email)})
-    assert r.json() == {"status": "signed_in"}
-    assert client.get("/api/auth/me").json()["user"]["email"] == u.email
+    assert r.json()["status"] == "signed_in"
+    assert r.json()["me"]["user"]["email"] == u.email               # no second round trip needed
+    assert client.get("/api/auth/me").json() == r.json()["me"]
 
 
 def test_new_email_signs_up_and_owns_a_workspace(client, monkeypatch):

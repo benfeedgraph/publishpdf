@@ -320,3 +320,31 @@ def test_large_pdf_goes_straight_to_r2_with_a_presigned_url(client, monkeypatch)
     backend.files[f"tenants/{t.id}/{big['key']}"] = pdf
     r = client.post(f"/api/tenants/{t.id}/reports/inspect", data={"incoming": big["key"], "filename": "b.pdf"})
     assert r.status_code == 413 and f"tenants/{t.id}/{big['key']}" not in backend.files
+
+
+def test_resend_smtp_settings_send_through_its_https_api(monkeypatch):
+    """smtp.resend.com + its API key: one HTTPS request instead of an SMTP conversation."""
+    from app import emailer
+    from app.config import get_settings
+
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "email_backend", "smtp")
+    monkeypatch.setattr(cfg, "smtp_host", "smtp.resend.com")
+    monkeypatch.setattr(cfg, "smtp_password", "re_test_key")
+    sent = {}
+
+    class R:
+        status_code = 200
+        text = "{}"
+
+    def fake_post(url, **kw):
+        sent.update(url=url, **kw)
+        return R()
+
+    import httpx
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(emailer.smtplib, "SMTP", lambda *a, **k: (_ for _ in ()).throw(AssertionError("SMTP used")))
+    emailer.send("a@example.com", "123456 is your code", "body")
+    assert sent["url"] == "https://api.resend.com/emails"
+    assert sent["headers"]["Authorization"] == "Bearer re_test_key"
+    assert sent["json"]["to"] == ["a@example.com"] and sent["json"]["subject"] == "123456 is your code"

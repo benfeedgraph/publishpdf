@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, post, ROLE_LABEL, type Role } from "../api";
 import { enterApp } from "../enter";
+import { Button, Loading } from "../components/Spinner";
 
 export default function InviteAccept() {
   const [params] = useSearchParams();
@@ -10,6 +11,7 @@ export default function InviteAccept() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const preview = useQuery({
     queryKey: ["invite", token],
     queryFn: () =>
@@ -20,18 +22,21 @@ export default function InviteAccept() {
   });
 
   async function accept() {
+    setBusy(true);
+    setError(null);
     try {
       await post("/api/auth/invites/accept", { token });
       await enterApp(qc, navigate);
     } catch (e) {
       setError((e as Error).message);
+      setBusy(false);
     }
   }
 
   return (
     <div className="auth-card">
       <h1>Join workspace</h1>
-      {preview.isPending && token && <p className="muted">Checking invitation…</p>}
+      {preview.isPending && token && <Loading label="Checking the invitation">Checking your invitation</Loading>}
       {(preview.isError || !token) && (
         <>
           <p className="error">{preview.error?.message ?? "This invitation link is incomplete."}</p>
@@ -45,7 +50,7 @@ export default function InviteAccept() {
             {ROLE_LABEL[preview.data.role]}.
           </p>
           {error && <p className="error">{error}</p>}
-          <button className="primary" onClick={accept}>Accept invitation</button>
+          <Button className="primary" busy={busy} busyLabel="Joining the workspace" onClick={accept}>Accept invitation</Button>
         </>
       )}
     </div>

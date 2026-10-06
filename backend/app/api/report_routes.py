@@ -463,6 +463,7 @@ def ai_check_estimate(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context 
         fids, last = _ai_state(s, v)
     from app import ai_usage
     return {"available": bool(get_settings().gemini_api_key), "estimate": ai_check.estimate(len(fids)), "last": last,
+            "auto_cap_credits": get_settings().ai_auto_check_max_credits if get_settings().gemini_api_key else 0,
             "allowance": ai_usage.allowance(ctx)}
 
 

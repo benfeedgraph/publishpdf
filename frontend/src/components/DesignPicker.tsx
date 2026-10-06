@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { post, upload } from "../api";
 import { IconCheckCircle, IconClose, IconDesign, IconDocument, IconGlobe } from "./Icons";
+import { Button, Spinner } from "./Spinner";
 
 export interface ThemeT {
   colors: Record<string, string>;
@@ -11,6 +12,8 @@ export interface ThemeT {
   logo: { key: string; alt: string } | null;
   footer: Record<string, unknown>;
 }
+/** What the picker would apply right now; `dirty` when it differs from `current`. */
+export interface DesignDraft { theme: ThemeT; makeDefault: boolean; mode: string; dirty: boolean }
 interface Proposal { theme: ThemeT; logo_url?: string | null; fonts_seen?: string[]; source: string }
 type Source = "website" | "palette" | "file" | "current";
 
@@ -25,13 +28,16 @@ const SOURCES: [Source, string, string, ReactNode][] = [
 const FONTS = ["system", "serif", "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Source Sans 3", "Noto Sans", "Nunito Sans", "Libre Franklin",
   "Mulish", "Raleway", "Merriweather", "Playfair Display", "Poppins", "IBM Plex Sans", "Work Sans", "DM Sans", "Manrope", "Lora", "PT Serif"];
 
-export default function DesignPicker({ tenantId, reportId, current, onApply, applyLabel = "Use this design", busy }: {
+export default function DesignPicker({ tenantId, reportId, current, onApply, applyLabel = "Use this design", busy, hideApply = false, onDraftChange }: {
   tenantId: string;
   reportId?: string;
   current: ThemeT;
   onApply: (theme: ThemeT, opts: { makeDefault: boolean; mode: string }) => void;
   applyLabel?: string;
   busy?: boolean;
+  /** Leave the apply button out: the caller applies `onDraftChange`'s draft itself (the report wizard's footer). */
+  hideApply?: boolean;
+  onDraftChange?: (draft: DesignDraft) => void;
 }) {
   const [source, setSource] = useState<Source>("current");
   const [url, setUrl] = useState("");
@@ -44,6 +50,10 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { if (source === "current") { setTheme(current); setProposal(null); } }, [source, current]);
+  const mode = source === "website" ? "match_website" : source === "current" ? "custom" : source === "palette" ? "custom" : "reference";
+  useEffect(() => {
+    onDraftChange?.({ theme, makeDefault, mode, dirty: JSON.stringify(theme) !== JSON.stringify(current) });
+  }, [theme, makeDefault, mode, current]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function propose() {
     setErr(null);
@@ -95,7 +105,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
           {source === "website" && (
             <form className="inline-form" onSubmit={(e) => { e.preventDefault(); propose(); }}>
               <input required placeholder="https://www.yourcompany.com" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Website address" />
-              <button className="primary" disabled={loading}>{loading ? "Looking…" : "Get design"}</button>
+              <Button className="primary" busy={loading} busyLabel="Reading the website">Get design</Button>
             </form>
           )}
           {source === "palette" && (
@@ -111,14 +121,14 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
                 ))}
                 {palette.length < 8 && <button type="button" className="secondary" onClick={() => setPalette((p) => [...p, "#888888"])}>+ Add</button>}
               </div>
-              <div style={{ marginTop: 12 }}><button className="primary" disabled={loading}>{loading ? "Building…" : "Build theme"}</button></div>
+              <div style={{ marginTop: 12 }}><Button className="primary" busy={loading} busyLabel="Building the theme">Build theme</Button></div>
             </form>
           )}
           {source === "file" && (
             <form onSubmit={(e) => { e.preventDefault(); propose(); }}>
               <label className="field"><span className="label">Brand PDF, or up to 5 images (PNG/JPEG)</span>
                 <input type="file" multiple accept="application/pdf,image/png,image/jpeg" onChange={(e) => setFiles(e.target.files)} /></label>
-              <button className="primary" disabled={loading || !files?.length}>{loading ? "Analysing…" : "Get design"}</button>
+              <Button className="primary" disabled={!files?.length} busy={loading} busyLabel="Analysing your files">Get design</Button>
             </form>
           )}
           {source === "current" && (
@@ -160,9 +170,11 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
           <label className="check"><input type="checkbox" checked={!!theme.footer?.show_powered_by} onChange={(e) => set((t) => { t.footer = { ...t.footer, show_powered_by: e.target.checked }; })} /> Show “Powered by PublishPDF” in the page footer</label>
           <p className="hint">Text contrast is always kept readable: colours that are too light are darkened automatically on the page.</p>
           {reportId && <label className="check"><input type="checkbox" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} /> Also save as the design for future reports</label>}
-          <button className="primary lg" disabled={busy} onClick={() => onApply(theme, { makeDefault, mode: source === "website" ? "match_website" : source === "current" ? "custom" : source === "palette" ? "custom" : "reference" })}>
-            {busy ? "Applying…" : applyLabel}
-          </button>
+          {!hideApply && (
+            <Button className="primary lg" busy={busy} busyLabel="Applying the design" onClick={() => onApply(theme, { makeDefault, mode })}>
+              {applyLabel}
+            </Button>
+          )}
         </div>
       </div>
       <LivePreview tenantId={tenantId} reportId={reportId} theme={theme} />
@@ -172,21 +184,29 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
 
 function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId?: string; theme: ThemeT }) {
   const [html, setHtml] = useState("");
+  const [pending, setPending] = useState(true);
   const timer = useRef<number>();
+  const seq = useRef(0);   // only the latest request may update the preview
   useEffect(() => {
     window.clearTimeout(timer.current);
+    setPending(true);
     timer.current = window.setTimeout(async () => {
-      const res = await fetch(`/api/tenants/${tenantId}/theme/preview`, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-PPDF-CSRF": "1" },
-        body: JSON.stringify({ theme, report_id: reportId }),
-      });
-      if (res.ok) setHtml(await res.text());
+      const n = ++seq.current;
+      try {
+        const res = await fetch(`/api/tenants/${tenantId}/theme/preview`, {
+          method: "POST", headers: { "Content-Type": "application/json", "X-PPDF-CSRF": "1" },
+          body: JSON.stringify({ theme, report_id: reportId }),
+        });
+        if (res.ok && n === seq.current) setHtml(await res.text());
+      } finally {
+        if (n === seq.current) setPending(false);
+      }
     }, 300);
     return () => window.clearTimeout(timer.current);
   }, [tenantId, reportId, theme]);
   return (
     <div className="card live-preview" style={{ padding: 12 }}>
-      <div className="toolbar" style={{ marginBottom: 8 }}><strong>Live preview</strong><span className="muted small">Your report in this design</span></div>
+      <div className="toolbar" style={{ marginBottom: 8 }}><strong>Live preview</strong><span className="muted small">Your report in this design</span>{pending && <Spinner label="Updating the preview" />}</div>
       <iframe title="Design preview" srcDoc={html} sandbox="allow-same-origin" />
     </div>
   );
