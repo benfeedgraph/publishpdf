@@ -16,7 +16,9 @@ trap cleanup EXIT INT TERM
 
 run api      backend  uv run uvicorn app.main:app --reload --port 8000
 # The worker restarts itself whenever backend code changes (the API does the same via --reload).
-run worker   backend  uv run watchfiles --filter python "python -m app.cli worker" app
+# If the worker ever exits (a crash, a refused start), it comes back after 2 s instead of
+# staying down until the next file change.
+run worker   backend  uv run watchfiles --filter python "sh -c 'while true; do python -m app.cli worker; echo worker exited, restarting; sleep 2; done'" app
 run sites    backend  uv run uvicorn app.public:app --reload --port 8080
 run web      frontend npm run dev -- --strictPort
 echo "PublishPDF is starting: dashboard http://localhost:5173 · sites http://<slug>.preview.localhost:8080"
