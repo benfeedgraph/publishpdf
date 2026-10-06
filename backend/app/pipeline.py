@@ -11,6 +11,7 @@ a stage with the same inputs produces the same outputs.
 from __future__ import annotations
 
 import hashlib
+import logging
 import json
 import uuid
 from typing import Any
@@ -38,6 +39,8 @@ from app.reports import (
 )
 from app.tenancy import Context
 from app import ai_check, validation
+
+log = logging.getLogger(__name__)
 
 
 @handler("system.ping")
@@ -170,8 +173,22 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
 
     from app.reports import pdf_page_key
 
+    # The cover thumbnail for report lists: once per PDF (a re-render finds it stored).
+    from app.reports import make_thumb, thumb_key
+    try:
+        if not storage.exists(ctx, thumb_key(v_sha)):
+            storage.put(ctx, thumb_key(v_sha), make_thumb(pdf), "image/webp")
+    except Exception:  # noqa: BLE001 - a missing thumbnail only shows a placeholder
+        log.exception("thumbnail not stored")
+    # Design-led pages as web sections: AI layouts (cached per PDF, capped, metered).
+    from app import page_layouts
+    try:
+        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf)
+    except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
+        log.exception("AI layouts unavailable")
+        layouts = {}
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page)
+                               progress=on_page, layouts=layouts)
     prefix = bundle_prefix(vid)
     # A re-render (a confirmed figure, a new theme) changes few files: upload only those.
     # _hashes.json records what is stored; anything missing from it is uploaded.
@@ -321,7 +338,37 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         v.stage = "done"
         audit.record(s, ctx, "pipeline.validated", target_type="report_version", target_id=vid,
                      after={"run": run, **{k: summary[k] for k in ("figures_checked", "passed", "warnings", "blocking")}})
+        if summary["blocking"]:
+            _maybe_auto_ai_check(s, ctx, v, issues, schema)
     return summary
+
+
+def _maybe_auto_ai_check(s, ctx: Context, v: ReportVersion, issues: list, schema: dict) -> None:
+    """When OCR isn't sure, let the AI take a look — automatically, but only once per
+    version, only when the estimate is within AI_AUTO_CHECK_MAX_CREDITS, and only within the
+    workspace's monthly AI limit. Anything bigger stays a button press with the estimate."""
+    from app import ai_usage
+    cfg = get_settings()
+    cap = cfg.ai_auto_check_max_credits
+    if cap <= 0 or not cfg.gemini_api_key or v.published_at is not None:
+        return
+    fids = ai_check.eligible([{"fid": i.fid, "check": i.check, "severity": i.severity, "status": i.status}
+                              for i in issues], schema)
+    if not fids:
+        return
+    est = ai_check.estimate(len(fids))
+    if est["credits"] > cap:
+        return
+    try:
+        ai_usage.check(ctx, est["credits"])
+    except ai_usage.LimitReached:
+        return
+    job = jobs.enqueue(s, ctx, "pipeline.ai_check", {"version_id": str(v.id)},
+                       idempotency_key=f"ai_check_auto:{v.id}", max_attempts=1)
+    if job.version_id is None:
+        job.version_id = v.id
+        audit.record(s, ctx, "report.ai_check_requested", target_type="report_version", target_id=v.id,
+                     after={**est, "automatic": True, "cap_credits": cap})
 
 
 def mark_failed_versions() -> None:  # pragma: no cover - hook for operators

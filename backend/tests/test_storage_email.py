@@ -263,3 +263,60 @@ def test_a_busy_blob_store_is_retried_not_fatal(monkeypatch):
         lambda r: httpx.Response(503, json={"error": {"message": "down"}})))
     with pytest.raises(storage.StorageError, match="503"):
         backend.put("t/b.webp", b"img", "image/webp")
+
+
+def test_large_pdf_goes_straight_to_r2_with_a_presigned_url(client, monkeypatch):
+    """Cloudflare R2 / S3: the browser gets a presigned PUT for one key in its own tenant,
+    uploads there, and /inspect picks it up. R2 can't cap size up front, so /inspect does."""
+    from pathlib import Path
+    from urllib.parse import parse_qs, urlparse
+
+    from app.config import get_settings
+    from app.tenancy import Role
+    from tests.conftest import add_member, make_tenant, make_user, sign_in
+
+    class MemoryR2(storage.S3Backend):            # real boto3 signing, objects kept in memory
+        def __init__(self):
+            super().__init__("reports", "auto", "https://acct123.r2.cloudflarestorage.com",
+                             access_key="AKIDEXAMPLE", secret_key="secret-example")
+            self.files = {}
+
+        def put(self, k, d, c):
+            self.files[k] = d
+
+        def get(self, k):
+            if k not in self.files:
+                raise storage.StorageError("not found")
+            return self.files[k]
+
+        def exists(self, k):
+            return k in self.files
+
+        def delete(self, k):
+            self.files.pop(k, None)
+
+    backend = MemoryR2()
+    monkeypatch.setattr(storage, "_backend", lambda: backend)
+    t, u = make_tenant(), make_user()
+    add_member(t, u, Role.client_admin)
+    sign_in(client, u)
+    dest = client.post(f"/api/tenants/{t.id}/reports/upload-url", json={"filename": "a.pdf", "size_bytes": 1000}).json()
+    assert dest["mode"] == "presigned" and dest["headers"] == {"Content-Type": "application/pdf"}
+    url = urlparse(dest["url"])
+    assert url.hostname.endswith("r2.cloudflarestorage.com") and url.path.endswith(f"tenants/{t.id}/{dest['key']}")
+    q = parse_qs(url.query)
+    assert q["X-Amz-Algorithm"] == ["AWS4-HMAC-SHA256"] and int(q["X-Amz-Expires"][0]) <= 900
+    assert "secret-example" not in dest["url"]
+
+    pdf = (Path(__file__).resolve().parents[2] / "corpus" / "synthetic" / "acme_q2fy26_results.pdf").read_bytes()
+    backend.files[f"tenants/{t.id}/{dest['key']}"] = pdf            # what the browser's PUT did
+    r = client.post(f"/api/tenants/{t.id}/reports/inspect", data={"incoming": dest["key"], "filename": "acme.pdf"})
+    assert r.status_code == 200, r.text
+    assert f"tenants/{t.id}/{dest['key']}" not in backend.files      # incoming copy cleaned up
+
+    # Too big after the fact: refused and deleted.
+    big = client.post(f"/api/tenants/{t.id}/reports/upload-url", json={"filename": "b.pdf", "size_bytes": 1000}).json()
+    monkeypatch.setattr(get_settings(), "max_upload_mb", 0)
+    backend.files[f"tenants/{t.id}/{big['key']}"] = pdf
+    r = client.post(f"/api/tenants/{t.id}/reports/inspect", data={"incoming": big["key"], "filename": "b.pdf"})
+    assert r.status_code == 413 and f"tenants/{t.id}/{big['key']}" not in backend.files

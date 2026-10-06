@@ -200,7 +200,106 @@ details.chart-data{margin:-.6em 0 1.6em}details.chart-data summary{cursor:pointe
 """
 
 
+# A page is design-led — shown as designed, like the PDF — when (no tables, under 300 words):
+DESIGNED_MIN_SHARE = 0.40          # pictures cover this much of the page, or
+DESIGNED_MANY_VISUALS = 5          # this many pictures covering
+DESIGNED_MANY_SHARE = 0.20         #   at least this much, or
+DESIGNED_MIN_VISUALS = 3           # a few pictures with
+DESIGNED_MAX_CAPTION_WORDS = 14    #   captions (not prose) for text
+DESIGNED_MAX_WORDS = 300           # never a page of prose with a photo on it
 GRAPHIC_FRAGMENT_WORDS = 5   # a "paragraph" this short, among many, is a label inside a graphic
+
+
+def _ai_pages(schema: dict, pdf_bytes: bytes, layouts: dict[int, dict], base: str, art: dict) -> dict[int, Markup]:
+    """Web sections for pages with an AI layout. The layout is used only if it was made for
+    exactly these elements (same fingerprint); otherwise the page keeps its designed look."""
+    if not layouts:
+        return {}
+    import pymupdf
+
+    from app.render import ai_layout, elements
+    out: dict[int, Markup] = {}
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for n, lay in sorted(layouts.items()):
+            printed = f"pages/p{n:04d}-print.webp"
+            if printed not in art or n > doc.page_count:
+                continue
+            page = doc[n - 1]
+            els = elements.page_elements(page, schema, n, chart_boxes(schema, n))
+            if ai_layout.fingerprint(els) != lay.get("fingerprint"):
+                continue
+            secs = ai_layout.validate({"sections": lay.get("sections") or []}, els)
+            out[n] = Markup(ai_layout.render(secs, els, printed_src=f"{ORIGIN_PLACEHOLDER}{base}{printed}",
+                                             W=page.rect.width, H=page.rect.height))
+    finally:
+        doc.close()
+    return out
+
+
+def design_led_pages(schema: dict) -> set[int]:
+    """Pages led by pictures, not prose (see DESIGNED_*): shown whole, or as AI-laid-out
+    web sections. One definition, used by the renderer and by the AI layout step."""
+    sizes = {p["page"]: (p["width"], p["height"]) for p in schema.get("pages") or []}
+    page_blocks: dict[int, list] = {}
+    for sec in schema["sections"]:
+        for b in sec["blocks"]:
+            pg = (b.get("source") or {}).get("page")
+            if pg:
+                page_blocks.setdefault(pg, []).append(b)
+    out = set()
+    for pg, bl in page_blocks.items():
+        if any(b["type"] == "table" for b in bl):
+            continue
+        charts = [b for b in bl if b["type"] == "chart" and b["source"].get("bbox")]
+        paras = [b for b in bl if b["type"] == "paragraph"]
+        w, h = sizes.get(pg, (595.0, 842.0))
+        share = sum((b["source"]["bbox"][2] - b["source"]["bbox"][0]) * (b["source"]["bbox"][3] - b["source"]["bbox"][1])
+                    for b in charts) / max(1.0, w * h)
+        total_words = sum(_words(b) for b in paras)
+        avg_words = (total_words / len(paras)) if paras else 0
+        picture_led = (share >= DESIGNED_MIN_SHARE
+                       or (len(charts) >= DESIGNED_MANY_VISUALS and share >= DESIGNED_MANY_SHARE)
+                       or (len(charts) >= DESIGNED_MIN_VISUALS and avg_words < DESIGNED_MAX_CAPTION_WORDS))
+        if total_words < DESIGNED_MAX_WORDS and picture_led:
+            out.add(pg)
+    return out
+
+
+def whole_pages(schema: dict) -> set[int]:
+    """Pages shown whole rather than as web text: design-led pages, and pages with little
+    text, no table and nothing to cut out (a photo spread). AI layout may rebuild these."""
+    words: dict[int, int] = {}
+    kinds: dict[int, set] = {}
+    for sec in schema["sections"]:
+        for b in sec["blocks"]:
+            pg = (b.get("source") or {}).get("page")
+            if not pg:
+                continue
+            kinds.setdefault(pg, set()).add(b["type"] if b["type"] != "chart" or b["source"].get("bbox") else "x")
+            if b["type"] == "paragraph":
+                words[pg] = words.get(pg, 0) + _words(b)
+    sparse = {pg for pg, k in kinds.items()
+              if words.get(pg, 0) < REFLOW_MIN_WORDS and "table" not in k and "chart" not in k}
+    return design_led_pages(schema) | sparse
+
+
+def chart_boxes(schema: dict, page: int) -> list:
+    return [b["source"]["bbox"] for sec in schema["sections"] for b in sec["blocks"]
+            if b["type"] == "chart" and (b.get("source") or {}).get("page") == page and b["source"].get("bbox")]
+
+
+_CONTENTS_TITLE = re.compile(r"^\s*(table of )?contents\s*$", re.I | re.M)
+
+
+def _contents_pages(pdf_bytes: bytes) -> set[int]:
+    """The PDF's own contents page(s) near the front: page numbers mean nothing on the web."""
+    import pymupdf
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return {n for n in range(1, min(6, doc.page_count + 1)) if _CONTENTS_TITLE.search(doc[n - 1].get_text())}
+    finally:
+        doc.close()
 
 
 def _words(b: dict) -> int:
@@ -220,14 +319,6 @@ WEB_CSS = """
 .web-hero h1>span:not([data-meta]){display:block;margin-top:.35em;font-weight:600;color:var(--c-muted);font-size:.46em;letter-spacing:-.01em;line-height:1.25}
 .web-actions{display:flex;gap:12px;flex-wrap:wrap;margin:32px 0 0}
 .web-cover{margin:0;justify-self:end;width:100%;max-width:420px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--c-border),var(--shadow-3);transform:rotate(1.2deg)}
-.web-toc{max-width:828px;margin:clamp(28px,4vw,48px) auto 0;padding:0 24px}
-.web-toc details{border:1px solid var(--c-border);border-radius:16px;background:var(--c-surface);padding:4px 22px}
-.web-toc summary{cursor:pointer;font-family:var(--font-heading);font-weight:750;font-size:1.05em;padding:14px 0}
-.web-toc ol{list-style:none;margin:2px 0 16px;padding:0;columns:2 300px;column-gap:32px}
-.web-toc li{break-inside:avoid}
-.web-toc a{display:flex;gap:8px;padding:7px 0;color:var(--c-text);text-decoration:none;line-height:1.38;font-size:.94em}
-.web-toc a:hover{color:var(--c-primary)}
-.web-toc .tq{flex:none;min-width:2.5em;font-weight:800;color:var(--c-primary)}
 .web-body{max-width:828px;margin:0 auto;padding:clamp(8px,2vw,24px) 24px 0}
 .web .doc-sec{padding:clamp(34px,4.5vw,52px) 0}
 .web .doc-sec:first-of-type{border-top:0}
@@ -252,20 +343,45 @@ WEB_CSS = """
 .part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
 .part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent)}
 .web .doc-note{margin:40px auto 0;padding-top:28px;border-top:1px solid var(--c-border)}
+/* AI-laid-out pages: a design page rebuilt as web sections, in the site's own style */
+.ai-page{padding:clamp(28px,4vw,48px) 0;border-top:1px solid var(--c-border)}
+.ai-h{color:var(--c-text);text-wrap:balance}
+.ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.1em 0 .5em;letter-spacing:-.025em}
+.ai-h-b{font-size:clamp(1.25em,2.2vw,1.55em);margin:1.4em 0 .6em}
+.ai-h-c{font-size:1.05em;margin:1.2em 0 .5em;color:var(--c-primary);text-transform:uppercase;letter-spacing:.06em}
+.ai-p{font-size:1.06em;line-height:1.75;margin:0 0 1em}
+.ai-list{margin:0 0 1.2em;padding-left:1.2em;line-height:1.7}.ai-list li{margin:.3em 0}
+.ai-cards{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:16px;margin:18px 0 26px}
+.ai-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:16px;padding:18px 18px 8px;
+  border-top:4px solid var(--c-primary)}
+.ai-card-t{margin:0 0 .5em;font-size:1em;letter-spacing:.04em;text-transform:uppercase;color:var(--c-primary)}
+.ai-card p{margin:0 0 .8em;line-height:1.6}
+.ai-card .ai-pic{margin:0 0 12px}
+.ai-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:14px 0 26px}
+.ai-stat{background:var(--c-primary-soft);border-radius:14px;padding:14px 16px;line-height:1.45;font-weight:550}
+.ai-stat data:not([value=""]){font-family:var(--font-heading);font-size:1.35em;font-weight:800;color:var(--c-primary);
+  letter-spacing:-.02em}
+.ai-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:18px;margin:18px 0 28px}
+.ai-tile{margin:0;background:var(--c-background);border:1px solid var(--c-border);border-radius:16px;padding:12px;
+  display:flex;flex-direction:column;gap:10px}
+.ai-tile .ai-pic,.ai-card .ai-pic{width:100%}
+.ai-tile figcaption,.ai-figure figcaption{font-size:.92em;line-height:1.5;color:var(--c-muted)}
+.ai-figure{margin:22px 0 28px}
+.ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto;border-radius:10px;background:#fff}
+.ai-pic img{position:absolute;max-width:none;height:auto}
+.ai-textcrop{display:inline-block;vertical-align:middle;margin:0}
+@media (max-width:760px){.ai-cards{grid-template-columns:1fr}}
 .to-top{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
 @media (max-width:860px){
   .web-hero-in.has-cover{grid-template-columns:1fr}
   .web-cover{justify-self:start;max-width:280px;transform:none}
 }
 @media (max-width:640px){
-  .web-hero-in,.web-toc,.web-body{padding-left:16px;padding-right:16px}
-  .web-toc details{padding:2px 16px}
-  .web-vis{--ww:min(var(--vw),100%)}
+  .web-hero-in,    .web-vis{--ww:min(var(--vw),100%)}
   .web-page{--ww:100%}
   .web .doc-body{font-size:1.04em}
 }
-@media print{.web-toc,.to-top,.web-actions{display:none}.web-vis,.web-page{--ww:100%}}
-"""
+@media print{"""
 
 
 _ASSETS = Path(__file__).parent / "assets"
@@ -293,7 +409,7 @@ def page_css(theme: dict) -> str:
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
                   pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None,
-                  pdf_page_sink=None) -> dict[str, bytes]:
+                  pdf_page_sink=None, layouts: dict[int, dict] | None = None) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
 
     With the PDF (always, in the pipeline) the report page is the page-faithful web
@@ -332,6 +448,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # The PDF's own contents page is left out: "In this report" does that job on the web.
         tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
         skip = {tables[tid]["source"]["page"] for tid in index_links if tables[tid]["source"]["page"] <= 5}
+        skip |= _contents_pages(pdf_bytes)
         vis_boxes: dict[int, list] = {}
         words: dict[int, int] = {}
         table_pages: set[int] = set()
@@ -352,7 +469,16 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # shows the top of the next.
         region_at: dict[str, str] = {}      # first block of a graphic -> its cut-out
         in_graphic: set[str] = set()
+        # Design-led pages (a product spread: many pictures with short captions) read far
+        # better as designed than cut into pieces: shown whole — or, with an AI layout,
+        # rebuilt as web sections. Text-led pages become web text.
+        designed = design_led_pages(schema)
+        for pg in designed:
+            in_graphic.update(b["id"] for b in page_blocks.get(pg, []))
         for pg, bl in page_blocks.items():
+            if pg in designed:
+                vis_boxes.pop(pg, None)
+                continue
             charts = [b for b in bl if b["type"] == "chart" and b["source"].get("bbox")]
             paras = [b for b in bl if b["type"] == "paragraph" and b["source"].get("bbox")]
             frags = [b for b in paras if 0 < _words(b) <= GRAPHIC_FRAGMENT_WORDS]
@@ -376,10 +502,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # with charts or graphics to cut out, and picture pages. Text pages are web text.
         total_pages = page_count or max([p for x in sections for p in [(x.get("source") or {}).get("page") or 0]] + [1])
         wanted = {n for n in range(1, total_pages + 1)
-                  if n == 1 or n in vis_boxes or not (words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages)}
+                  if n == 1 or n in vis_boxes or n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages)}
+        shown_whole = whole_pages(schema)
+        layouts = {n: lay for n, lay in (layouts or {}).items() if n in shown_whole}
         page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
                                                    max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
-                                                   skip_pages=skip | (set(range(1, total_pages + 1)) - wanted))
+                                                   skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
+                                                   keep_printed=set(layouts))
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
         # Charts and graphics: cut from their page's artwork, labels as real text on top.
@@ -411,27 +540,41 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             return (prior[-1] if prior else sections[0])["id"] if sections else None
         pictures: dict[str, list] = {}
         for p in page_list:
-            if p is not cover and not text_page(p["n"]) and p["n"] not in crop_pages:
+            if p is not cover and (p["n"] in designed or (not text_page(p["n"]) and p["n"] not in crop_pages)):
                 pictures.setdefault(owner_of(p["n"]), []).append(p)
+        # Pages shown whole (the cover, design-led and picture pages) carry their own words:
+        # blocks from them aren't repeated as text, and a section with nothing else to show
+        # appears only as its pictures (no stray heading above a page that already has it).
+        picture_pages = ({p["n"] for ps in pictures.values() for p in ps}
+                         | ({cover["n"]} if cover else set()) | skip)
+        for x in sections:
+            for b in x["blocks"]:
+                if (b.get("source") or {}).get("page") in picture_pages:
+                    in_graphic.add(b["id"])
+        lead = sections[0] if sections and not sections[0].get("heading") else None
+        quiet = {x["id"] for x in sections
+                 if x is not lead and ((x.get("source") or {}).get("page") in picture_pages)
+                 and all(b["id"] in in_graphic for b in x["blocks"])}
         # "#p12" links (from the PDF's own links) land on where page 12's content starts.
         anchors: dict[str, list[int]] = {}
         for pg, sid in sorted(first.items()):
             anchors.setdefault(sid, []).append(pg)
+        ai_pages = _ai_pages(schema, pdf_bytes, layouts, base, art)
         qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
         front = sections[0] if sections and not sections[0].get("heading") else None
-        # The cover is shown as designed, and the PDF's contents page is "In this report".
-        hidden = ({1} if cover else set()) | skip
         front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])
-                        if (b.get("source") or {}).get("page") not in hidden] if front else []
+                        if (b.get("source") or {}).get("page") not in picture_pages and b["id"] not in in_graphic] \
+            if front else []
         doclayout = story.document_layout(schema, {})
         css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
         files[base.lstrip("/") + "index.html"] = _ENV.get_template("web.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
             jsonld=Markup(_jsonld(schema, base)), qparts=qparts, faq=story.is_faq(schema), front=front,
             front_blocks=front_blocks, first_q=next((x for x in sections if qparts[x["id"]]), None),
-            toc=[x for x in sections if x.get("heading")], doclayout=doclayout,
+            doclayout=doclayout,
             doc_order=story.document_order(schema, doclayout), heading_ids=story.heading_like(schema),
-            index_links=index_links, crops=crops, graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, pictures=pictures, anchors=anchors,
+            index_links=index_links, crops=crops, graphic_start=set(region_at), in_graphic=in_graphic, cover=cover,
+            quiet=quiet, ai_pages=ai_pages, pictures=pictures, anchors=anchors,
             og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}

@@ -416,3 +416,28 @@ def test_confirming_a_figure_reuses_the_checks_instead_of_rerunning_them(admin_c
     with db.session(system_context()) as s:
         v = s.get(ReportVersion, __import__("uuid").UUID(vid))
         assert v.validated_schema_sha256 == v.schema_sha256 and v.validated_bundle_sha256 == v.bundle_sha256
+
+
+def test_report_list_thumbnail_is_small_cached_and_never_renders_the_pdf(admin_client, monkeypatch):
+    from app import storage
+    from app.reports import pdf_page_key, thumb_key
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results.pdf", period="q1")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    r = client.get(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/thumb.webp")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/webp"
+    assert r.content[:4] == b"RIFF" and len(r.content) < 60_000
+    assert "immutable" in r.headers["cache-control"]
+    # nothing stored: 404 at once — the PDF is never fetched to draw one
+    with db.session(system_context()) as s:
+        sha = s.get(ReportVersion, __import__("uuid").UUID(vid)).source_sha256
+    from app.tenancy import tenant_context
+    ctx = tenant_context(None, t.id, None)
+    storage.delete(ctx, thumb_key(sha))
+    storage.delete(ctx, pdf_page_key(sha, 1))
+    fetched = []
+    real_get = storage.get
+    monkeypatch.setattr(storage, "get", lambda c, k: (fetched.append(k), real_get(c, k))[1])
+    assert client.get(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/thumb.webp").status_code == 404
+    assert not any(k.endswith(".pdf") for k in fetched)

@@ -125,16 +125,17 @@ class UploadUrlIn(BaseModel):
 
 @router.post("/upload-url")
 def upload_url(body: UploadUrlIn, ctx: Context = Depends(require("report.upload"))) -> dict:
-    """Where the browser should send the PDF. With Vercel Blob it goes straight to the
-    private store (no function size cap); otherwise as a normal form upload to /inspect."""
+    """Where the browser should send the PDF: straight to storage (a Vercel Blob token, or a
+    presigned URL for S3 / Cloudflare R2) so no function size cap applies; otherwise as a
+    normal form upload to /inspect."""
     limit = get_settings().max_upload_mb * 1024 * 1024
     if body.size_bytes > limit:
         raise HTTPException(413, f"The file is larger than the {get_settings().max_upload_mb} MB limit.")
     key = f"incoming/{uuid.uuid4().hex}.pdf"
-    token = storage.direct_upload_token(ctx, key, limit)
-    if token is None:
+    dest = storage.direct_upload(ctx, key, limit)
+    if dest is None:
         return {"mode": "form"}
-    return {"mode": "direct", "key": key, "pathname": storage.scoped_key(ctx, key), "token": token}
+    return {**dest, "key": key}
 
 
 _INCOMING = re.compile(r"^incoming/[0-9a-f]{32}\.pdf$")
@@ -152,9 +153,15 @@ async def _pdf_from_request(file: UploadFile | None, incoming: str | None) -> tu
 
 def _read_incoming(ctx: Context, key: str) -> bytes:
     try:
-        return storage.get(ctx, key)
+        data = storage.get(ctx, key)
     except storage.StorageError as e:
         raise HTTPException(400, "The upload didn't finish. Please choose the file again.") from e
+    # A presigned PUT can't cap the size up front (R2 has no POST policies): check it here.
+    limit = get_settings().max_upload_mb * 1024 * 1024
+    if len(data) > limit:
+        storage.delete(ctx, key)
+        raise HTTPException(413, f"The file is larger than the {get_settings().max_upload_mb} MB limit.")
+    return data
 
 
 @router.post("/inspect")
@@ -382,6 +389,27 @@ def _cached_png(ctx, sha: str, page: int, zoom: float) -> bytes:
     while len(_PNG_CACHE) > _PNG_CACHE_MAX:
         _PNG_CACHE.popitem(last=False)
     return png
+
+
+@router.get("/{report_id}/versions/{version_id}/thumb.webp")
+def thumb(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> Response:
+    """The report's small cover for lists. Never renders from the PDF here (that meant
+    downloading the whole file per card): stored thumbnail, else the stored first page,
+    else 404 and the list shows a placeholder."""
+    from app.reports import pdf_page_key, thumb_key
+    with db.session(ctx) as s:
+        sha = s.scalar(select(ReportVersion.source_sha256).where(ReportVersion.id == version_id,
+                                                                 ReportVersion.report_id == report_id))
+    if not sha:
+        raise HTTPException(404, "Not found.")
+    for key in (thumb_key(sha), pdf_page_key(sha, 1)):
+        try:
+            data = storage.get(ctx, key)
+        except Exception:  # noqa: BLE001 - not stored (or storage unavailable)
+            continue
+        # Keyed by the PDF's hash: the image for a version never changes.
+        return Response(data, media_type="image/webp", headers={"Cache-Control": "private, max-age=31536000, immutable"})
+    raise HTTPException(404, "No thumbnail yet.")
 
 
 @router.get("/{report_id}/versions/{version_id}/pages/{page}.png")

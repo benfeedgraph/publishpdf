@@ -30,11 +30,16 @@ export function Dropzone({ tenantId, compact = false }: { tenantId: string; comp
     try {
       const base = `/api/tenants/${tenantId}/reports`;
       const form = new FormData();
-      // With Vercel Blob the PDF goes from the browser straight to the private store, so
-      // an annual report isn't stopped by the ~4.5 MB limit on requests to the API.
-      const dest = await post<{ mode: "direct" | "form"; key?: string; pathname?: string; token?: string }>(
-        `${base}/upload-url`, { filename: file.name, size_bytes: file.size });
-      if (dest.mode === "direct" && dest.pathname && dest.token && dest.key) {
+      // The PDF goes from the browser straight to storage (Vercel Blob, or a presigned URL
+      // for S3 / Cloudflare R2), so an annual report isn't stopped by the ~4.5 MB limit on
+      // requests to the API.
+      const dest = await post<{ mode: "direct" | "presigned" | "form"; key?: string; pathname?: string; token?: string;
+        url?: string; headers?: Record<string, string> }>(`${base}/upload-url`, { filename: file.name, size_bytes: file.size });
+      if (dest.mode === "presigned" && dest.url && dest.key) {
+        await putWithProgress(dest.url, file, dest.headers ?? {}, setProgress);
+        form.append("incoming", dest.key);
+        form.append("filename", file.name);
+      } else if (dest.mode === "direct" && dest.pathname && dest.token && dest.key) {
         const { put } = await import("@vercel/blob/client");
         await put(dest.pathname, file, {
           access: "private", token: dest.token, contentType: "application/pdf", multipart: file.size > 8 * 1024 * 1024,
@@ -136,4 +141,20 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
       </form>
     </div>
   );
+}
+
+
+/** PUT a file to a presigned storage URL, reporting progress (fetch can't report upload progress). */
+function putWithProgress(url: string, file: File, headers: Record<string, string>, onProgress: (p: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve()
+      : reject(new Error(`The upload to storage failed (${xhr.status}). Please try again.`)));
+    // A CORS rule missing on the bucket shows up as a network error with no status.
+    xhr.onerror = () => reject(new Error("The upload couldn't reach storage. If this keeps happening, the storage bucket's CORS settings need this site's address."));
+    xhr.send(file);
+  });
 }

@@ -162,6 +162,9 @@ class Settings(BaseSettings):
     edge_probe_address: str | None = Field(default=None, alias="EDGE_PROBE_ADDRESS")   # host:port of the edge
     acme_ca_domains: str = Field(default="letsencrypt.org,pki.goog,sectigo.com", alias="ACME_CA_DOMAINS")
     internal_api_token: str | None = Field(default=None, alias="INTERNAL_API_TOKEN")    # for the TLS ask hook
+    # The API's /healthz URL: the worker requests it every few minutes so a serverless API
+    # stays warm (a cold start was ~9 s for the first sign-in). Unset = off.
+    keep_warm_url: str | None = Field(default=None, alias="KEEP_WARM_URL")
 
     # --- LLM assist (PLAN D4; off per tenant by default) ----------------------------
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
@@ -178,6 +181,12 @@ class Settings(BaseSettings):
     anthropic_price_out_per_m: float = Field(default=10.00, alias="ANTHROPIC_PRICE_OUT_PER_M")
     # What one credit is worth in USD; estimates and usage are shown in credits.
     ai_credit_usd: float = Field(default=0.01, alias="AI_CREDIT_USD")
+    # Run the AI double-check by itself, once per version, when its estimate is at most this
+    # many credits (and within the workspace's monthly limit). 0 = off: the button only.
+    ai_auto_check_max_credits: int = Field(default=0, alias="AI_AUTO_CHECK_MAX_CREDITS")
+    # AI layout of design-led pages (web sections instead of the page as a picture): at most
+    # this many credits per render; cached per PDF, so re-renders cost nothing. 0 = off.
+    ai_layout_max_credits: int = Field(default=5, alias="AI_LAYOUT_MAX_CREDITS")
 
     # --- Jobs -----------------------------------------------------------------
     job_max_attempts: int = Field(default=3, alias="JOB_MAX_ATTEMPTS")

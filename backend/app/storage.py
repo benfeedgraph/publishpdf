@@ -90,7 +90,11 @@ class S3Backend:
             "s3", region_name=region or ("auto" if endpoint_url else None), endpoint_url=endpoint_url,
             aws_access_key_id=access_key, aws_secret_access_key=secret_key,
             config=Config(s3={"addressing_style": "path" if path_style else "auto"},
-                          retries={"max_attempts": 3, "mode": "standard"}))
+                          retries={"max_attempts": 5, "mode": "standard"},
+                          # Non-AWS stores (Cloudflare R2, MinIO): boto3's default checksum
+                          # headers (1.36+) aren't universally supported; send them only when needed.
+                          **({"request_checksum_calculation": "when_required",
+                              "response_checksum_validation": "when_required"} if endpoint_url else {})))
         self.extra = {"ServerSideEncryption": sse} if sse else {}
 
     def put(self, full_key: str, data: bytes, content_type: str) -> None:
@@ -111,6 +115,13 @@ class S3Backend:
 
     def delete(self, full_key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=full_key)
+
+    def presigned_put(self, full_key: str, content_type: str, expires: int = 900) -> str:
+        """A URL the browser can PUT exactly this object to, for `expires` seconds. (R2 has
+        no POST policies, so the size limit is checked after the upload instead.)"""
+        return self.client.generate_presigned_url(
+            "put_object", Params={"Bucket": self.bucket, "Key": full_key, "ContentType": content_type, **self.extra},
+            ExpiresIn=expires)
 
 
 class VercelBlobBackend:
@@ -145,7 +156,7 @@ class VercelBlobBackend:
             try:
                 detail = r.json().get("error", {}).get("message", "")
             except ValueError:
-                detail = ""
+                detail = r.text.strip()[:200]       # e.g. "Your store is blocked" (plan limits reached)
             raise StorageError(f"Vercel Blob {what} failed ({r.status_code}) {detail}".strip())
 
     # Blob answers 429/5xx under load ("Blob service is currently unavailable. Please try
@@ -309,10 +320,17 @@ def delete(ctx: Context, key: str) -> None:
     _backend().delete(scoped_key(ctx, key))
 
 
-def direct_upload_token(ctx: Context, key: str, max_bytes: int) -> str | None:
-    """A browser upload token for `key`, when the store takes uploads straight from the
-    browser (Vercel Blob). None: the file goes through the API as a normal form upload."""
+def direct_upload(ctx: Context, key: str, max_bytes: int) -> dict | None:
+    """How the browser can send a large PDF straight to storage, skipping the API's request
+    size limit: a Vercel Blob client token, or a presigned PUT URL (S3 / Cloudflare R2).
+    None: no direct path; the file goes through the API as a form upload."""
     backend = _backend()
-    if not isinstance(backend, VercelBlobBackend):
-        return None
-    return backend.client_upload_token(scoped_key(ctx, key), max_bytes=max_bytes)
+    if isinstance(backend, VercelBlobBackend):
+        return {"mode": "direct", "pathname": scoped_key(ctx, key),
+                "token": backend.client_upload_token(scoped_key(ctx, key), max_bytes=max_bytes)}
+    if isinstance(backend, S3Backend):
+        return {"mode": "presigned", "url": backend.presigned_put(scoped_key(ctx, key), "application/pdf"),
+                "headers": {"Content-Type": "application/pdf",
+                            **({"x-amz-server-side-encryption": backend.extra["ServerSideEncryption"]}
+                               if backend.extra.get("ServerSideEncryption") else {})}}
+    return None

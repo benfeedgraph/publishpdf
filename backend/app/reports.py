@@ -62,6 +62,32 @@ def source_key(sha: str) -> str:
     return f"sources/{sha}.pdf"
 
 
+def thumb_key(sha: str) -> str:
+    """A small cover image for report lists: one per PDF, made when it's first built."""
+    return f"sources/{sha}/thumb.webp"
+
+
+def make_thumb(pdf: bytes) -> bytes:
+    """Page 1 at list size (about 240 px wide): a few KB, never the whole page."""
+    import io
+
+    import pymupdf
+    from PIL import Image
+    doc = pymupdf.open(stream=pdf, filetype="pdf")
+    try:
+        page = doc[0]
+        zoom = THUMB_WIDTH / max(1.0, page.rect.width)
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+    finally:
+        doc.close()
+    buf = io.BytesIO()
+    Image.frombytes("RGB", (pix.width, pix.height), pix.samples).save(buf, "WEBP", quality=72, method=4)
+    return buf.getvalue()
+
+
+THUMB_WIDTH = 240
+
+
 def pdf_page_key(sha: str, page: int) -> str:
     """The page as printed, rendered once when the web page is built (review screen)."""
     return f"sources/{sha}/pages/p{page:04d}.webp"

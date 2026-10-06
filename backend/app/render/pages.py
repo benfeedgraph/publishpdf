@@ -681,7 +681,7 @@ def _workers() -> int:
 
 def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str], progress=None,
                  max_pages: int | None = None, skip_pages: set[int] | None = None, visuals: dict | None = None,
-                 pdf_page_sink=None) -> tuple[list[dict], dict[str, bytes], list[dict]]:
+                 pdf_page_sink=None, keep_printed: set[int] | None = None) -> tuple[list[dict], dict[str, bytes], list[dict]]:
     """Returns (parts, artwork files, contents menu). A part is one PDF page's content,
     trimmed so parts run together as one continuous page. `visuals` = {page: [(block id,
     bbox)]} for the phone view's chart/graphic crops."""
@@ -725,6 +725,10 @@ def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str]
         built = [r for r in results if r["kind"] == "part"]
         kept = {r["n"] for r in built}
         parts, files = [], {}
+        for r in results:
+            # the page as printed, for pages laid out as web sections (crops of its pictures)
+            if keep_printed and r["n"] in keep_printed and r.get("pdf_page"):
+                files[f"pages/p{r['n']:04d}-print.webp"] = r["pdf_page"]
         for r in built:
             n, W, c0, c1 = r["n"], r["W"], r["c0"], r["c1"]
             name = f"pages/p{n:04d}.webp"

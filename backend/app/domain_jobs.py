@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app import audit, db, domains, emailer, jobs
 from app.models import Domain, Membership, Tenant, User
 from app.reports import rebuild_site
@@ -101,3 +102,16 @@ def schedule_due_checks(now: datetime | None = None) -> int:
                          max_attempts=1)
         n += 1
     return n
+
+
+@jobs.periodic(240)
+def keep_api_warm() -> None:
+    """Request the API's /healthz so serverless hosts keep an instance warm."""
+    url = get_settings().keep_warm_url
+    if not url:
+        return
+    import httpx
+    try:
+        httpx.get(url, timeout=15)
+    except httpx.HTTPError:
+        pass                      # best effort; the next tick tries again

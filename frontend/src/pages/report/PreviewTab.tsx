@@ -15,9 +15,6 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
   const [width, setWidth] = useState<"desktop" | "mobile">("desktop");
   const [sideBySide, setSideBySide] = useState(true);
   const [section, setSection] = useState<string | null>(version.sections[0]?.id ?? null);
-  // The page-faithful edition has no sections: its preview reports its contents menu and parts.
-  const [edition, setEdition] = useState<{ menu: { label: string; page: number }[]; parts: number[] } | null>(null);
-  const [page, setPage] = useState<number | null>(null);
   const iframe = useRef<HTMLIFrameElement>(null);
   const pdfPane = useRef<HTMLDivElement>(null);
   // The desktop preview renders at a real desktop width and is scaled to fit: squeezed
@@ -46,8 +43,6 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
         setSection(ev.data.id);
         const sec = version.sections.find((s) => s.id === ev.data.id);
         if (followPdf.current) showPdfPage(sec?.page);
-      } else if (ev.data.ppdf === "edition") {
-        setEdition({ menu: ev.data.menu ?? [], parts: ev.data.parts ?? [] });
       } else if (ev.data.ppdf === "page") {
         onPage(ev.data.page);
         if (followPdf.current) showPdfPage(ev.data.page);
@@ -59,27 +54,14 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
 
   // Comments stay keyed by section: a page's comments go to the last section starting on or before it.
   const onPage = (n: number) => {
-    setPage(n);
     const sec = [...version.sections].reverse().find((x) => (x.page ?? 0) <= n) ?? version.sections[0];
     if (sec) setSection(sec.id);
   };
-  const gotoPage = (n: number) => {
-    onPage(n);
-    iframe.current?.contentWindow?.postMessage({ ppdf: "gotoPage", page: n }, "*");
-    showPdfPage(n);
-  };
-  const goto = (id: string) => {
-    setSection(id);
-    iframe.current?.contentWindow?.postMessage({ ppdf: "goto", id }, "*");
-    showPdfPage(version.sections.find((s) => s.id === id)?.page);
-  };
-
   const comments = useQuery({ queryKey: ["comments", version.id], queryFn: () => api<{ comments: CommentRow[] }>(`${base}/comments`) });
   const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ effective_disclaimer: string | null; site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
 
   if (!version.bundle_sha256) return <p className="muted">The web page will appear here once it has been generated.</p>;
   const previewUrl = `${base}/preview`;      // no trailing slash: the hosted /api forwarding drops those
-  const count = (sid: string) => comments.data?.comments.filter((c) => c.section_id === sid && !c.resolved).length ?? 0;
 
   return (
     <div className="stack">
@@ -95,20 +77,6 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
       </div>
 
       <div className="preview-layout">
-        <aside className="card sections-nav" aria-label="Sections">
-          {edition ? <EditionNav edition={edition} page={page} onGo={gotoPage} /> : (<>
-          <h2>Sections</h2>
-          <ol>
-            {version.sections.map((s) => (
-              <li key={s.id}>
-                <button className={`link ${section === s.id ? "strong" : ""}`} onClick={() => goto(s.id)}>{s.heading_text || s.type.replace(/_/g, " ")}</button>
-                {count(s.id) > 0 && <span className="count">{count(s.id)}</span>}
-              </li>
-            ))}
-          </ol>
-          </>)}
-          {section && <Comments base={base} sectionId={section} rows={comments.data?.comments ?? []} readonly={version.published_at !== null} onChange={() => qc.invalidateQueries({ queryKey: ["comments", version.id] })} />}
-        </aside>
         <div className={`preview-panes ${sideBySide ? "two" : ""}`}>
           {sideBySide && (
             <div className="pdf-pane" ref={pdfPane} aria-label="Original PDF">
@@ -134,26 +102,14 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
         </div>
       </div>
 
+      {section && (
+        <div className="card">
+          <Comments base={base} sectionId={section} rows={comments.data?.comments ?? []} readonly={version.published_at !== null} onChange={() => qc.invalidateQueries({ queryKey: ["comments", version.id] })} />
+        </div>
+      )}
+
       {!hidePublish && <PublishPanel tenantId={tenantId} report={report} version={version} isAdmin={isAdmin} disclaimer={settings.data?.effective_disclaimer ?? null} siteOrigin={settings.data?.site_origin} />}
     </div>
-  );
-}
-
-/** Contents of the page-faithful edition: the PDF's own contents menu, else its pages. */
-function EditionNav({ edition, page, onGo }: { edition: { menu: { label: string; page: number }[]; parts: number[] }; page: number | null; onGo: (n: number) => void }) {
-  const items = edition.menu.length ? edition.menu : edition.parts.map((n) => ({ label: `PDF page ${n}`, page: n }));
-  const active = page === null ? -1 : items.reduce((best, it, i) => (it.page <= page ? i : best), -1);
-  return (
-    <>
-      <h2>Contents</h2>
-      <ol>
-        {items.map((it, i) => (
-          <li key={`${it.page}-${i}`}>
-            <button className={`link ${i === active ? "strong" : ""}`} onClick={() => onGo(it.page)}>{it.label}</button>
-          </li>
-        ))}
-      </ol>
-    </>
   );
 }
 

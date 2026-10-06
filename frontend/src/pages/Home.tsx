@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, formatDateTime, REPORT_TYPE_LABEL, useTenantRole, type Report } from "../api";
 import { useMe } from "../App";
 import { Dropzone } from "../components/UploadFlow";
+import { cachedReports, rememberReports } from "../session";
 
 const STATUS_CLASS: Record<string, string> = {
   Live: "ok", "Needs review": "info", "Validation issues": "bad", Processing: "warn", Failed: "bad", "Draft changes": "info",
@@ -25,7 +26,14 @@ export default function Home() {
   const { isAdmin } = useTenantRole(me, tenantId);
   const reports = useQuery({
     queryKey: ["reports", tenantId],
-    queryFn: () => api<{ reports: Report[] }>(`/api/tenants/${tenantId}/reports`),
+    queryFn: async () => {
+      const data = await api<{ reports: Report[] }>(`/api/tenants/${tenantId}/reports`);
+      rememberReports(tenantId, data);
+      return data;
+    },
+    // Last visit's list shows at once; it's marked stale so the server is asked right away.
+    initialData: () => cachedReports<{ reports: Report[] }>(tenantId),
+    initialDataUpdatedAt: 0,
     refetchInterval: (q) => (q.state.data?.reports.some((r) => r.status === "Processing") ? 2500 : false),
   });
   const domain = useQuery({
@@ -69,7 +77,8 @@ export default function Home() {
               return (
                 <Link key={r.id} className="report-card" to={`/t/${tenantId}/reports/${r.id}`}>
                   <div className="rc-top">
-                    <div className="rc-thumb">{v && v.schema_sha256 && <img loading="lazy" alt="" src={`/api/tenants/${tenantId}/reports/${r.id}/versions/${v.id}/pages/1.png?zoom=0.5`} />}</div>
+                    <div className="rc-thumb">{v && v.schema_sha256 && <img loading="lazy" decoding="async" alt="" src={`/api/tenants/${tenantId}/reports/${r.id}/versions/${v.id}/thumb.webp`}
+                      onError={(e) => { e.currentTarget.style.display = "none"; }} />}</div>
                     <div style={{ minWidth: 0 }}>
                       <div className="rc-title">{r.period_label} {REPORT_TYPE_LABEL[r.report_type]}</div>
                       <div className="muted small" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.company_name}</div>

@@ -38,6 +38,7 @@ export function useMe() {
     },
     initialData: cachedMe,
     initialDataUpdatedAt: 0,          // always re-check with the server straight away
+    staleTime: 30_000,                // …but a sign-in that just fetched it needn't ask twice
   });
 }
 

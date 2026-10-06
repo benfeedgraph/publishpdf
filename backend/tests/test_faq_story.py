@@ -69,9 +69,9 @@ def test_the_report_is_one_web_page_not_a_copy_of_the_pdf():
     # Exactly one HTML page per report.
     assert [k for k in files if k.endswith(".html")] == [base + "index.html"]
     html_ = files[base + "index.html"].decode()
-    # A web page: hero, "In this report", the questions as real headings with FAQ markup —
-    # no page-by-page artwork, no side rail.
-    assert 'class="web"' in html_ and 'class="web-hero"' in html_ and 'class="web-toc"' in html_
+    # A web page: hero, the questions as real headings with FAQ markup — no contents list
+    # ("In this report" was removed on request), no page-by-page artwork, no side rail.
+    assert 'class="web"' in html_ and 'class="web-hero"' in html_ and 'class="web-toc"' not in html_
     assert 'class="edition-rail"' not in html_ and 'class="doc-rail"' not in html_ and 'class="leaf"' not in html_
     assert html_.count('itemtype="https://schema.org/Question"') == 3
     qs = [s for s in schema["sections"] if story.question_parts(schema, s)]
@@ -228,3 +228,23 @@ def test_phone_view_reads_a_three_column_panel_column_by_column():
     texts = ["".join(r["t"] for r in o["b"]["runs"]) for o in out]
     assert texts == ["Title", "col0 line0 col0 line1 col0 line2", "col1 line0 col1 line1 col1 line2",
                      "col2 line0 col2 line1 col2 line2"]
+
+
+def test_a_design_led_page_is_shown_whole_not_cut_into_pieces():
+    """A product spread (pictures with short captions) reads better as designed; a page of
+    prose becomes web text. The spread's captions aren't repeated as loose paragraphs."""
+    doc = pymupdf.open()
+    prose = doc.new_page()
+    assert prose.insert_textbox(pymupdf.Rect(72, 90, 520, 700), (BODY + " ") * 4, fontname="helv", fontsize=11) >= 0
+    spread = doc.new_page()
+    for i, (x, y) in enumerate(((60, 120), (320, 120), (60, 420), (320, 420))):
+        spread.draw_rect(pymupdf.Rect(x, y, x + 220, y + 220), color=None, fill=(0.2 + 0.15 * i, 0.4, 0.7))
+        spread.insert_text((x, y + 240), f"Caption for brand range {chr(65 + i)}", fontname="helv", fontsize=9)
+    pdf = doc.tobytes()
+    schema, _ = extract(pdf, META)
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
+    html_ = [v for k, v in files.items() if k.endswith(".html")][0].decode()
+    assert 'class="web-page"' in html_                                  # the spread, whole
+    assert html_.count("Caption for brand range A") == 1                 # once: on the spread itself
+    assert "<p>The Company continued to invest behind its brands" in html_   # the prose page is web text
+    assert validation.check_bundle(schema, files) == []

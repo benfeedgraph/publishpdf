@@ -6,10 +6,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app import ai_check, ai_usage, db, pipeline
 from app.config import get_settings
+from app.models import ReportVersion
 from app.tenancy import Role, system_context, tenant_context
 from tests.conftest import add_member, make_tenant, make_user, sign_in
 from tests.test_ai_check import fake_gemini
@@ -193,3 +194,138 @@ def test_a_rejected_key_is_a_plain_message_not_a_retry(admin_client, monkeypatch
     drain()
     last = client.get(url).json()["last"]
     assert last["status"] == "failed" and "rejected the platform's Gemini API key" in last["error"]
+
+
+def test_ai_checks_uncertain_figures_by_itself_only_under_the_cap(admin_client, monkeypatch):
+    from app.models import Job
+    client, t, _ = admin_client
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "gemini_api_key", "test-key-not-real")
+    calls = []
+
+    def fake(body):
+        calls.append(1)
+        return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}], "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 1}}
+    ai_check._OVERRIDE.append(fake)
+
+    def auto_jobs():
+        with db.session(system_context()) as s:
+            return s.scalars(select(Job).where(Job.tenant_id == t.id, Job.kind == "pipeline.ai_check")).all()
+
+    # off by default: the button only
+    monkeypatch.setattr(cfg, "ai_auto_check_max_credits", 0)
+    upload(client, t, "acme_q2fy26_results_scanned.pdf", period="q1")
+    drain()
+    assert auto_jobs() == [] and calls == []
+
+    # a cap below the estimate: still nothing runs
+    monkeypatch.setattr(cfg, "ai_auto_check_max_credits", 1)
+    monkeypatch.setattr(cfg, "ai_credit_usd", 0.000001)          # every estimate becomes many credits
+    upload(client, t, "acme_q2fy26_results_scanned.pdf", period="q2")
+    drain()
+    assert auto_jobs() == [] and calls == []
+
+    # within the cap: runs once by itself, and never again for that version
+    monkeypatch.setattr(cfg, "ai_credit_usd", 0.01)
+    monkeypatch.setattr(cfg, "ai_auto_check_max_credits", 50)
+    up = upload(client, t, "acme_q2fy26_results_scanned.pdf", period="q3")
+    drain()
+    jobs_ = auto_jobs()
+    assert len(jobs_) == 1 and jobs_[0].status == "succeeded" and calls
+    n = len(calls)
+    with db.session(system_context()) as s:
+        from app.reports import enqueue_stage
+        from app.tenancy import tenant_context
+        ctx = tenant_context(None, t.id, None)
+        v = s.get(ReportVersion, __import__("uuid").UUID(up["version"]["id"]))
+    with db.session(ctx) as s:
+        enqueue_stage(s, ctx, s.get(ReportVersion, v.id), "validate", force=True)
+    drain()
+    assert len(auto_jobs()) == 1 and len(calls) == n               # once per version
+
+
+def _spread_pdf():
+    import pymupdf
+    doc = pymupdf.open()
+    prose = doc.new_page()
+    prose.insert_textbox(pymupdf.Rect(72, 90, 520, 700), ("The Company continued to invest behind its brands. " * 20),
+                         fontname="helv", fontsize=11)
+    spread = doc.new_page()
+    spread.insert_text((60, 80), "Our Brands", fontname="hebo", fontsize=22)
+    for i, (x, y) in enumerate(((60, 120), (320, 120), (60, 420), (320, 420))):
+        spread.draw_rect(pymupdf.Rect(x, y, x + 220, y + 220), color=None, fill=(0.2 + 0.15 * i, 0.4, 0.7))
+        spread.insert_text((x, y + 240), f"Caption for brand range {chr(65 + i)}", fontname="helv", fontsize=9)
+    return doc.tobytes()
+
+
+def test_ai_lays_out_design_pages_with_ids_only_cached_and_capped(monkeypatch):
+    """The model returns ids; the page shows the PDF's own words as web sections. A second
+    render reuses the cached layout (no call); a cap of 0 makes no call at all."""
+    import json as _json
+
+    from app import page_layouts, storage, validation
+    from app.extraction.schema_builder import extract
+    from app.render import site, theme as theming
+    from tests.test_faq_story import META
+
+    pdf = _spread_pdf()
+    schema, _ = extract(pdf, META)
+    t, ctx = _ctx()
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "gemini_api_key", "test-key-not-real")
+    monkeypatch.setattr(cfg, "ai_layout_max_credits", 5)
+    page_layouts._REJECTED_UNTIL[0] = 0.0
+    seen = []
+
+    def fake(body):
+        prompt = body["contents"][0]["parts"][0]["text"]
+        seen.append(prompt)
+        ids = [line.split()[0] for line in prompt.split("Elements:\n", 1)[1].splitlines()]
+        text_ids = [i for i in ids if i.startswith("t")]
+        layout = {"sections": [{"type": "heading", "level": 1, "ids": text_ids[:1]},
+                               {"type": "paragraph", "ids": ["t999"]},          # unknown id: dropped
+                               {"type": "skip", "ids": text_ids[1:2]}]}          # long text can't be skipped
+        return {"candidates": [{"content": {"parts": [{"text": _json.dumps(layout)}]}}],
+                "usageMetadata": {"promptTokenCount": 900, "candidatesTokenCount": 60}}
+    ai_check._OVERRIDE.append(fake)
+    import uuid as _uuid
+    vid = None                                      # no report version: usage is still recorded
+    lays = page_layouts.layouts_for(ctx, vid, "sha-test-1", schema, pdf)
+    assert list(lays) == [2] and len(seen) == 1
+    assert "Caption for brand range A" in seen[0] and "Never write any text yourself" in seen[0]
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf, layouts=lays)
+    html_ = [v for k, v in files.items() if k.endswith(".html")][0].decode()
+    assert 'class="ai-page"' in html_ and '<h2 class="ai-h ai-h-a">Our Brands</h2>' in html_
+    for c in "ABCD":                                    # nothing the model left out is lost
+        assert html_.count(f"Caption for brand range {c}") == 1
+    assert validation.check_bundle(schema, files) == []
+    assert ai_usage.summary(ctx)["by_feature"][0]["feature"] == "page_layout"
+    # cached: a second render makes no call
+    assert page_layouts.layouts_for(ctx, vid, "sha-test-1", schema, pdf) == lays and len(seen) == 1
+    # cap 0: no call, no layout (the page keeps its designed look)
+    monkeypatch.setattr(cfg, "ai_layout_max_credits", 0)
+    assert page_layouts.layouts_for(ctx, vid, "sha-test-2", schema, pdf) == {} and len(seen) == 1
+    storage.delete(ctx, page_layouts.cache_key("sha-test-1"))
+
+
+def test_a_rejected_key_stops_layout_calls(monkeypatch):
+    from app import page_layouts
+    from app.extraction.schema_builder import extract
+    from tests.test_faq_story import META
+    pdf = _spread_pdf()
+    schema, _ = extract(pdf, META)
+    _, ctx = _ctx()
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "bad")
+    monkeypatch.setattr(get_settings(), "ai_layout_max_credits", 5)
+    page_layouts._REJECTED_UNTIL[0] = 0.0
+    calls = []
+
+    def rejected(_b):
+        calls.append(1)
+        raise ai_check.ProviderRejected("no")
+    ai_check._OVERRIDE.append(rejected)
+    import uuid as _uuid
+    assert page_layouts.layouts_for(ctx, _uuid.uuid4(), "sha-x", schema, pdf) == {}
+    assert page_layouts.layouts_for(ctx, _uuid.uuid4(), "sha-y", schema, pdf) == {}
+    assert len(calls) == 1                                 # paused after the first rejection
+    page_layouts._REJECTED_UNTIL[0] = 0.0

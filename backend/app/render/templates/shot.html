@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_macros.html" import meta with context %}
+{% block content %}
+<article class="site-index wrap">
+  <h1>{{ heading }}</h1>
+  {%- if latest %}
+  <section class="latest" aria-labelledby="latest-h">
+    <h2 id="latest-h">Latest results</h2>
+    <p><a class="card" href="{{ latest.path }}"><strong>{{ meta("period_label", latest.period_label) }} {{ latest.type_label }}</strong></a></p>
+  </section>
+  {%- endif %}
+  <section aria-labelledby="archive-h">
+    <h2 id="archive-h">All reports</h2>
+    {%- if reports %}
+    <ul class="archive">{% for r in reports %}<li><a href="{{ r.path }}">{{ meta("period_label", r.period_label) }} {{ r.type_label }}</a></li>{% endfor %}</ul>
+    {%- else %}<p>No reports have been published yet.</p>{% endif %}
+  </section>
+</article>
+{% endblock %}

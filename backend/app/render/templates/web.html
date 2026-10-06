@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import runs, meta, toc_label with context %}
+{% from "_macros.html" import runs, meta with context %}
 {% from "_document.html" import doc_block, doc_section with context %}
 
 {#- A PDF page kept as designed (a cover, an infographic spread): its artwork, with its
@@ -32,14 +32,6 @@
     </div>
   </header>
 
-  {%- if toc %}
-  <nav class="web-toc" aria-label="In this report">
-    <details open>
-      <summary>In this report</summary>
-      <ol>{% for s in toc %}<li><a href="#{{ s.slug }}">{{ toc_label(s, figures) }}</a></li>{% endfor %}</ol>
-    </details>
-  </nav>
-  {%- endif %}
 
   <div class="web-body doc">
     {%- if front %}
@@ -47,12 +39,12 @@
     {%- if front_blocks %}
     <section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in front_blocks %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>
     {%- endif %}
-    {%- for p in pictures.get(front.id, []) %}{{ designed_page(p, 'web-page') }}{% endfor %}
+    {%- for p in pictures.get(front.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
     {%- endif %}
     {%- for s in sections if not (front and s.id == front.id) %}
     {%- for n in anchors.get(s.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
-    {{ doc_section(s, figures) }}
-    {%- for p in pictures.get(s.id, []) %}{{ designed_page(p, 'web-page') }}{% endfor %}
+    {%- if s.id not in quiet %}{{ doc_section(s, figures) }}{% endif %}
+    {%- for p in pictures.get(s.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
     {%- endfor %}
     <p class="doc-note fine">This page is the web edition of the PDF: the same content, in the same order. Every figure is copied unchanged from the PDF, which remains the official document.</p>
   </div>
