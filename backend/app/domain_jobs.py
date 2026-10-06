@@ -106,12 +106,24 @@ def schedule_due_checks(now: datetime | None = None) -> int:
 
 @jobs.periodic(240)
 def keep_api_warm() -> None:
-    """Request the API's /healthz so serverless hosts keep an instance warm."""
-    url = get_settings().keep_warm_url
+    """Request the API's /healthz so serverless hosts keep instances warm. A serverless
+    Python instance answers one request at a time, and the dashboard fires several at
+    once right after sign-in (reports, domain, ...): with one warm instance the second
+    request waited ~9 s for a cold one. KEEP_WARM_INSTANCES requests are sent at the same
+    moment, so that many instances stay warm."""
+    cfg = get_settings()
+    url = cfg.keep_warm_url
     if not url:
         return
     import httpx
-    try:
-        httpx.get(url, timeout=15)
-    except httpx.HTTPError:
-        pass                      # best effort; the next tick tries again
+    from concurrent.futures import ThreadPoolExecutor
+
+    def ping(_: int) -> None:
+        try:
+            httpx.get(url, timeout=15)
+        except httpx.HTTPError:
+            pass                  # best effort; the next tick tries again
+
+    n = max(1, cfg.keep_warm_instances)
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        list(pool.map(ping, range(n)))

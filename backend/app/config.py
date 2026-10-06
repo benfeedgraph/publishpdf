@@ -169,6 +169,8 @@ class Settings(BaseSettings):
     # The API's /healthz URL: the worker requests it every few minutes so a serverless API
     # stays warm (a cold start was ~9 s for the first sign-in). Unset = off.
     keep_warm_url: str | None = Field(default=None, alias="KEEP_WARM_URL")
+    # How many instances to keep warm (requests sent at once on each ping).
+    keep_warm_instances: int = Field(default=4, alias="KEEP_WARM_INSTANCES")
 
     # --- LLM assist (PLAN D4; off per tenant by default) ----------------------------
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")

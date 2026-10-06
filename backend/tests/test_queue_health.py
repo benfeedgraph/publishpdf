@@ -164,3 +164,33 @@ def test_stored_job_errors_never_hold_credentials(monkeypatch):
     out = jobs.redact(tb)
     assert "secret-gemini" not in out and "abc123" not in out and "hunter2" not in out
     assert "key=[redacted]" in out
+
+
+def test_keep_warm_pings_several_instances_at_once(monkeypatch):
+    """One request at a time warms one serverless instance; the dashboard fires several
+    requests at once after sign-in, so the pings must overlap."""
+    import threading
+    import time
+
+    import httpx
+
+    from app import domain_jobs
+    from app.config import get_settings
+
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "keep_warm_url", "https://api.example.test/healthz")
+    monkeypatch.setattr(cfg, "keep_warm_instances", 3)
+    lock, live, peak, calls = threading.Lock(), [0], [0], []
+
+    def fake_get(url, **kw):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+            calls.append(url)
+        time.sleep(0.2)
+        with lock:
+            live[0] -= 1
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    domain_jobs.keep_api_warm()
+    assert len(calls) == 3 and peak[0] == 3
