@@ -675,8 +675,8 @@ def _pdf_page(page: pymupdf.Page) -> bytes:
 
 
 def _workers() -> int:
-    import os
-    return max(1, min(8, (os.cpu_count() or 2) - 1))
+    from app.runtime import process_workers
+    return process_workers(cap=8)
 
 
 def render_pages(schema: dict, pdf_bytes: bytes, *, page_methods: dict[int, str], progress=None,

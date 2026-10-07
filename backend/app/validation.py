@@ -201,9 +201,9 @@ def ocr_contradicts(raw: str, read: str) -> bool:
 
 
 def _ocr_workers() -> int:
-    """Tesseract runs as one process per call, so OCR scales with CPU cores."""
-    import os
-    return max(2, min(16, os.cpu_count() or 6))
+    """Tesseract runs as one process per call, so OCR scales with this job's CPU share."""
+    from app.runtime import process_workers
+    return max(2, process_workers(cap=16))
 
 
 def reextraction_reads(figs: list[dict], doc: pymupdf.Document, workers: int) -> dict[str, list[str]]:
@@ -348,7 +348,8 @@ def reextraction_reads_parallel(schema: dict, pdf_bytes: bytes, pool=None) -> di
     crops is single-threaded per PDF document). Same readings as one process, sooner."""
     import os
     figs = [f for f in _active(schema) if f["kind"] in REEXTRACT_KINDS]
-    cores = os.cpu_count() or 4
+    from app.runtime import process_workers
+    cores = process_workers(cap=16)
     # Always the same split for the same document, whatever the machine: results must not
     # depend on hardware. Chunks are whole batches, so pass 1 reads identical batches.
     n = 1 if len(figs) < PARALLEL_REREAD_MIN else REREAD_CHUNKS
@@ -988,7 +989,8 @@ def _check_pool(schema: dict):
         import multiprocessing as mp
         import os
         from concurrent.futures import ProcessPoolExecutor
-        return ProcessPoolExecutor(max_workers=min(8, max(2, os.cpu_count() or 4)),
+        from app.runtime import process_workers
+        return ProcessPoolExecutor(max_workers=max(2, process_workers(cap=8)),
                                    mp_context=mp.get_context("spawn"))
     except Exception:  # noqa: BLE001
         return None
