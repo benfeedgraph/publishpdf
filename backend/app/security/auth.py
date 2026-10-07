@@ -19,12 +19,13 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from urllib.parse import quote
 
 import pyotp
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, select, text
+from sqlalchemy.orm import Session, aliased
 
 from app import audit, db, emailer
 from app.config import get_settings
@@ -121,29 +122,53 @@ DEMO_EMAIL = "demo@publishpdf.ai"
 DEMO_RATE_LIMIT = 30          # sessions for the shared demo account per window
 
 
-def sign_in_demo(ip: str | None, user_agent: str | None) -> str:
-    """Sign in the shared demo account, with no email code.
+def me_json(user: User, *, mfa_required: bool, mfa_enrolled: bool, mfa_verified: bool,
+            tenants: list[tuple]) -> dict:
+    """What GET /api/auth/me returns; sign-in responses carry the same, so the dashboard
+    opens without asking again."""
+    full = mfa_verified or not mfa_required
+    return {
+        "user": {"id": str(user.id), "email": user.email, "name": user.name, "is_platform_admin": user.is_platform_admin},
+        "mfa": {"required": mfa_required, "enrolled": mfa_enrolled, "verified": mfa_verified},
+        "fully_authenticated": full,
+        "tenants": [{"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status, "role": role}
+                    for t, role in tenants] if full else [],
+    }
+
+
+def sign_in_demo(ip: str | None, user_agent: str | None) -> tuple[str, dict]:
+    """Sign in the shared demo account, with no email code. Returns (token, /me payload).
 
     Only ``demo@publishpdf.ai``. The account is created on first use, with its own
     workspace, and is never a platform admin. The session is marked past MFA because
     this identity is public: there is no secret to protect, and a 2FA screen would
     stop everyone who clicked the button.
+
+    Everything happens in ONE database session and as few round trips as possible
+    (each is ~75 ms from the API and ~240 ms from a laptop in India): the account, its
+    recent sign-ins and its memberships in one query; the new session, its audit entry
+    and the workspace list in the same transaction.
     """
+    recent_q = (select(func.count()).select_from(AuthSession)
+                .where(AuthSession.user_id == User.id, AuthSession.created_at > _now() - LOGIN_RATE_WINDOW)
+                .scalar_subquery())
+    members_q = (select(func.count()).select_from(Membership).where(Membership.user_id == User.id)
+                 .scalar_subquery())
     with db.session(system_context()) as s:
-        user = s.scalars(select(User).where(User.email == DEMO_EMAIL)).first()
-        if user is None:
-            user = User(email=DEMO_EMAIL, name="Demo")
+        row = s.execute(select(User, recent_q, members_q).where(User.email == DEMO_EMAIL)).first()
+        if row is None:
+            user, recent, members = User(email=DEMO_EMAIL, name="Demo"), 0, 0
             s.add(user)
             s.flush()
+        else:
+            user, recent, members = row
         if user.disabled_at is not None:
             raise AuthError("The demo account is unavailable right now.")
         if user.is_platform_admin:
             raise AuthError("The demo account can't be used this way. Sign in with your email instead.")
-        recent = s.scalar(select(func.count()).select_from(AuthSession).where(
-            AuthSession.user_id == user.id, AuthSession.created_at > _now() - LOGIN_RATE_WINDOW))
         if recent >= DEMO_RATE_LIMIT:
             raise AuthError("The demo is busy. Wait a few minutes and try again.")
-        if s.scalar(select(func.count()).select_from(Membership).where(Membership.user_id == user.id)) == 0:
+        if members == 0:
             tenant = s.scalars(select(Tenant).where(Tenant.slug == "demo")).first()
             if tenant is None:
                 tenant = Tenant(slug="demo", name="PublishPDF Demo")
@@ -153,7 +178,13 @@ def sign_in_demo(ip: str | None, user_agent: str | None) -> str:
         token = _create_session(s, user.id, ip, user_agent, mfa_verified=True)
         audit.record(s, system_context(), "auth.login", target_type="user", target_id=user.id,
                      actor_user_id=user.id, ip=ip, after={"method": "demo"})
-    return token
+        rows = s.execute(select(Tenant, Membership.role).join(Membership, Membership.tenant_id == Tenant.id)
+                         .where(Membership.user_id == user.id).order_by(Tenant.name)).all()
+        is_admin = any(role == Role.client_admin.value for _, role in rows)
+        me = me_json(user, mfa_required=user.totp_enabled_at is not None
+                     or (get_settings().mfa_required_for_admins and is_admin),
+                     mfa_enrolled=user.totp_enabled_at is not None, mfa_verified=True, tenants=rows)
+    return token, me
 
 
 # --------------------------------------------------------------------------- email codes
@@ -287,33 +318,62 @@ class AuthState:
         return user_context(self.user.id, platform_admin=self.user.is_platform_admin)
 
 
+def _state(sess: AuthSession, user: User, is_any_admin: bool) -> AuthState | None:
+    if sess.revoked_at is not None or sess.expires_at <= _now() or user.disabled_at is not None:
+        return None
+    return AuthState(
+        user=user,
+        session_id=sess.id,
+        mfa_required=user.totp_enabled_at is not None
+        or (get_settings().mfa_required_for_admins and (user.is_platform_admin or bool(is_any_admin))),
+        mfa_enrolled=user.totp_enabled_at is not None,
+        mfa_verified=sess.mfa_verified_at is not None,
+    )
+
+
+def _is_admin_q():
+    m = aliased(Membership)              # its own alias: the workspace query also joins memberships
+    return (select(m.id).where(m.user_id == User.id, m.role == Role.client_admin.value)
+            .correlate(User).exists().label("is_any_admin"))
+
+
 def resolve_session(token: str | None) -> AuthState | None:
     if not token:
         return None
     # One query (runs on every request): session + user + "admin anywhere" together.
-    is_admin_q = (select(Membership.id).where(Membership.user_id == User.id,
-                                              Membership.role == Role.client_admin.value)
-                  .exists().label("is_any_admin"))
     with db.session(system_context()) as s:
-        row = s.execute(select(AuthSession, User, is_admin_q)
+        row = s.execute(select(AuthSession, User, _is_admin_q())
                         .join(User, User.id == AuthSession.user_id)
                         .where(AuthSession.token_hash == hash_token(token))).first()
         if row is None:
             return None
-        sess, user, is_any_admin = row
-        if sess.revoked_at is not None or sess.expires_at <= _now():
-            return None
-        if user.disabled_at is not None:
-            return None
-        s.expunge(user)
-        return AuthState(
-            user=user,
-            session_id=sess.id,
-            mfa_required=user.totp_enabled_at is not None
-            or (get_settings().mfa_required_for_admins and (user.is_platform_admin or is_any_admin)),
-            mfa_enrolled=user.totp_enabled_at is not None,
-            mfa_verified=sess.mfa_verified_at is not None,
-        )
+        state = _state(*row)
+        if state is not None:
+            s.expunge(state.user)
+        return state
+
+
+def resolve_session_in_tenant(token: str | None, tenant_id: uuid.UUID) -> tuple[AuthState | None, Any, Any]:
+    """(state, tenant, membership) for a request to one workspace — the session check and
+    the membership check in ONE query (every workspace request makes both; separately
+    they cost three more round trips)."""
+    if not token:
+        return None, None, None
+    with db.session(system_context()) as s:
+        row = s.execute(
+            select(AuthSession, User, _is_admin_q(), Tenant, Membership)
+            .join(User, User.id == AuthSession.user_id)
+            .outerjoin(Tenant, Tenant.id == tenant_id)
+            .outerjoin(Membership, and_(Membership.tenant_id == tenant_id, Membership.user_id == User.id))
+            .where(AuthSession.token_hash == hash_token(token))).first()
+        if row is None:
+            return None, None, None
+        sess, user, is_admin, tenant, membership = row
+        state = _state(sess, user, is_admin)
+        for obj in (user, tenant, membership):
+            if obj is not None:
+                s.expunge(obj)
+        return state, tenant, membership
 
 
 def logout(state: AuthState) -> None:

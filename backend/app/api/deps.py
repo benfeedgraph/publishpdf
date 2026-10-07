@@ -11,7 +11,7 @@ from sqlalchemy import and_, select
 from app import db
 from app.config import get_settings
 from app.models import Membership, Tenant
-from app.security.auth import AuthState, resolve_session
+from app.security.auth import AuthState, resolve_session, resolve_session_in_tenant
 from app.tenancy import Context, Role, tenant_context
 
 
@@ -47,15 +47,15 @@ def admin_context(state: AuthState = Depends(platform_admin)) -> Context:
     return Context(user_id=state.user.id, tenant_id=None, platform_admin=True)
 
 
-def tenant_ctx(tenant_id: uuid.UUID = Path(...), state: AuthState = Depends(full_auth)) -> Context:
+def tenant_ctx(request: Request, tenant_id: uuid.UUID = Path(...)) -> Context:
     """Resolve the caller's role in `tenant_id`. Non-members get 404 (not 403), so
-    tenant ids can't be probed for existence."""
-    probe = tenant_context(state.user.id, tenant_id, None, platform_admin=state.user.is_platform_admin)
-    with db.session(probe) as s:                    # one query: runs on every tenant request
-        row = s.execute(select(Tenant, Membership).outerjoin(
-            Membership, and_(Membership.tenant_id == Tenant.id, Membership.user_id == state.user.id))
-            .where(Tenant.id == tenant_id)).first()
-    tenant, membership = row if row else (None, None)
+    tenant ids can't be probed for existence. The session and the membership are checked
+    in one query (every workspace request needs both)."""
+    state, tenant, membership = resolve_session_in_tenant(
+        request.cookies.get(get_settings().session_cookie_name), tenant_id)
+    full_auth(partial_auth(state))                  # same 401/403 answers as other routes
+    assert state is not None
+    request.state.auth = state
     if tenant is None or (membership is None and not state.user.is_platform_admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found.")
     if tenant.status != "active" and not state.user.is_platform_admin:

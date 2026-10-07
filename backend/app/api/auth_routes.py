@@ -84,12 +84,12 @@ def verify_code(body: CodeVerifyIn, request: Request, response: Response) -> dic
 def demo_login(request: Request, response: Response) -> dict:
     """Public sign-in for the shared demo account. No email code."""
     try:
-        token = auth.sign_in_demo(client_ip(request), request.headers.get("user-agent"))
+        token, me_ = auth.sign_in_demo(client_ip(request), request.headers.get("user-agent"))
     except AuthError as e:
         status = 429 if str(e).startswith("The demo is busy") else 400
         raise HTTPException(status, str(e)) from e
     _set_session_cookie(response, token)
-    return _signed_in(token)
+    return {"status": "signed_in", "me": me_}
 
 
 @router.post("/signup")
@@ -122,21 +122,13 @@ def _signed_in(token: str) -> dict:
 
 @router.get("/me")
 def me(state: AuthState = Depends(partial_auth)) -> dict:
-    tenants: list[dict] = []
+    rows: list = []
     if state.fully_authenticated:
         with db.session(state.base_context()) as s:
             rows = s.execute(select(Tenant, Membership.role).join(Membership, Membership.tenant_id == Tenant.id)
                              .where(Membership.user_id == state.user.id).order_by(Tenant.name)).all()
-            tenants = [{"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status, "role": role}
-                       for t, role in rows]
-    return {
-        "user": {"id": str(state.user.id), "email": state.user.email, "name": state.user.name,
-                 "is_platform_admin": state.user.is_platform_admin},
-        "mfa": {"required": state.mfa_required, "enrolled": state.mfa_enrolled,
-                "verified": state.mfa_verified},
-        "fully_authenticated": state.fully_authenticated,
-        "tenants": tenants,
-    }
+    return auth.me_json(state.user, mfa_required=state.mfa_required, mfa_enrolled=state.mfa_enrolled,
+                        mfa_verified=state.mfa_verified, tenants=rows)
 
 
 @router.post("/mfa/enroll")
