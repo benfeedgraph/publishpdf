@@ -214,3 +214,29 @@ def test_keep_warm_pings_several_instances_at_once(monkeypatch):
     monkeypatch.setattr(httpx, "get", fake_get)
     domain_jobs.keep_api_warm()
     assert len(calls) == 3 and peak[0] == 3
+
+
+def test_a_dead_worker_slots_job_is_released_at_once_with_the_reason():
+    """A slot killed mid-job (out of memory) used to leave its report locked for 3 minutes,
+    and stale recovery re-queued it forever (a render reached attempt 13)."""
+    import signal
+
+    from sqlalchemy import text
+
+    from app import db, jobs
+    from app.tenancy import system_context, worker_context
+    from tests.conftest import make_tenant
+    t = make_tenant()
+    with db.session(worker_context(t.id)) as s:
+        a = jobs.enqueue(s, worker_context(t.id), "test.noop", {}, idempotency_key="dead-a")
+        b = jobs.enqueue(s, worker_context(t.id), "test.noop", {}, idempotency_key="dead-b")
+        a_id, b_id = a.id, b.id
+    with db.session(system_context()) as s:
+        s.execute(text("UPDATE jobs SET status='running', locked_by='host:dead', locked_at=now(), attempts=1 WHERE id=:id"), {"id": a_id})
+        s.execute(text("UPDATE jobs SET status='running', locked_by='host:dead', locked_at=now(), attempts=max_attempts WHERE id=:id"), {"id": b_id})
+    assert jobs.release_dead_slot("host:dead", -signal.SIGKILL) == 2
+    with db.session(system_context()) as s:
+        rows = {r.id: r for r in s.execute(text("SELECT id, status, last_error, error_plain FROM jobs WHERE id IN (:a, :b)"),
+                                           {"a": a_id, "b": b_id})}
+    assert rows[a_id].status == "queued" and "out of memory" in rows[a_id].last_error      # retried at once
+    assert rows[b_id].status == "failed" and "ran out of resources" in rows[b_id].error_plain  # no endless loop

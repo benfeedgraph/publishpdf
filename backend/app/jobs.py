@@ -97,8 +97,16 @@ _CLAIM = text("""
     RETURNING id, tenant_id, kind, payload, attempts, max_attempts
 """)
 
+# A job whose worker died goes back to the queue — unless it has used all its attempts
+# (a report that kills the worker every time would otherwise loop forever).
 _RECOVER_STALE = text("""
-    UPDATE jobs SET status = 'queued', locked_at = NULL, locked_by = NULL
+    UPDATE jobs SET
+      status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
+      finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END,
+      error_plain = CASE WHEN attempts >= max_attempts
+                         THEN 'Processing stopped because the server ran out of resources on this report. '
+                              || 'Our team has been notified; you can retry.' ELSE error_plain END,
+      locked_at = NULL, locked_by = NULL
     WHERE status = 'running' AND locked_at < now() - make_interval(secs => :secs)
 """)
 
@@ -284,8 +292,12 @@ def _watchdog() -> None:  # pragma: no cover - runs in the worker process
 _WORKER_ID: list[str] = [""]
 
 
-def work_forever() -> None:  # pragma: no cover - process entrypoint
-    worker_id = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
+def new_worker_id() -> str:
+    return f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
+
+
+def work_forever(worker_id: str | None = None) -> None:  # pragma: no cover - process entrypoint
+    worker_id = worker_id or new_worker_id()
     _WORKER_ID[0] = worker_id
     poll = get_settings().job_poll_seconds
     try:
@@ -308,11 +320,52 @@ def work_forever() -> None:  # pragma: no cover - process entrypoint
             time.sleep(poll)
 
 
-def _slot() -> None:  # pragma: no cover - child process entrypoint
+def _slot(worker_id: str) -> None:  # pragma: no cover - child process entrypoint
     import logging
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     from app import domain_jobs, pipeline  # noqa: F401 - registers handlers
-    work_forever()
+    work_forever(worker_id)
+
+
+def exit_reason(code: int | None) -> str:
+    """Why a worker slot process ended, in words."""
+    import signal
+    if code is not None and code < 0:
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = f"signal {-code}"
+        if -code == signal.SIGKILL:
+            return f"the worker process was killed ({name}) — almost always the container running out of memory"
+        return f"the worker process was stopped by {name}"
+    return f"the worker process exited unexpectedly (exit code {code})"
+
+
+def release_dead_slot(worker_id: str, code: int | None) -> int:
+    """The job a dead slot was running goes straight back to the queue (or fails, once out
+    of attempts) instead of waiting STALE_LOCK for its lock to go stale. The reason is
+    recorded on the job, so a crash is visible without the host's logs."""
+    reason = exit_reason(code)
+    with db.session(system_context()) as s:
+        rows = s.execute(text("""
+            UPDATE jobs SET
+              status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
+              finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END,
+              locked_at = NULL, locked_by = NULL,
+              last_error = :reason,
+              error_plain = CASE WHEN attempts >= max_attempts THEN :plain ELSE error_plain END
+            WHERE status = 'running' AND locked_by = :wid
+            RETURNING id, status, version_id, kind"""),
+            {"wid": worker_id, "reason": f"Worker slot {worker_id}: {reason}.",
+             "plain": "Processing stopped because the server ran out of resources on this report. "
+                      "Our team has been notified; you can retry."}).all()
+        for r in rows:
+            if r.status == "failed" and r.kind.startswith("pipeline.") and r.version_id:
+                s.execute(text("""UPDATE report_versions SET status = 'failed', error_plain = :plain
+                                  WHERE id = :vid AND published_at IS NULL AND status = 'processing'"""),
+                          {"vid": r.version_id, "plain": "Processing stopped because the server ran out of resources "
+                                                         "on this report. Our team has been notified; you can retry."})
+    return len(rows)
 
 
 def supervise(concurrency: int) -> None:  # pragma: no cover - process entrypoint
@@ -326,8 +379,10 @@ def supervise(concurrency: int) -> None:  # pragma: no cover - process entrypoin
     slots: list = []
 
     def start():
-        p = spawn.Process(target=_slot, name="job-slot")
+        wid = new_worker_id()
+        p = spawn.Process(target=_slot, args=(wid,), name="job-slot")
         p.start()
+        p.worker_id = wid
         return p
 
     def stop(*_a):
@@ -343,5 +398,10 @@ def supervise(concurrency: int) -> None:  # pragma: no cover - process entrypoin
         time.sleep(2)
         for i, p in enumerate(slots):
             if not p.is_alive():
-                log.warning("worker slot %s exited (code %s); restarting", p.pid, p.exitcode)
+                log.warning("worker slot %s exited (%s); restarting", p.pid, exit_reason(p.exitcode))
+                try:
+                    if release_dead_slot(p.worker_id, p.exitcode):
+                        log.warning("released the job worker slot %s was running", p.worker_id)
+                except Exception:  # noqa: BLE001 - stale-lock recovery still catches it later
+                    log.exception("could not release worker slot %s's job", p.worker_id)
                 slots[i] = start()
