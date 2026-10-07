@@ -45,6 +45,8 @@ def heading_level(e: Element, body: float) -> int | None:
     w = _words(e)
     if w > 16 or e.lines > 3:
         return None
+    if e.meta.get("bg") and w <= 10:                   # text on a coloured label bar
+        return 2 if e.size >= body * 1.6 else 3
     if e.size >= body * 1.9:
         return 1
     if e.size >= body * 1.3:
@@ -79,17 +81,89 @@ def _spans(els: list[Element], axis: int, gap: float, slack: float = 0.0) -> lis
     return groups
 
 
+GRID_GAP = 1.0           # columns of a grid may sit this close together
+_PIC_INSET = 2.5         # photos set edge to edge: their boxes overlap by a hair
+
+
+def _bands(row: list[Element]) -> list[tuple[float, float]]:
+    def box(e: Element) -> tuple:
+        if e.meta.get("bg_box"):                  # a label: the bar it sits on, not its words
+            return e.meta["bg_box"]
+        x0, y0, x1, y1 = e.bbox
+        return (x0 + _PIC_INSET, y0, x1 - _PIC_INSET, y1) if e.kind == "picture" and x1 - x0 > 4 * _PIC_INSET else e.bbox
+    shrunk = [Element(e.id, e.kind, box(e)) for e in row]
+    return [(min(e.bbox[0] for e in g), max(e.bbox[2] for e in g)) for g in _spans(shrunk, 0, GRID_GAP)]
+
+
+def _aligned(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> bool:
+    """Same number of columns, each centred within the other row's column (a caption or
+    label centred under a photo; bullet text inset from the photo above it)."""
+    if len(a) != len(b) or len(a) < 2:
+        return False
+    return all(x0 <= (y0 + y1) / 2 <= x1 and y0 <= (x0 + x1) / 2 <= y1 for (x0, x1), (y0, y1) in zip(a, b))
+
+
+def _grid_rows(rows: list[list[Element]]) -> list[list[Element]]:
+    """Rows whose columns line up (a header bar, a photo and a caption over each of three
+    columns) are one grid: they are kept together so the cut below them goes down the
+    columns, keeping each column's pieces with each other, as on the page."""
+    out: list[list[Element]] = []
+    bands_of = [_bands(r) for r in rows]
+    k = 0
+    while k < len(rows):
+        j = k
+        while j + 1 < len(rows) and _aligned(bands_of[k], bands_of[j + 1]):
+            j += 1
+        out.append([e for r in rows[k:j + 1] for e in r])
+        k = j + 1
+    return out
+
+
+def _grid_cols(els: list[Element], rows: list[list[Element]] | None = None) -> list[list[Element]] | None:
+    """A grid's columns: elements split down the gutters the rows share."""
+    rows = rows or _spans(els, 1, ROW_GAP)
+    if len(rows) < 2:
+        return None
+    bands = _bands(rows[0])
+    if not all(_aligned(bands, _bands(r)) for r in rows[1:]):
+        return None
+    bands = [(min(b[0] for b in col), max(b[1] for b in col)) for col in zip(*(_bands(r) for r in rows))]
+    cols: list[list[Element]] = [[] for _ in bands]
+    for e in els:
+        cx = (e.bbox[0] + e.bbox[2]) / 2
+        cols[min(range(len(bands)), key=lambda i: 0 if bands[i][0] <= cx <= bands[i][1]
+                 else min(abs(cx - bands[i][0]), abs(cx - bands[i][1])))].append(e)
+    return cols if all(cols) else None
+
+
+def _widest(groups: list[list[Element]], axis: int) -> float:
+    """The widest white space between consecutive groups along an axis."""
+    lo, hi = (0, 2) if axis == 0 else (1, 3)
+    return max(min(e.bbox[lo] for e in b) - max(e.bbox[hi] for e in a) for a, b in zip(groups, groups[1:]))
+
+
 def xy_cut(els: list[Element], depth: int = 0) -> dict:
     """{"rows": [...]} | {"cols": [...]} | {"leaf": [elements]} — rows first, the way a
     page is read; a leaf is one column of elements top to bottom."""
     if len(els) <= 1 or depth > 12:
         return {"leaf": sorted(els, key=lambda e: (e.bbox[1], e.bbox[0]))}
-    # a clean cut first; then one that lets a picture's edge overlap a neighbour slightly
+    grid = _grid_cols(els)
+    if grid:
+        return {"cols": [xy_cut(c, depth + 1) for c in grid]}
+    # Cut along the widest white space, rows or columns — the way the page was designed
+    # (a photo with its bullet column under it stays one column). A clean cut first; then
+    # one that lets a picture's edge overlap its neighbour slightly.
     for slack in (0.0, CUT_SLACK):
         rows = _spans(els, 1, ROW_GAP, slack)
-        if len(rows) > 1:
-            return {"rows": [xy_cut(r, depth + 1) for r in rows]}
         cols = _spans(els, 0, COL_GAP, slack)
+        if len(rows) > 1 and (len(cols) <= 1 or _widest(rows, 1) >= _widest(cols, 0)):
+            groups = _grid_rows(rows)
+            if len(groups) == 1:                      # the whole region is one grid
+                grid = _grid_cols(groups[0], rows)
+                if grid:
+                    return {"cols": [xy_cut(c, depth + 1) for c in grid]}
+                groups = rows
+            return {"rows": [xy_cut(g, depth + 1) for g in groups]}
         if len(cols) > 1:
             return {"cols": [xy_cut(c, depth + 1) for c in cols]}
     return {"leaf": sorted(els, key=lambda e: (e.bbox[1], e.bbox[0]))}
@@ -216,12 +290,14 @@ class _Builder:
         rest = [e for ts in texts for e in sorted(ts, key=lambda e: e.bbox[1]) if e not in lead]
         if not any(pics) and rest and all(is_bullet(e) for e in rest):
             out = self.flow(lead) if lead else []
-            return out + [{"type": "list", "items": [[x.id for x in run] for run in self.runs(rest)]}]
+            return out + [{"type": "list", "cols": len([t for t in texts if t]),
+                           "items": [[x.id for x in run] for run in self.runs(rest)]}]
         # a row of short labels ("Future Tech | Consumer Centric | Inclusive")
         if not any(pics) and all(len(t) == 1 and _words(t[0]) <= 6 for t in texts):
             return [{"type": "chips", "items": [[t[0].id] for t in texts]}]
         # each column a picture with a caption: a picture row
-        if all(len(ps) == 1 and sum(_words(t) for t in ts) <= 40 for ps, ts in zip(pics, texts)):
+        if all(len(ps) == 1 and sum(_words(t) for t in ts) <= 40 and not any(is_bullet(t) or t.meta.get("bg") for t in ts)
+               for ps, ts in zip(pics, texts)):
             items = []
             for ps, ts in zip(pics, texts):
                 items.append({"picture": ps[0].id, "caption": [t.id for t in sorted(ts, key=lambda e: e.bbox[1])]})
@@ -258,8 +334,8 @@ class _Builder:
             for k, run in enumerate(rs):
                 if run[0].kind == "picture" and pic is None:
                     pic = together or run[0].id
-                elif (k <= 1 and not title and not rest and (lv := self.run_level(run)) is not None
-                      and (lv <= 2 or run[0].text.isupper())):
+                elif k <= 1 and not title and not rest and (run[0].meta.get("bg") or (
+                        (lv := self.run_level(run)) is not None and (lv <= 2 or run[0].text.isupper()))):
                     title = [x.id for x in run]
                 else:
                     rest.extend(run)

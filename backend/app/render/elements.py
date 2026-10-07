@@ -78,13 +78,16 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
             boxes.append(list(bb))
     pictures = _merge(boxes)
     pieces = pages_mod.page_pieces(page, schema, n)
-    marks = _bullet_marks(page)
+    marks, fills = _drawn(page)
     out: list[Element] = []
     for blk in text_blocks:
         bx = tuple(blk["bbox"])
         first = blk["lines"][0]["bbox"] if blk.get("lines") else bx
-        bullet = _has_mark(bx, (first[1], first[3]), marks)
-        if not bullet and any(_inside(bx, p) for p in pictures):
+        bullet = _mark_for(bx, (first[1], first[3]), marks)
+        panel = _panel_for(bx, fills)
+        label = panel[1] if panel else None
+        # a label bar or a bullet point is text, even where it overlaps a picture's box
+        if not bullet and not label and any(_inside(bx, p) for p in pictures):
             continue                                   # a label on a picture stays in the picture
         spans = [s for ln in blk["lines"] for s in ln["spans"] if s["text"].strip()]
         if not spans:
@@ -95,13 +98,22 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
             weight[(round(s["size"], 1), bool(s["flags"] & 16) or "bold" in s["font"].lower(), s["color"])] = \
                 weight.get((round(s["size"], 1), bool(s["flags"] & 16) or "bold" in s["font"].lower(), s["color"]), 0) + len(s["text"])
         (size, bold, color), _ = max(weight.items(), key=lambda kv: kv[1])
+        # the block's typeface, as one of the bundled faces (pages.face_for)
+        fonts: dict[tuple, int] = {}
+        for sp in spans:
+            fonts[(sp["font"], sp["flags"])] = fonts.get((sp["font"], sp["flags"]), 0) + len(sp["text"])
+        fname, fflags = max(fonts.items(), key=lambda kv: kv[1])[0]
+        fam, fw, fit, _ = pages_mod.face_for(fname, fflags)
         mine = [p for p in pieces if bx[0] - 1 <= (p.x0 + p.x1) / 2 <= bx[2] + 1 and bx[1] - 1 <= p.baseline - p.size * 0.3 <= bx[3] + 1]
         html_ = _join(mine, figures)
         # every number printed in the block must have reached the HTML as a figure
         shown_digits = sum(len(_DIGIT.findall(figures[p.fid]["raw"])) for p in mine if p.fid)
         safe = len(_DIGIT.findall(text)) <= shown_digits and bool(mine)
         out.append(Element(f"t{len(out) + 1}", "text", bx, text=text, html=html_, size=size, bold=bold,
-                           color=_hex(color), safe=safe, lines=len(blk["lines"]), meta={"bullet": True} if bullet else {}))
+                           color=_hex(color), safe=safe, lines=len(blk["lines"]),
+                           meta={k: v for k, v in (("bullet", bullet), ("bg", label),
+                                                   ("bg_box", tuple(panel[0]) if panel else None),
+                                                   ("face", pages_mod.face_class(fam, fw, fit))) if v}))
     n_text = len(out)
     for k, p in enumerate(pictures, start=1):
         out.append(Element(f"p{k}", "picture", _trim(p, [e.bbox for e in out[:n_text]])))
@@ -121,29 +133,70 @@ def _trim(pic: tuple, texts: list[tuple]) -> tuple:
             continue
         options = [(x0, y0, x1, min(y1, t[1] - 1)) if (t[1] + t[3]) / 2 > (y0 + y1) / 2 else (x0, max(y0, t[3] + 1), x1, y1),
                    (x0, y0, min(x1, t[0] - 1), y1) if (t[0] + t[2]) / 2 > (x0 + x1) / 2 else (max(x0, t[2] + 1), y0, x1, y1)]
+        if min(t[2], x1) - max(t[0], x0) >= 0.9 * (t[2] - t[0]):
+            options = options[:1]                  # text lying across the picture: trim top or bottom
         best = max(options, key=lambda o: max(0.0, o[2] - o[0]) * max(0.0, o[3] - o[1]))
         if (best[2] - best[0]) * (best[3] - best[1]) >= (pic[2] - pic[0]) * (pic[3] - pic[1]) / 3 and best[2] > best[0] and best[3] > best[1]:
             x0, y0, x1, y1 = best
     return (x0, y0, x1, y1)
 
 
-def _bullet_marks(page: pymupdf.Page) -> list[tuple]:
-    """Bullet points a design tool drew as small filled shapes rather than typed."""
-    marks = []
+def _rgb_hex(c) -> str:
+    return "#" + "".join(f"{max(0, min(255, round(v * 255))):02x}" for v in c[:3])
+
+
+def _drawn(page: pymupdf.Page) -> tuple[list[tuple], list[tuple]]:
+    """(bullet marks, filled panels) the design drew: bullet points as small filled
+    shapes, and filled bars/boxes text sits on (a coloured label bar). Each with its
+    colour as #rrggbb."""
+    marks, fills = [], []
+    W, H = page.rect.width, page.rect.height
     try:
         for d in page.get_drawings():
-            r = d.get("rect")
-            if r is not None and d.get("fill") is not None and 1.5 <= r.width <= 7 and 1.5 <= r.height <= 7 \
-                    and abs(r.width - r.height) <= 1.5:
-                marks.append((r.x0, r.y0, r.x1, r.y1))
-    except Exception:  # noqa: BLE001 - no bullets found is a safe answer
+            r, fill = d.get("rect"), d.get("fill")
+            if r is None or fill is None:
+                continue
+            if 1.5 <= r.width <= 7 and 1.5 <= r.height <= 7 and abs(r.width - r.height) <= 1.5:
+                marks.append(((r.x0, r.y0, r.x1, r.y1), _rgb_hex(fill)))
+            elif r.width >= 12 and r.height >= 6 and r.width * r.height < 0.5 * W * H:
+                fills.append(((r.x0, r.y0, r.x1, r.y1), _rgb_hex(fill)))
+    except Exception:  # noqa: BLE001 - nothing found is a safe answer
         pass
-    return marks
+    return marks, fills
 
 
-def _has_mark(bx: tuple, first_line: tuple, marks: list[tuple]) -> bool:
+def _mark_for(bx: tuple, first_line: tuple, marks: list[tuple]) -> str | None:
+    """The colour of the bullet drawn just before a block's first line, if any."""
     ly0, ly1 = first_line
-    return any(bx[0] - 16 <= m[2] <= bx[0] + 1 and ly0 - 2 <= (m[1] + m[3]) / 2 <= ly1 + 2 for m in marks)
+    for m, colour in marks:
+        if bx[0] - 16 <= m[2] <= bx[0] + 1 and ly0 - 2 <= (m[1] + m[3]) / 2 <= ly1 + 2:
+            return colour
+    return None
+
+
+def _panel_for(bx: tuple, fills: list[tuple]) -> tuple | None:
+    """The fill of a bar the text sits on (a label), when it is a bar for this text — not a
+    big panel holding many lines. White and near-white fills are no label."""
+    h = bx[3] - bx[1]
+    best = None
+    for f, colour in fills:
+        # the text on the bar: within it across, its middle on it, most of its height on it
+        # (a text box's descent often pokes out below a tight bar)
+        cy = (bx[1] + bx[3]) / 2
+        on = min(bx[3], f[3]) - max(bx[1], f[1])
+        if not (f[0] - 1 <= bx[0] and bx[2] <= f[2] + 2 and f[1] - 2 <= cy <= f[3] + 2 and on >= 0.6 * h) \
+                or (f[3] - f[1]) > max(3.2 * h, 24):
+            continue
+        if _lum(colour) > 0.92:
+            continue
+        if best is None or (f[2] - f[0]) * (f[3] - f[1]) < (best[0][2] - best[0][0]) * (best[0][3] - best[0][1]):
+            best = (f, colour)
+    return best if best else None
+
+
+def _lum(colour: str) -> float:
+    r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def _split_columns(blocks: list[dict]) -> list[dict]:

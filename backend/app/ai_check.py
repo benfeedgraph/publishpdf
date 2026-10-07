@@ -107,16 +107,31 @@ def crop_png(doc: pymupdf.Document, f: dict) -> bytes:
 Transport = Callable[[dict], dict]
 
 
+def gemini_url(api_key: str | None, model: str, api: str = "") -> str:
+    """Where a Gemini request goes. Google issues two kinds of key: Gemini API (AI Studio)
+    keys start "AIza" and use generativelanguage.googleapis.com; Vertex AI express-mode
+    keys start "AQ." and only work on aiplatform.googleapis.com (sent to the other address
+    they get 401/404). GEMINI_API picks one explicitly: "gemini" or "vertex"."""
+    vertex = api == "vertex" or (api != "gemini" and (api_key or "").startswith("AQ."))
+    if vertex:
+        return f"https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent"
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
 def gemini_transport(body: dict) -> dict:  # pragma: no cover - live network, never used in tests
     import httpx
 
     cfg = get_settings()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.gemini_model}:generateContent"
+    url = gemini_url(cfg.gemini_api_key, cfg.gemini_model, cfg.gemini_api)
     # The key goes in a header, never the URL: URLs end up in tracebacks, logs and job records.
     r = httpx.post(url, headers={"x-goog-api-key": cfg.gemini_api_key or ""}, json=body, timeout=60)
     if r.status_code in (401, 403):
         raise ProviderRejected("The AI provider rejected the platform's Gemini API key (it may be invalid, "
-                               "expired or not enabled for the Gemini API). Nothing was charged.")
+                               "expired or not enabled for this API). Nothing was charged.")
+    if r.status_code == 404:
+        raise ProviderRejected(f"The AI provider doesn't offer the model '{cfg.gemini_model}' to this key "
+                               "(check GEMINI_MODEL, and that the key is for the Gemini API or Vertex AI). "
+                               "Nothing was charged.")
     r.raise_for_status()
     return r.json()
 

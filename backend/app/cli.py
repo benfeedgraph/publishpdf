@@ -94,6 +94,13 @@ def worker_refusal() -> str | None:
                 "(STORAGE_BACKEND=local) but the database is remote, so this worker would take "
                 "jobs whose PDFs it cannot read and fail them. Point DATABASE_*_URL at a local "
                 "database, or configure the shared file store (BLOB_READ_WRITE_TOKEN or S3).")
+    import os
+    if (s.env == "development" and not _private_database_host(s.database_owner_url)
+            and not os.environ.get("RAILWAY_ENVIRONMENT") and os.environ.get("ALLOW_REMOTE_WORKER") != "1"):
+        return ("Refusing to start the worker: this is a development machine (APP_ENV=development) "
+                "and the database is remote, so it would take live jobs and run this machine's code "
+                "and keys on them (and restart mid-job whenever a file is saved). Use a local "
+                "database, or set ALLOW_REMOTE_WORKER=1 if you really mean to.")
     return None
 
 

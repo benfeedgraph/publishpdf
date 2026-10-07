@@ -430,43 +430,48 @@ WEB_CSS = """
 .part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
 .part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent)}
 .web .doc-note{margin:40px auto 0;padding-top:28px;border-top:1px solid var(--c-border)}
-/* AI-laid-out pages: a design page rebuilt as web sections, in the site's own style */
-.ai-page{padding:clamp(12px,2vw,20px) 0}
+/* Design-led pages rebuilt as web sections, keeping the PDF's own design: its typefaces,
+   heading colours, coloured label bars and bullets, and its column arrangement. */
+.ai-page{--ww:min(1040px,calc(100vw - 48px));width:var(--ww);margin-left:calc((100% - var(--ww)) / 2);padding:clamp(12px,2vw,20px) 0}
 .ai-page>:first-child{margin-top:clamp(20px,3vw,36px)}
-.ai-h{color:var(--c-text);text-wrap:balance}
-.ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.1em 0 .5em;letter-spacing:-.025em}
-.ai-h-b{font-size:clamp(1.25em,2.2vw,1.55em);margin:1.4em 0 .6em}
-.ai-h-c{font-size:1.08em;margin:1.2em 0 .5em;color:var(--c-primary)}
-.ai-p{font-size:1.06em;line-height:1.75;margin:0 0 1em}
-.ai-list{margin:0 0 1.2em;padding-left:1.2em;line-height:1.7}.ai-list li{margin:.3em 0}
-.ai-cards{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:16px;margin:18px 0 26px}
-.ai-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:16px;padding:18px 18px 8px;
-  border-top:4px solid var(--c-primary)}
-.ai-card-t{margin:0 0 .6em;font-size:1.02em;letter-spacing:.01em;color:var(--c-primary)}
-.ai-card .ai-p,.ai-card li{font-size:.97em;line-height:1.6}.ai-card .ai-p{margin:0 0 .7em}
+.ai-h{color:var(--c-text);text-wrap:balance;line-height:1.2;letter-spacing:-.01em}
+.ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.2em 0 .5em}
+.ai-h-b{font-size:1.4em;margin:1.2em 0 .5em}
+.ai-h-c{font-size:1.1em;margin:1.1em 0 .45em}
+.ai-lbl{display:block;width:fit-content;max-width:100%;background:var(--lbl);color:#fff;padding:.32em 1.6em .32em .7em;
+  border-radius:0 999px 999px 0;line-height:1.25;letter-spacing:0}
+h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
+.ai-p{font-size:1em;line-height:1.7;margin:0 0 1em}
+.ai-list{margin:0 0 1.2em;padding-left:1.15em;line-height:1.6}
+.ai-list li{margin:.28em 0;padding-left:.2em}
+.ai-list li::marker{color:var(--bul,var(--c-primary));content:"● ";font-size:.8em}
+.ai-list[data-cols]{columns:2;column-gap:40px}.ai-list[data-cols] li{break-inside:avoid}
+.ai-cards{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:clamp(18px,3vw,32px);margin:18px 0 26px;
+  align-items:start}
+.ai-card{padding:0}
+.ai-card>.ai-pic{margin:0 0 10px}
+.ai-card-t{margin:0 0 .6em;font-size:1.02em;color:var(--c-text)}
+.ai-card .ai-p,.ai-card li{font-size:.95em;line-height:1.55}.ai-card .ai-p{margin:0 0 .7em}
 .ai-card .ai-h{font-size:1em;margin:.8em 0 .4em}
-.ai-card p{margin:0 0 .8em;line-height:1.6}
-.ai-card .ai-pic{margin:0 0 12px}
 .ai-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:14px 0 26px}
 .ai-stat{background:var(--c-primary-soft);border-radius:14px;padding:14px 16px;line-height:1.45;font-weight:550}
-.ai-stat data:not([value=""]){font-family:var(--font-heading);font-size:1.35em;font-weight:800;color:var(--c-primary);
-  letter-spacing:-.02em}
 .ai-gallery{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:18px;margin:18px 0 28px}
+.ai-tile{margin:0;display:flex;flex-direction:column;gap:8px}
+.ai-tile .ai-pic,.ai-card .ai-pic{width:100%}
+.ai-tile figcaption,.ai-figure figcaption{font-size:.92em;line-height:1.5;color:var(--c-muted)}
+.ai-figure{margin:20px 0 26px}
 .ai-chips{list-style:none;display:flex;flex-wrap:wrap;gap:10px;padding:0;margin:14px 0 24px}
 .ai-chips li{padding:8px 16px;border-radius:999px;background:var(--c-primary-soft);color:var(--c-primary);font-weight:650;
   font-size:.95em;border:1px solid var(--c-primary-line)}
+.ai-chips li.ai-lbl{background:var(--lbl);border:0}
+.ai-bar{gap:0;background:var(--lbl);border-radius:0 22px 0 0;padding:6px 10px;justify-content:space-around}
+.ai-bar li{background:none;border:0;color:#fff;padding:6px 14px;border-radius:0}
+.ai-bar li+li{border-left:1px solid rgba(255,255,255,.55)}
 .ai-media{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(20px,3vw,36px);align-items:center;margin:22px 0 30px}
 .ai-media-left .ai-media-pic{order:0}.ai-media-right .ai-media-pic{order:2}
 .ai-media-pic{margin:0}.ai-media-pic .ai-pic{width:100%}
 .ai-media-body>:first-child{margin-top:0}
-.ai-card ul.ai-list,.ai-tile ul.ai-list{padding-left:1.1em;margin:0 0 .8em}
-.ai-pic{box-shadow:0 0 0 1px var(--c-border)}
-.ai-tile{margin:0;background:var(--c-background);border:1px solid var(--c-border);border-radius:16px;padding:12px;
-  display:flex;flex-direction:column;gap:10px}
-.ai-tile .ai-pic,.ai-card .ai-pic{width:100%}
-.ai-tile figcaption,.ai-figure figcaption{font-size:.92em;line-height:1.5;color:var(--c-muted)}
-.ai-figure{margin:22px 0 28px}
-.ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto;border-radius:10px;background:#fff}
+.ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto}
 .ai-pic img{position:absolute;max-width:none;height:auto}
 .ai-textcrop{display:inline-block;vertical-align:middle;margin:0}
 /* Tables of amounts get a bar chart above them, drawn from the table's own figures */
@@ -485,7 +490,8 @@ WEB_CSS = """
 .tc-b.neg{background:repeating-linear-gradient(135deg,var(--c-secondary) 0 4px,color-mix(in srgb,var(--c-secondary) 60%,#fff) 4px 8px)}
 .tchart-note{margin:10px 0 0;font-size:.8em;color:var(--c-muted)}
 @media (max-width:560px){.tc-row{grid-template-columns:1fr}}
-@media (max-width:760px){.ai-cards,.ai-media{grid-template-columns:1fr}.ai-media-right .ai-media-pic{order:0}.ai-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.ai-page{--ww:100%}}
+@media (max-width:760px){.ai-list[data-cols]{columns:1}.ai-cards,.ai-media{grid-template-columns:1fr}.ai-media-right .ai-media-pic{order:0}.ai-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:480px){.ai-gallery{grid-template-columns:1fr}}
 .to-top{position:fixed;right:20px;bottom:20px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--c-primary);color:#fff;text-decoration:none;font-weight:700;box-shadow:0 8px 20px -8px rgba(0,0,0,.45)}
 @media (max-width:860px){

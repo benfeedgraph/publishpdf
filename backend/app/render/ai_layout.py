@@ -24,6 +24,15 @@ from app.render.elements import Element, is_bullet
 _LEAD_BULLET = re.compile(r"^(\s*)(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
 
 
+def _light(colour: str) -> bool:
+    """Too pale to read on a white page (white text from a coloured panel)."""
+    try:
+        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return True
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.8
+
+
 def _unbullet(h: str) -> str:
     """A list item without its printed bullet (the list draws one)."""
     return _LEAD_BULLET.sub(r"\1", h, count=1)
@@ -211,8 +220,51 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         out = []
         for i in ids:
             e = by_id[i]
-            out.append(e.html if e.safe else crop(e, "ai-pic ai-textcrop"))
+            out.append(e.html if e.safe else textcrop(e))
         return sep.join(out)
+
+    sized = sorted(e.size for e in elements if e.kind == "text" and e.size)
+    body = sized[len(sized) // 2] if sized else 10.0
+
+    def textcrop(e: Element) -> str:
+        """A line kept as printed (it holds a number not yet verified): shown at the size of
+        the text around it — the page's body size maps to ~16px."""
+        x0, y0, x1, y1 = e.bbox
+        w, h = max(1.0, x1 - x0), max(1.0, y1 - y0)
+        px = 15.5 / body                                                   # px per point
+        return (f'<span class="ai-pic ai-textcrop" style="aspect-ratio:{w:.1f}/{h:.1f};width:min(100%,{w * px:.0f}px)">'
+                f'<img src="{html_mod.escape(printed_src)}" alt="" loading="lazy" decoding="async" '
+                f'style="width:{100 * W / w:.3f}%;left:-{100 * x0 / w:.3f}%;top:-{100 * y0 / h:.3f}%"></span>')
+
+    def look(ids: list[str], heading: bool = False) -> tuple[str, str]:
+        """(extra classes, inline style) that carry the PDF's own design: its typeface, a
+        heading's colour and relative size, a label bar's colour."""
+        e = by_id[ids[0]] if ids else None
+        if e is None or e.kind != "text":
+            return "", ""
+        cls, style = [], []
+        if e.meta.get("face"):
+            cls.append(e.meta["face"])
+        if e.meta.get("bg"):
+            cls.append("ai-lbl")
+            style.append(f"--lbl:{e.meta['bg']}")
+            style.append(f"color:{e.color if _light(e.color) else '#fff'}")
+        elif heading and not _light(e.color):
+            style.append(f"color:{e.color}")
+        if heading:
+            style.append(f"font-size:{max(1.0, min(2.4, e.size / body * 0.62)):.2f}em")
+        return " ".join(cls), ";".join(style)
+
+    def attrs(cls: str, ids: list[str], heading: bool = False) -> str:
+        extra, style = look(ids, heading)
+        c = " ".join(x for x in (cls, extra) if x)
+        return f' class="{c}"' + (f' style="{style}"' if style else "")
+
+    def bullets_style(ids: list[str]) -> str:
+        colour = next((by_id[i].meta.get("bullet") for i in ids if isinstance(by_id[i].meta.get("bullet"), str)), None)
+        face = next((by_id[i].meta.get("face") for i in ids if by_id[i].meta.get("face")), "")
+        cls = f"ai-list {face}".strip()
+        return f' class="{cls}"' + (f' style="--bul:{colour}"' if colour else "")
 
     def items(ids: list[str]) -> str:
         """Blocks one after another: each its own paragraph; bullet points as a list."""
@@ -220,14 +272,14 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         for i in ids:
             e = by_id[i]
             if is_bullet(e):
-                bullets.append(f"<li>{_unbullet(text([i]))}</li>")
+                bullets.append(i)
                 continue
             if bullets:
-                out.append('<ul class="ai-list">' + "".join(bullets) + "</ul>")
+                out.append(f"<ul{bullets_style(bullets)}>" + "".join(f"<li>{_unbullet(text([b]))}</li>" for b in bullets) + "</ul>")
                 bullets = []
-            out.append(crop(e) if e.kind == "picture" else f"<p>{text([i])}</p>")
+            out.append(crop(e) if e.kind == "picture" else f"<p{attrs('', [i])}>{text([i])}</p>")
         if bullets:
-            out.append('<ul class="ai-list">' + "".join(bullets) + "</ul>")
+            out.append(f"<ul{bullets_style(bullets)}>" + "".join(f"<li>{_unbullet(text([b]))}</li>" for b in bullets) + "</ul>")
         return "".join(out)
 
     def draw(secs: list[dict]) -> list[str]:
@@ -236,20 +288,33 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
             t = sec["type"]
             if t == "heading":
                 tag = {1: "h2", 2: "h3", 3: "h4"}[sec["level"]]
-                parts.append(f'<{tag} class="ai-h ai-h-{"abc"[sec["level"] - 1]}">{text(sec["ids"])}</{tag}>')
+                parts.append(f'<{tag}{attrs("ai-h ai-h-" + "abc"[sec["level"] - 1], sec["ids"], True)}>{text(sec["ids"])}</{tag}>')
             elif t == "paragraph":
-                parts.append(f'<p class="ai-p">{text(sec["ids"])}</p>')
+                parts.append(f'<p{attrs("ai-p", sec["ids"])}>{text(sec["ids"])}</p>')
             elif t == "list":
-                parts.append('<ul class="ai-list">' + "".join(f"<li>{_unbullet(text(it))}</li>" for it in sec["items"]) + "</ul>")
+                flat = [i for it in sec["items"] for i in it]
+                cols = f' data-cols="{sec["cols"]}"' if sec.get("cols", 1) > 1 else ""
+                parts.append(f"<ul{bullets_style(flat)}{cols}>" + "".join(f"<li>{_unbullet(text(it))}</li>" for it in sec["items"]) + "</ul>")
             elif t == "chips":
-                parts.append('<ul class="ai-chips">' + "".join(f"<li>{text(it)}</li>" for it in sec["items"]) + "</ul>")
+                bgs = {by_id[it[0]].meta.get("bg") for it in sec["items"]}
+                faces = {by_id[it[0]].meta.get("face") for it in sec["items"]} - {None}
+                face = f" {faces.pop()}" if len(faces) == 1 else ""
+                if len(bgs) == 1 and None not in bgs:      # one coloured bar, as printed
+                    parts.append(f'<ul class="ai-chips ai-bar{face}" style="--lbl:{bgs.pop()}">'
+                                 + "".join(f"<li>{text(it)}</li>" for it in sec["items"]) + "</ul>")
+                else:
+                    parts.append(f'<ul class="ai-chips{face}">' + "".join(
+                        f'<li{attrs("", it)}>{text(it)}</li>' for it in sec["items"]) + "</ul>")
             elif t == "cards":
                 cards = []
                 for c in sec["cards"]:
                     pic = crop(by_id[c["picture"]]) if c["picture"] else ""
-                    title = f'<h4 class="ai-card-t">{text(c["title"])}</h4>' if c["title"] else ""
+                    title = f'<h4{attrs("ai-card-t", c["title"], True)}>{text(c["title"])}</h4>' if c["title"] else ""
                     body = "".join(draw(c["flow"])) if "flow" in c else items(c["body"])
-                    cards.append(f'<div class="ai-card">{pic}{title}{body}</div>')
+                    # the label above or below the photo, as printed
+                    above = c["title"] and c["picture"] and by_id[c["title"][0]].bbox[1] < by_id[c["picture"]].bbox[1]
+                    cards.append(f'<div class="ai-card">{title}{pic}{body}</div>' if above
+                                 else f'<div class="ai-card">{pic}{title}{body}</div>')
                 parts.append(f'<div class="ai-cards" style="--cols:{min(4, max(1, len(cards)))}">' + "".join(cards) + "</div>")
             elif t == "stats":
                 parts.append('<div class="ai-stats">' + "".join(f'<div class="ai-stat">{text(it)}</div>' for it in sec["items"]) + "</div>")

@@ -93,6 +93,26 @@ def test_local_disk_worker_refuses_a_remote_database(monkeypatch):
     assert cli.worker_refusal() is None
     monkeypatch.setattr(storage, "backend_kind", lambda: "vercel_blob")
     monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@db.proxy.rlwy.net:1/x")
+    monkeypatch.setattr(get_settings(), "env", "production")
+    assert cli.worker_refusal() is None
+
+
+def test_a_development_worker_refuses_the_live_database(monkeypatch):
+    """A laptop with shared storage + the live DB took live jobs and ran its own code and
+    keys on them (an AI check failed with the laptop's key)."""
+    from app import cli, storage
+    from app.config import get_settings
+
+    monkeypatch.setattr(storage, "backend_kind", lambda: "s3")
+    monkeypatch.setattr(get_settings(), "env", "development")
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("ALLOW_REMOTE_WORKER", raising=False)
+    monkeypatch.setattr(get_settings(), "database_owner_url", "postgresql+psycopg://u:p@db.proxy.rlwy.net:1/x")
+    assert "development machine" in cli.worker_refusal()
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")         # the Railway worker
+    assert cli.worker_refusal() is None
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT")
+    monkeypatch.setenv("ALLOW_REMOTE_WORKER", "1")                  # deliberate
     assert cli.worker_refusal() is None
 
 

@@ -124,3 +124,16 @@ def test_estimate_run_and_usage_end_to_end(admin_client, monkeypatch):
     assert {"report.ai_check_requested", "report.ai_check"} <= {e["action"] for e in audit}
     # nothing left to check at these values: the estimate drops to the one disagreement or zero
     assert client.get(url).json()["estimate"]["items"] == 0
+
+
+def test_vertex_express_keys_go_to_vertex_and_studio_keys_to_the_gemini_api():
+    """An "AQ." key (Vertex AI express) sent to generativelanguage.googleapis.com gets
+    401/404 — every AI check failed that way. The key decides the address unless
+    GEMINI_API says otherwise."""
+    from app.ai_check import gemini_url
+    assert gemini_url("AQ.Ab8RN6x", "gemini-2.5-flash").startswith(
+        "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:")
+    assert gemini_url("AIzaSyX", "gemini-2.5-flash").startswith(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:")
+    assert "aiplatform" in gemini_url("AIzaSyX", "gemini-2.5-flash", "vertex")
+    assert "generativelanguage" in gemini_url("AQ.x", "gemini-2.5-flash", "gemini")

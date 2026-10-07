@@ -295,7 +295,9 @@ def test_ai_lays_out_design_pages_with_ids_only_cached_and_capped(monkeypatch):
     assert "Caption for brand range A" in seen[0] and "Never write any text yourself" in seen[0]
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf, layouts=lays)
     html_ = [v for k, v in files.items() if k.endswith(".html")][0].decode()
-    assert 'class="ai-page"' in html_ and '<h2 class="ai-h ai-h-a">Our Brands</h2>' in html_
+    import re as _re
+    # the heading keeps the PDF's own typeface and colour
+    assert 'class="ai-page"' in html_ and _re.search(r'<h2 class="ai-h ai-h-a f\w+"[^>]*>Our Brands</h2>', html_)
     for c in "ABCD":                                    # nothing the model left out is lost
         assert html_.count(f"Caption for brand range {c}") == 1
     assert validation.check_bundle(schema, files) == []

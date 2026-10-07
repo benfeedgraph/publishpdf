@@ -178,6 +178,8 @@ class Settings(BaseSettings):
     # AI double-check of flagged figures (opt-in per report, estimate shown first).
     gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "GEMINI_KEY"))
     gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    # "gemini" (AI Studio key, AIza...) or "vertex" (Vertex AI express key, AQ....). Unset: by the key.
+    gemini_api: str = Field(default="", alias="GEMINI_API")
     # Your plan's prices, USD per million tokens — confirm against Google's current price list.
     gemini_price_in_per_m: float = Field(default=0.30, alias="GEMINI_PRICE_IN_PER_M")
     gemini_price_out_per_m: float = Field(default=2.50, alias="GEMINI_PRICE_OUT_PER_M")
