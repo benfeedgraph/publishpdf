@@ -80,6 +80,17 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def laptop_on_live_database() -> bool:
+    """A development machine (APP_ENV=development) pointed at a remote database — the live
+    one. It must not process live jobs or run migrations there; the deployed worker does."""
+    import os
+
+    from app.config import _private_database_host, get_settings
+    s = get_settings()
+    return (s.env == "development" and not _private_database_host(s.database_owner_url)
+            and not os.environ.get("RAILWAY_ENVIRONMENT") and os.environ.get("ALLOW_REMOTE_WORKER") != "1")
+
+
 def worker_refusal() -> str | None:
     """A worker that keeps files on its own disk can only process uploads made on the same
     machine. Pointed at a shared (remote) database it claims other hosts' jobs, can't find
@@ -94,9 +105,7 @@ def worker_refusal() -> str | None:
                 "(STORAGE_BACKEND=local) but the database is remote, so this worker would take "
                 "jobs whose PDFs it cannot read and fail them. Point DATABASE_*_URL at a local "
                 "database, or configure the shared file store (BLOB_READ_WRITE_TOKEN or S3).")
-    import os
-    if (s.env == "development" and not _private_database_host(s.database_owner_url)
-            and not os.environ.get("RAILWAY_ENVIRONMENT") and os.environ.get("ALLOW_REMOTE_WORKER") != "1"):
+    if laptop_on_live_database():
         return ("Refusing to start the worker: this is a development machine (APP_ENV=development) "
                 "and the database is remote, so it would take live jobs and run this machine's code "
                 "and keys on them (and restart mid-job whenever a file is saved). Use a local "
