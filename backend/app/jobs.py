@@ -99,22 +99,32 @@ _CLAIM = text("""
 
 # A job whose worker died goes back to the queue — unless it has used all its attempts
 # (a report that kills the worker every time would otherwise loop forever).
+_STOPPED = ("Processing stopped because the server ran out of resources on this report. "
+            "Our team has been notified; you can retry.")
 _RECOVER_STALE = text("""
-    UPDATE jobs SET
-      status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
-      finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END,
-      error_plain = CASE WHEN attempts >= max_attempts
-                         THEN 'Processing stopped because the server ran out of resources on this report. '
-                              || 'Our team has been notified; you can retry.' ELSE error_plain END,
-      locked_at = NULL, locked_by = NULL
-    WHERE status = 'running' AND locked_at < now() - make_interval(secs => :secs)
+    WITH recovered AS (
+      UPDATE jobs SET
+        status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
+        finished_at = CASE WHEN attempts >= max_attempts THEN now() ELSE NULL END,
+        error_plain = CASE WHEN attempts >= max_attempts THEN :plain ELSE error_plain END,
+        last_error = CASE WHEN attempts >= max_attempts
+                          THEN 'Its worker stopped responding mid-job on every attempt (the container was '
+                               || 'restarted or killed — usually out of memory).' ELSE last_error END,
+        locked_at = NULL, locked_by = NULL
+      WHERE status = 'running' AND locked_at < now() - make_interval(secs => :secs)
+      RETURNING kind, status, version_id)
+    -- a pipeline step that gave up must not leave its report "processing" forever
+    UPDATE report_versions v SET status = 'failed', error_plain = :plain
+    FROM recovered r
+    WHERE r.status = 'failed' AND r.kind LIKE 'pipeline.%' AND v.id = r.version_id
+      AND v.published_at IS NULL AND v.status = 'processing'
 """)
 
 
 def run_one(worker_id: str) -> bool:
     """Claim and run a single job. Returns False when the queue is empty."""
     with db.session(system_context()) as s:
-        s.execute(_RECOVER_STALE, {"secs": STALE_LOCK.total_seconds()})
+        s.execute(_RECOVER_STALE, {"secs": STALE_LOCK.total_seconds(), "plain": _STOPPED})
         row = s.execute(_CLAIM, {"worker": worker_id}).mappings().first()
     if row is None:
         return False

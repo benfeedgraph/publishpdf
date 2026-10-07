@@ -240,3 +240,29 @@ def test_a_dead_worker_slots_job_is_released_at_once_with_the_reason():
                                            {"a": a_id, "b": b_id})}
     assert rows[a_id].status == "queued" and "out of memory" in rows[a_id].last_error      # retried at once
     assert rows[b_id].status == "failed" and "ran out of resources" in rows[b_id].error_plain  # no endless loop
+
+
+def test_a_step_that_keeps_dying_fails_its_report_instead_of_showing_progress_forever():
+    """Stale recovery used to fail the job but leave the report 'processing' — the screen
+    said 'Building the web page — page 3 of 10…' for hours."""
+    from sqlalchemy import text
+
+    from app import db, jobs
+    from app.tenancy import system_context
+    with db.session(system_context()) as s:
+        vid = s.execute(text("SELECT id FROM report_versions WHERE published_at IS NULL LIMIT 1")).scalar()
+    if vid is None:
+        import pytest
+        pytest.skip("no draft version in the test database")
+    with db.session(system_context()) as s:
+        s.execute(text("UPDATE report_versions SET status='processing' WHERE id=:v"), {"v": vid})
+        tid = s.execute(text("SELECT tenant_id FROM report_versions WHERE id=:v"), {"v": vid}).scalar()
+        s.execute(text("""INSERT INTO jobs (tenant_id, kind, payload, idempotency_key, status, attempts, max_attempts,
+                          locked_at, locked_by, version_id)
+                          VALUES (:t, 'pipeline.render', '{}', 'stale-test', 'running', 3, 3, now() - interval '1 hour',
+                                  'gone:1', :v)"""), {"t": tid, "v": vid})
+    jobs.run_one("test:worker")
+    with db.session(system_context()) as s:
+        st = s.execute(text("SELECT status, error_plain FROM report_versions WHERE id=:v"), {"v": vid}).one()
+        job = s.execute(text("SELECT status FROM jobs WHERE idempotency_key='stale-test'")).scalar()
+    assert job == "failed" and st.status == "failed" and "ran out of resources" in st.error_plain
