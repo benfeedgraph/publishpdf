@@ -6,7 +6,7 @@ validated, AI-readable web pages served on the client's own subdomain.
 - Plan and decisions: [PLAN.md](PLAN.md)
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Environment template: [.env.example](.env.example)
-- Report JSON Schema: [schema/report.schema.json](schema/report.schema.json)
+- Report JSON Schema: [backend/app/schema/report.schema.json](backend/app/schema/report.schema.json)
 - Extraction accuracy on the test corpus: [corpus/ACCURACY.md](corpus/ACCURACY.md)
 
 ## Run it (macOS, no Docker)

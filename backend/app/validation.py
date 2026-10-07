@@ -9,7 +9,7 @@ Checks
   5 rendered_page    every number/date on the generated page exists in the schema, identically
   6 completeness     numeric tokens per PDF page vs figures captured
   7 low_confidence   OCR values under the threshold need a human check
-  + schema           the document validates against schema/report.schema.json
+  + schema           the document validates against app/schema/report.schema.json
 """
 
 from __future__ import annotations

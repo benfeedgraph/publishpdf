@@ -163,3 +163,14 @@ def test_detect_annual_report_year_range():
     from app.extraction.detect import detect_metadata
     meta = detect_metadata(_pdf("Borealis Holdings Annual Report 2024-25"))
     assert meta["fiscal_year"] == 2025 and meta["report_type"] == "annual_report"
+
+
+def test_the_report_schema_ships_inside_the_backend():
+    """The worker's image is built from backend/ alone: a schema outside it was missing in
+    production and every report's checks failed (FileNotFoundError)."""
+    from pathlib import Path
+
+    from app.extraction.jsonschema_check import SCHEMA_PATH, schema_errors
+    backend = Path(__file__).resolve().parents[1]
+    assert SCHEMA_PATH.is_file() and backend in SCHEMA_PATH.parents
+    assert schema_errors({}) != []                       # it loads and validates

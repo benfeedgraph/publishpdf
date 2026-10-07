@@ -1,4 +1,7 @@
-"""Validate generated report documents against schema/report.schema.json."""
+"""Validate generated report documents against app/schema/report.schema.json.
+
+The schema lives inside backend/ so every build of the backend (the worker's Docker image
+is built from backend/ alone) contains it."""
 
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ from pathlib import Path
 
 import jsonschema
 
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schema" / "report.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema" / "report.schema.json"
 
 
 @lru_cache

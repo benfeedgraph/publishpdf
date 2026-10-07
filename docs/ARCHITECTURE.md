@@ -146,7 +146,7 @@ and in the JSON Schema) or `{"f": fid}`. The renderer prints `figures[fid].raw` 
 | rendered_page | any digit on a generated page (text, title, attributes, JSON-LD, Markdown) isn't a schema figure/label with identical text | can't be waived by reviewers |
 | completeness | — (warning) | numeric tokens per page vs captured; image-only charts |
 | low_confidence | OCR confidence < `OCR_CONFIDENCE_THRESHOLD`, or a numeric-looking value that doesn't parse | human must confirm/edit |
-| schema | document fails `schema/report.schema.json` | |
+| schema | document fails `backend/app/schema/report.schema.json` | |
 
 A confirmation resolves a figure's issues only while its raw value equals the confirmed value.
 
