@@ -137,3 +137,17 @@ def test_vertex_express_keys_go_to_vertex_and_studio_keys_to_the_gemini_api():
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:")
     assert "aiplatform" in gemini_url("AIzaSyX", "gemini-2.5-flash", "vertex")
     assert "generativelanguage" in gemini_url("AQ.x", "gemini-2.5-flash", "gemini")
+
+
+def test_a_refusal_shows_googles_reason_without_the_key():
+    from app.ai_check import _google_reason
+
+    class R:
+        status_code = 403
+        def json(self):
+            return {"error": {"code": 403, "status": "PERMISSION_DENIED",
+                              "message": "Vertex AI API has not been used in project 123 before or it is disabled. key AQ.secret",
+                              "details": [{"reason": "SERVICE_DISABLED"}]}}
+    out = _google_reason(R(), "AQ.secret")
+    assert "PERMISSION_DENIED" in out and "SERVICE_DISABLED" in out and "has not been used in project" in out
+    assert "AQ.secret" not in out

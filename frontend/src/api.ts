@@ -206,7 +206,7 @@ export const VERSION_STATUS_LABEL: Record<Version["status"], string> = {
   failed: "Failed",
   needs_review: "Ready for review",
   validation_issues: "Validation issues",
-  published: "Live",
+  published: "Published",
   superseded: "Superseded",
 };
 

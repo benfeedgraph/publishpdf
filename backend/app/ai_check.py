@@ -118,6 +118,24 @@ def gemini_url(api_key: str | None, model: str, api: str = "") -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
+def _google_reason(r, key: str | None) -> str:
+    """Google's own explanation of a refusal ("API not enabled for project X", "API key
+    expired"...), which says what to fix. The key itself is never repeated."""
+    try:
+        err = r.json().get("error") or {}
+        msg = str(err.get("message") or "").strip()
+        status = str(err.get("status") or "").strip()
+        reasons = [d.get("reason") for d in err.get("details") or [] if isinstance(d, dict) and d.get("reason")]
+    except Exception:  # noqa: BLE001 - not JSON
+        msg, status, reasons = "", "", []
+    if key:
+        msg = msg.replace(key, "[key]")
+    tag = ", ".join(x for x in [status, *reasons] if x)
+    if not msg and not tag:
+        return f" (HTTP {r.status_code})."
+    return f" (HTTP {r.status_code}{', ' + tag if tag else ''}): {msg[:300]}".rstrip() + ("" if msg.endswith(".") else ".")
+
+
 def gemini_transport(body: dict) -> dict:  # pragma: no cover - live network, never used in tests
     import httpx
 
@@ -126,12 +144,11 @@ def gemini_transport(body: dict) -> dict:  # pragma: no cover - live network, ne
     # The key goes in a header, never the URL: URLs end up in tracebacks, logs and job records.
     r = httpx.post(url, headers={"x-goog-api-key": cfg.gemini_api_key or ""}, json=body, timeout=60)
     if r.status_code in (401, 403):
-        raise ProviderRejected("The AI provider rejected the platform's Gemini API key (it may be invalid, "
-                               "expired or not enabled for this API). Nothing was charged.")
+        raise ProviderRejected("Google rejected the platform's AI key" + _google_reason(r, cfg.gemini_api_key)
+                               + " Nothing was charged.")
     if r.status_code == 404:
-        raise ProviderRejected(f"The AI provider doesn't offer the model '{cfg.gemini_model}' to this key "
-                               "(check GEMINI_MODEL, and that the key is for the Gemini API or Vertex AI). "
-                               "Nothing was charged.")
+        raise ProviderRejected(f"Google doesn't offer the model '{cfg.gemini_model}' to this key"
+                               + _google_reason(r, cfg.gemini_api_key) + " Nothing was charged.")
     r.raise_for_status()
     return r.json()
 

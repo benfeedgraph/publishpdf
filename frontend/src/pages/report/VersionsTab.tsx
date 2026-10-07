@@ -26,7 +26,7 @@ export default function VersionsTab({ tenantId, report }: { tenantId: string; re
   const versions = r.data?.versions ?? report.versions ?? [];
   return (
     <div className="stack">
-      <p className="muted">Every upload and every change after publishing creates a new version. Published versions never change. Rolling back makes an earlier published version live again.</p>
+      <p className="muted">A published version never changes. To change a page that's already live, choose <strong>Edit a copy</strong>: it makes a new version to review and publish, and the live page stays as it is until you publish the copy. Rolling back makes an earlier published version live again.</p>
       {err && <p className="error" role="alert">{err}</p>}
       <table>
         <thead><tr><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Created</th><th scope="col">Published</th><th scope="col">Checks</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
@@ -34,7 +34,9 @@ export default function VersionsTab({ tenantId, report }: { tenantId: string; re
           {versions.map((v) => (
             <tr key={v.id}>
               <td><button className="link" onClick={() => navigate(`/t/${tenantId}/reports/${report.id}?v=${v.id}`)}>v{v.version_no}</button>{v.created_from_version_id && <div className="muted small">copied from an earlier version</div>}</td>
-              <td><span className={`badge ${STATUS_CLASS[v.status]}`}>{VERSION_STATUS_LABEL[v.status]}</span>{v.is_live && <span className="badge ok">Live</span>}</td>
+              <td>{v.is_live
+                ? <span className="badge ok">Live</span>
+                : <span className={`badge ${STATUS_CLASS[v.status]}`}>{v.status === "published" ? "Published earlier" : VERSION_STATUS_LABEL[v.status]}</span>}</td>
               <td className="nowrap small">{formatDateTime(v.created_at)}</td>
               <td className="nowrap small">{formatDateTime(v.published_at)}</td>
               <td className="small">{v.validation ? `${v.validation.blocking} blocking · ${v.validation.warnings} warnings` : "—"}</td>
@@ -43,7 +45,7 @@ export default function VersionsTab({ tenantId, report }: { tenantId: string; re
                   <Button className="link" disabled={rollback.isPending} busy={rollback.isPending && rollback.variables === v.id} busyLabel="Rolling back" onClick={() => confirm(`Make v${v.version_no} live again?`) && rollback.mutate(v.id)}>Roll back to this</Button>
                 )}
                 {isAdmin && v.schema_sha256 && v.published_at && (
-                  <> {" "}<Button className="link" disabled={draft.isPending} busy={draft.isPending && draft.variables === v.id} busyLabel="Creating a draft" onClick={() => draft.mutate(v.id)}>New draft from this</Button></>
+                  <> {" "}<Button className="link" disabled={draft.isPending} busy={draft.isPending && draft.variables === v.id} busyLabel="Making a copy to edit" title="Make an editable copy of this version; the live page doesn't change until you publish the copy" onClick={() => draft.mutate(v.id)}>Edit a copy</Button></>
                 )}
               </td>
             </tr>

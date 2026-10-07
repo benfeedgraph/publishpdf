@@ -87,7 +87,7 @@ export default function ReportPage() {
             <label className="field inline">
               <span className="label">Version</span>
               <select value={versionId} onChange={(e) => { const n = new URLSearchParams(params); n.set("v", e.target.value); n.delete("step"); setParams(n); }}>
-                {r.versions.map((x) => <option key={x.id} value={x.id}>v{x.version_no} · {VERSION_STATUS_LABEL[x.status]}{x.is_live ? " (live)" : ""}</option>)}
+                {r.versions.map((x) => <option key={x.id} value={x.id}>v{x.version_no} · {x.is_live ? "Live" : x.status === "published" ? "Published earlier" : VERSION_STATUS_LABEL[x.status]}</option>)}
               </select>
             </label>
           )}
