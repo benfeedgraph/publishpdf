@@ -224,7 +224,7 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
       {done && last?.result && (
         <p className="small" style={{ marginBottom: 0 }}>Last run: <strong>{last.result.confirmed}</strong> confirmed · <strong>{last.result.disagreed}</strong> need you · used <strong>{last.result.credits}</strong> credits (${last.result.usd.toFixed(4)}, {(last.result.input_tokens + last.result.output_tokens).toLocaleString()} tokens).</p>
       )}
-      {last?.status === "failed" && <p className="error small">The last AI run didn't finish: {last.error ?? "unknown error"}. Nothing in the report was changed; any requests that did run are counted under Settings → AI usage.</p>}
+      {last?.status === "failed" && <p className="error small">The last AI run didn't finish: {(last.error ?? "unknown error").replace(/\.+$/, "")}. Nothing in the report was changed; any requests that did run are counted under Settings → AI usage.</p>}
     </div>
   );
 }

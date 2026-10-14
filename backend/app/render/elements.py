@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
+from app.extraction.pdf import vector_paths
 from app.render import pages as pages_mod
 
 MIN_PICTURE_SHARE = 0.008      # rasters smaller than this share of the page are decoration
@@ -152,9 +153,8 @@ def _drawn(page: pymupdf.Page) -> tuple[list[tuple], list[tuple]]:
     marks, fills = [], []
     W, H = page.rect.width, page.rect.height
     try:
-        for d in page.get_drawings():
-            r, fill = d.get("rect"), d.get("fill")
-            if r is None or fill is None:
+        for r, fill in vector_paths(page):
+            if fill is None:
                 continue
             if 1.5 <= r.width <= 7 and 1.5 <= r.height <= 7 and abs(r.width - r.height) <= 1.5:
                 marks.append(((r.x0, r.y0, r.x1, r.y1), _rgb_hex(fill)))

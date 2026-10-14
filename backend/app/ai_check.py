@@ -133,7 +133,11 @@ def _google_reason(r, key: str | None) -> str:
     tag = ", ".join(x for x in [status, *reasons] if x)
     if not msg and not tag:
         return f" (HTTP {r.status_code})."
-    return f" (HTTP {r.status_code}{', ' + tag if tag else ''}): {msg[:300]}".rstrip() + ("" if msg.endswith(".") else ".")
+    if len(msg) > 400:  # cut at a sentence (or word) boundary, never mid-word
+        cut = msg[:400]
+        end = cut.rfind(". ")
+        msg = cut[:end + 1] if end > 120 else cut.rsplit(" ", 1)[0] + "…"
+    return f" (HTTP {r.status_code}{', ' + tag if tag else ''}): {msg}".rstrip() + ("" if msg.endswith((".", "…")) else ".")
 
 
 def gemini_transport(body: dict) -> dict:  # pragma: no cover - live network, never used in tests

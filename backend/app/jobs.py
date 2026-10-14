@@ -121,6 +121,9 @@ _RECOVER_STALE = text("""
 """)
 
 
+_LAST_KIND: list[str] = [""]
+
+
 def run_one(worker_id: str) -> bool:
     """Claim and run a single job. Returns False when the queue is empty."""
     with db.session(system_context()) as s:
@@ -130,6 +133,7 @@ def run_one(worker_id: str) -> bool:
         return False
 
     job_id: uuid.UUID = row["id"]
+    _LAST_KIND[0] = row["kind"]
     _CURRENT.update(id=job_id, since=time.monotonic(), worker=worker_id)
     try:
         return _run_claimed(row, job_id)
@@ -306,7 +310,11 @@ def new_worker_id() -> str:
     return f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
 
 
-def work_forever(worker_id: str | None = None) -> None:  # pragma: no cover - process entrypoint
+def work_forever(worker_id: str | None = None, *, recycle: bool = False) -> None:  # pragma: no cover - process entrypoint
+    """With `recycle` (a supervised slot), returns after a report-processing job: Python
+    keeps the memory a large report used, so an idle slot stayed hundreds of MB big for
+    days and the next report ran the container out of memory. The supervisor starts a
+    fresh slot in its place."""
     worker_id = worker_id or new_worker_id()
     _WORKER_ID[0] = worker_id
     poll = get_settings().job_poll_seconds
@@ -328,13 +336,21 @@ def work_forever(worker_id: str | None = None) -> None:  # pragma: no cover - pr
                     log.exception("periodic task %s failed", getattr(fn, "__name__", fn))
         if not run_one(worker_id):
             time.sleep(poll)
+        elif recycle and _LAST_KIND[0].startswith("pipeline."):
+            log.info("worker %s recycling after %s", worker_id, _LAST_KIND[0])
+            try:      # not counted as a live worker any more
+                with db.session(system_context()) as s:
+                    s.execute(text("DELETE FROM worker_heartbeats WHERE worker_id = :w"), {"w": worker_id})
+            except Exception:  # noqa: BLE001 - its row ages out anyway
+                pass
+            return
 
 
 def _slot(worker_id: str) -> None:  # pragma: no cover - child process entrypoint
     import logging
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     from app import domain_jobs, pipeline  # noqa: F401 - registers handlers
-    work_forever(worker_id)
+    work_forever(worker_id, recycle=True)
 
 
 def exit_reason(code: int | None) -> str:
@@ -407,7 +423,9 @@ def supervise(concurrency: int) -> None:  # pragma: no cover - process entrypoin
     while True:
         time.sleep(2)
         for i, p in enumerate(slots):
-            if not p.is_alive():
+            if not p.is_alive() and p.exitcode == 0:     # recycled after a report job
+                slots[i] = start()
+            elif not p.is_alive():
                 log.warning("worker slot %s exited (%s); restarting", p.pid, exit_reason(p.exitcode))
                 try:
                     if release_dead_slot(p.worker_id, p.exitcode):

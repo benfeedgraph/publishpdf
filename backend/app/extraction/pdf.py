@@ -138,12 +138,22 @@ def _image_regions(page: pymupdf.Page) -> list[tuple[float, float, float, float]
     return out
 
 
+def vector_paths(page: pymupdf.Page) -> list[tuple[pymupdf.Rect, tuple | None]]:
+    """(rect, fill colour or None) of every vector path on the page.
+
+    Never use page.get_drawings, or get_cdrawings without a callback: they build every
+    path, with all its segments, at once. A page of vector artwork can hold tens of
+    thousands of paths (ITC page with a 16k-path illustration: ~400 MB), which got the
+    worker killed for running out of memory. The callback streams paths one at a time."""
+    out: list[tuple[pymupdf.Rect, tuple | None]] = []
+    page.get_cdrawings(callback=lambda d: out.append((pymupdf.Rect(d["rect"]), d.get("fill"))))
+    return out
+
+
 def _chart_regions(page: pymupdf.Page) -> list[tuple[float, float, float, float]]:
     """Groups of >=3 filled, coloured shapes (bars, pie slices) = likely vector chart."""
     shapes = []
-    for d in page.get_drawings():
-        fill = d.get("fill")
-        r = d["rect"]
+    for r, fill in vector_paths(page):
         if not fill or r.width * r.height < 40:
             continue
         if all(abs(c - fill[0]) < 0.05 for c in fill) and fill[0] > 0.85:   # white/near-white

@@ -28,6 +28,8 @@ from pathlib import Path
 import pymupdf
 from PIL import Image, ImageFont
 
+from app.extraction.pdf import vector_paths
+
 FONT_DIR = Path(__file__).parent / "assets" / "fonts"
 BG_SCALE = 2.0            # background pixels per PDF point (sharp on high-density screens)
 BG_QUALITY = 80           # WebP quality of the page artwork
@@ -486,8 +488,7 @@ def _band_art(page: pymupdf.Page) -> list[tuple[str, tuple, float, float]]:
     headers and footers are often drawn as outlines rather than text."""
     H = page.rect.height
     out = []
-    for d in page.get_cdrawings():
-        r = pymupdf.Rect(d["rect"])
+    for r, _fill in vector_paths(page):
         if r.y1 <= H * BAND:
             band = "top"
         elif r.y0 >= H * (1 - BAND):
@@ -632,6 +633,10 @@ def _worker_init(pdf_bytes: bytes, schema: dict, bands: dict, methods: dict, vis
 
 
 def _build_page(n: int) -> dict:
+    # MuPDF keeps decoded images in a cache of up to 256 MB, filled across the three
+    # copies of the PDF this process holds. Emptied before each page: the previous page's
+    # images are rarely reused, and that cache got the worker killed for running out of memory.
+    pymupdf.TOOLS.store_shrink(100)
     doc, schema, figures = _W["doc"], _W["schema"], _W["schema"]["figures"]
     page = doc[n - 1]
     W = page.rect.width

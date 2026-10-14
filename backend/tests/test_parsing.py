@@ -174,3 +174,32 @@ def test_the_report_schema_ships_inside_the_backend():
     backend = Path(__file__).resolve().parents[1]
     assert SCHEMA_PATH.is_file() and backend in SCHEMA_PATH.parents
     assert schema_errors({}) != []                       # it loads and validates
+
+
+def test_vector_art_is_read_one_path_at_a_time():
+    """A page of vector artwork (ITC: one illustration of 16k paths) read with
+    page.get_drawings() took ~400 MB and got the worker killed for running out of memory.
+    Every reader goes through vector_paths(), which streams paths — and gives the same
+    rects and fills."""
+    import re
+    from pathlib import Path
+
+    import pymupdf
+
+    from app.extraction.pdf import _chart_regions, vector_paths
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    offenders = [f"{p.relative_to(app_dir)}:{i}" for p in app_dir.rglob("*.py")
+                 for i, line in enumerate(p.read_text().splitlines(), 1)
+                 if re.search(r"get_drawings\(|get_cdrawings\((?!callback=)", line)]
+    assert offenders == []
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for k in range(400):
+        x, y = 40 + (k % 20) * 4, 400 + (k // 20) * 4
+        page.draw_rect(pymupdf.Rect(x, y, x + 3, y + 3), color=None, fill=(0.8, 0.1, 0.1))
+    for k in range(3):
+        page.draw_rect(pymupdf.Rect(300 + k * 30, 100, 320 + k * 30, 200), color=None, fill=(0.1, 0.3, 0.8))
+    want = [(d["rect"], d["fill"]) for d in page.get_drawings()]   # the old way, for comparison only
+    assert vector_paths(page) == want and len(want) == 403
+    assert _chart_regions(page) == [(290.0, 70.0, 390.0, 230.0)]   # the 3 bars, padded
