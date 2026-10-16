@@ -9,6 +9,7 @@ import AdminTenantDetail from "./pages/AdminTenantDetail";
 import Analytics from "./pages/Analytics";
 import Domain from "./pages/Domain";
 import ReportPage from "./pages/report/ReportPage";
+import Credits from "./pages/Credits";
 import Settings from "./pages/Settings";
 import Theme from "./pages/Theme";
 import Upload from "./pages/Upload";
@@ -97,6 +98,7 @@ function Authenticated() {
         <Route path="t/:tenantId/domain" element={<Domain />} />
         <Route path="t/:tenantId/analytics" element={<Analytics />} />
         <Route path="t/:tenantId/settings" element={<Settings />} />
+        <Route path="t/:tenantId/credits" element={<Credits />} />
         <Route path="t/:tenantId/team" element={<Team />} />
         <Route path="t/:tenantId/audit" element={<AuditLog />} />
         <Route path="t/:tenantId/jobs" element={<Jobs />} />

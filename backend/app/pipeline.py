@@ -74,11 +74,15 @@ def _llm_for(ctx: Context, version_id: uuid.UUID | None = None) -> classify.LlmC
     hasn't used up its monthly AI credits. Every call is recorded in the AI usage ledger."""
     from app import ai_usage
 
+    from app.reports import build_mode_of
     cfg = get_settings()
     if not cfg.anthropic_api_key:
         return None
     with db.session(ctx) as s:
-        if not settings_for(s, ctx).llm_assist_enabled:
+        mode = build_mode_of(s, version_id) if version_id else None
+        # The report's build option decides; a version from before options keeps the
+        # workspace's old "LLM assist" setting.
+        if mode in ("none", "layout") or (mode is None and not settings_for(s, ctx).llm_assist_enabled):
             return None
     if not ai_usage.can_run_automatic(ctx):
         return None
@@ -157,6 +161,8 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         if v.published_at is not None:
             return {"skipped": "published"}
         report = s.get(Report, v.report_id)
+        from app.reports import build_mode_of
+        build_mode = build_mode_of(s, v.id)
         st = settings_for(s, ctx)
         theme, adjustments = effective_theme(st, report)
         disclaimer = effective_disclaimer(st)
@@ -183,7 +189,7 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     # Design-led pages as web sections: AI layouts (cached per PDF, capped, metered).
     from app import page_layouts
     try:
-        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf)
+        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode)
     except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
         log.exception("AI layouts unavailable")
         layouts = {}
@@ -350,7 +356,9 @@ def _maybe_auto_ai_check(s, ctx: Context, v: ReportVersion, issues: list, schema
     monthly AI limit. The rest stay a button press with its estimate."""
     from app import ai_usage
     cfg = get_settings()
-    cap = cfg.ai_auto_check_max_credits
+    from app import build_modes
+    from app.reports import build_mode_of
+    cap = build_modes.caps(build_mode_of(s, v.id), 0)["check"]      # only "Use AI to build the page"
     if cap <= 0 or not cfg.gemini_api_key or v.published_at is not None:
         return
     fids = ai_check.eligible([{"fid": i.fid, "check": i.check, "severity": i.severity, "status": i.status}

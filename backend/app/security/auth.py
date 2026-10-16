@@ -289,7 +289,10 @@ def complete_signup(signup_token: str, name: str, company: str, ip: str | None, 
         while s.scalars(select(Tenant).where(Tenant.slug == slug)).first():
             n += 1
             slug = f"{base}-{n}"
-        tenant = Tenant(slug=slug, name=company)
+        from app import plans
+        # New workspaces start on the Free plan and its monthly AI credit allowance.
+        tenant = Tenant(slug=slug, name=company, plan=plans.DEFAULT_PLAN,
+                        ai_monthly_credit_limit=plans.allowance_for(plans.DEFAULT_PLAN))
         s.add(tenant)
         s.flush()
         s.add(Membership(tenant_id=tenant.id, user_id=user.id, role=Role.client_admin.value))

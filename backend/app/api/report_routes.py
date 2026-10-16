@@ -25,6 +25,7 @@ from app.reports import (
     acknowledge_issue,
     apply_bulk_review,
     apply_figure_action,
+    build_mode_of,
     create_upload,
     create_version,
     delete_report,
@@ -191,7 +192,19 @@ async def inspect(file: UploadFile | None = File(None), incoming: str | None = F
         detected = detect_metadata(data)
     except Exception:  # noqa: BLE001 - suggestions are best-effort
         detected = {}
-    return {**out, "detected": detected}
+    return {**out, "detected": detected, "build_options": _build_options(ctx, out["page_count"])}
+
+
+def _build_options(ctx: Context, page_count: int) -> dict:
+    """The three ways to build the page, each with the most it can spend, and what this
+    workspace has left this month — shown before anything is processed."""
+    from app import ai_usage, build_modes
+    try:
+        allowance = ai_usage.allowance(ctx)
+    except Exception:  # noqa: BLE001 - the options still show without the allowance
+        allowance = None
+    return {"default": build_modes.DEFAULT_MODE, "options": build_modes.options(page_count),
+            "allowance": allowance, "credit_usd": get_settings().ai_credit_usd}
 
 
 class CreateIn(BaseModel):
@@ -202,6 +215,9 @@ class CreateIn(BaseModel):
     period: str
     currency: str
     reporting_unit: str
+    build_mode: str = Field(default="none", pattern="^(none|layout|full)$")
+    # The most the chosen option could spend, as the person saw it (checked again here).
+    credits_shown: int | None = Field(default=None, ge=0)
 
 
 @router.post("/create", status_code=201)
@@ -213,10 +229,24 @@ def create_from_source(body: CreateIn, ctx: Context = Depends(require("report.up
             src = s.get(SourceFile, body.source_file_id)
             if src is None:
                 raise HTTPException(404, "Upload not found. Upload the PDF again.")
-            v = create_version(s, ctx, src, body.model_dump(exclude={"source_file_id"}))
+            _check_build_estimate(body.build_mode, src.page_count, body.credits_shown)
+            v = create_version(s, ctx, src, body.model_dump(exclude={"source_file_id", "build_mode", "credits_shown"}),
+                               build_mode=body.build_mode)
             return {"report_id": str(v.report_id), "version": version_json(v)}
     except ReportError as e:
         raise _err(e) from e
+
+
+def _check_build_estimate(mode: str, page_count: int, credits_shown: int | None) -> None:
+    """Nobody is held to a credit figure they didn't see: an AI option needs the estimate
+    the screen showed, and it must still be the current one."""
+    from app import build_modes
+    if mode == "none":
+        return
+    current = build_modes.max_credits(mode, page_count)
+    if credits_shown != current:
+        raise HTTPException(409, f"The credit estimate for this option is now up to {current} credits. "
+                                 "Check it and start again.")
 
 
 @router.get("")
@@ -331,6 +361,9 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
         out["page_count"] = page_count
+        out["build_mode"] = build_mode_of(s, v.id)
+        if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
+            out["build_options"] = _build_options(ctx, page_count or 0)
         out["pages"] = pages
         out["sections"] = sections
     out["queue"] = _queue_for(jobs) if v.status == "processing" else None
@@ -516,6 +549,38 @@ def rerun(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(re
             enqueue_stage(s, ctx, v, "extract", force=True)
         audit.record(s, ctx, "pipeline.rerun_requested", target_type="report_version", target_id=v.id)
         return version_json(v)
+
+
+class BuildModeIn(BaseModel):
+    build_mode: str = Field(pattern="^(none|layout|full)$")
+    credits_shown: int | None = Field(default=None, ge=0)
+
+
+@router.post("/{report_id}/versions/{version_id}/build-mode")
+def change_build_mode(report_id: uuid.UUID, version_id: uuid.UUID, body: BuildModeIn,
+                      ctx: Context = Depends(require("report.upload"))) -> dict:
+    """Rebuild an unpublished version's page with another build option. Reviews are kept:
+    only the page is built again (and re-checked). A layout the AI already made for this
+    PDF is reused for free."""
+    from sqlalchemy import text as sql_text
+    with db.session(ctx) as s:
+        v = _get_version(s, report_id, version_id)
+        if v.published_at is not None:
+            raise HTTPException(409, "A published version never changes. Use Edit a copy, then rebuild the copy.")
+        if v.status == "processing":
+            raise HTTPException(409, "This version is still being processed. Try again when it has finished.")
+        page_count, _, _ = _schema_bits(s, v.id)
+        _check_build_estimate(body.build_mode, page_count or 0, body.credits_shown)
+        before = build_mode_of(s, v.id)
+        s.execute(sql_text("UPDATE report_versions SET build_mode = :m WHERE id = :id"),
+                  {"m": body.build_mode, "id": v.id})
+        enqueue_stage(s, ctx, v, "render", force=True)
+        audit.record(s, ctx, "report.build_mode_changed", target_type="report_version", target_id=v.id,
+                     before={"build_mode": before}, after={"build_mode": body.build_mode,
+                                                           "credits_shown": body.credits_shown})
+        out = version_json(v)
+        out["build_mode"] = body.build_mode
+        return out
 
 
 # ------------------------------------------------------------------ validation issues

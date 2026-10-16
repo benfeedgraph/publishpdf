@@ -36,7 +36,8 @@ def list_tenants(ctx: Context = Depends(admin_context)) -> dict:
         members = (select(Membership.tenant_id, func.count().label("n"))
                    .group_by(Membership.tenant_id).subquery())
         rows = s.execute(select(Tenant, func.coalesce(members.c.n, 0))
-                         .options(undefer(Tenant.ai_monthly_credit_limit))
+                         .options(undefer(Tenant.ai_monthly_credit_limit), undefer(Tenant.plan),
+                                  undefer(Tenant.plan_requested))
                          .outerjoin(members, members.c.tenant_id == Tenant.id)
                          .order_by(Tenant.created_at.desc())).all()
     from app import ai_usage
@@ -44,7 +45,8 @@ def list_tenants(ctx: Context = Depends(admin_context)) -> dict:
     return {"tenants": [{"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
                          "created_at": t.created_at.isoformat(), "member_count": n,
                          "ai_credits_month": credits.get(str(t.id), 0),
-                         "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
+                         "ai_monthly_credit_limit": t.ai_monthly_credit_limit,
+                         "plan": t.plan, "plan_requested": t.plan_requested}
                         for t, n in rows]}
 
 
@@ -96,6 +98,30 @@ def set_ai_limit(tenant_id: uuid.UUID, body: AiLimitIn, ctx: Context = Depends(a
         return {"id": str(t.id), "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
 
 
+class PlanIn(BaseModel):
+    plan: str = Field(pattern="^(free|starter|pro|enterprise)$")
+    # Enterprise only: the custom monthly allowance (None = no limit).
+    monthly_credits: int | None = Field(default=None, ge=0, le=10_000_000)
+
+
+@router.put("/tenants/{tenant_id}/plan")
+def set_plan(tenant_id: uuid.UUID, body: PlanIn, ctx: Context = Depends(admin_context)) -> dict:
+    """Put a workspace on a plan: its allowance becomes the monthly AI credit limit."""
+    from app import plans
+    with db.session(ctx) as s:
+        t = s.get(Tenant, tenant_id)
+        if t is None:
+            raise HTTPException(404, "Tenant not found.")
+        out = plans.assign(s, ctx, t, body.plan, body.monthly_credits)
+        return {"id": str(t.id), **out}
+
+
+@router.get("/plans")
+def list_plans(ctx: Context = Depends(admin_context)) -> dict:
+    from app import plans
+    return {"plans": plans.PLANS}
+
+
 @router.get("/jobs")
 def list_jobs(ctx: Context = Depends(admin_context), status: str | None = Query(None),
               limit: int = Query(100, le=500)) -> dict:
@@ -141,7 +167,9 @@ def tenant_detail(tenant_id: uuid.UUID, ctx: Context = Depends(admin_context)) -
         jobs_ = s.scalars(select(Job).where(Job.tenant_id == tenant_id).order_by(Job.created_at.desc()).limit(50)).all()
         d = s.scalars(select(Domain).where(Domain.tenant_id == tenant_id, Domain.status != "removed")).first()
         tenant_json = {"id": str(t.id), "slug": t.slug, "name": t.name, "status": t.status,
-                       "created_at": t.created_at.isoformat(), "ai_monthly_credit_limit": t.ai_monthly_credit_limit}
+                       "created_at": t.created_at.isoformat(), "ai_monthly_credit_limit": t.ai_monthly_credit_limit,
+                       "plan": t.plan, "plan_requested": t.plan_requested,
+                       "plan_requested_at": t.plan_requested_at.isoformat() if t.plan_requested_at else None}
         out = {
             "tenant": tenant_json,
             "reports": reports,

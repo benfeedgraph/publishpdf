@@ -36,6 +36,10 @@ class Tenant(Base):
     # None = no limit. Deferred: sign-in and every tenant check load Tenant, and must keep
     # working if this code is deployed before migration 0006 has run.
     ai_monthly_credit_limit: Mapped[int | None] = mapped_column(Integer, deferred=True)
+    # Plan (app.plans) and an upgrade the workspace asked for. Deferred like the limit (0008).
+    plan: Mapped[str | None] = mapped_column(Text, deferred=True)
+    plan_requested: Mapped[str | None] = mapped_column(Text, deferred=True)
+    plan_requested_at: Mapped[datetime | None] = mapped_column(TZ, deferred=True)
 
 
 class User(Base):
@@ -192,6 +196,8 @@ class ReportVersion(Base):
     published_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     review_confirmed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # How the page is built: app.build_modes ('none' | 'layout' | 'full'); NULL = before 0008.
+    build_mode: Mapped[str | None] = mapped_column(Text, deferred=True)
     created_at: Mapped[datetime] = _now()
 
 

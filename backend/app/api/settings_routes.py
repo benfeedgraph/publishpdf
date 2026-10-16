@@ -7,7 +7,7 @@ import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -88,6 +88,44 @@ def get_ai_usage(ctx: Context = Depends(require("report.view"))) -> dict:
     out = ai_usage.summary(ctx)
     out["available"] = {"ai_check": bool(cfg.gemini_api_key), "section_labels": bool(cfg.anthropic_api_key)}
     return out
+
+
+@router.get("/ai-usage/history")
+def get_ai_history(month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), page: int = Query(1, ge=1),
+                   ctx: Context = Depends(require("report.view"))) -> dict:
+    """Credit history: 12 months of totals, then one month by report and request by request."""
+    from app import ai_usage
+    return ai_usage.history(ctx, month=month, page=page)
+
+
+@router.get("/ai-usage/history.csv")
+def get_ai_history_csv(month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+                       ctx: Context = Depends(require("report.view"))) -> Response:
+    from app import ai_usage
+    body = ai_usage.history_csv(ctx, month)
+    name = f"publishpdf-ai-credits-{month or 'this-month'}.csv"
+    return Response(body, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ------------------------------------------------------------------ plan
+
+
+@router.get("/plan")
+def get_plan(ctx: Context = Depends(require("report.view"))) -> dict:
+    from app import plans
+    return plans.state(ctx)
+
+
+class PlanRequestIn(BaseModel):
+    plan: str = Field(pattern="^(free|starter|pro|enterprise)$")
+
+
+@router.post("/plan/request")
+def request_plan(body: PlanRequestIn, ctx: Context = Depends(require("team.manage"))) -> dict:
+    """Ask for another plan. There's no card payment yet: a PublishPDF admin assigns it."""
+    from app import plans
+    plans.request_upgrade(ctx, body.plan)
+    return plans.state(ctx)
 
 
 # ------------------------------------------------------------------ theme

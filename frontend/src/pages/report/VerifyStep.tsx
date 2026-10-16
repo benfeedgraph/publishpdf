@@ -49,7 +49,12 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   // Same rule as the stepper: the step is done once the version is out of processing,
   // failed and validation_issues.
   const open = version.open_blocking;
-  const next = {
+  const toReview = () => document.getElementById("review-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const mustReview = !processing && version.status !== "failed" && open > 0;
+  // While figures wait for a decision, the one next action is to go and decide them.
+  const next = mustReview ? {
+    label: `Review ${open} item${open === 1 ? "" : "s"} ↓`, onClick: toReview,
+  } : {
     label: "Next: Design →", onClick: onContinue,
     disabled: processing || version.status === "failed" || version.status === "validation_issues", waiting: processing,
     reason: processing ? `${p.label}… the next step unlocks automatically when the checks finish.`
@@ -95,8 +100,26 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
             <div className="stat"><span className="stat-n">{s.figures_checked.toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
             <div className="stat"><span className="stat-n ok-text">{s.passed.toLocaleString()}</span><span className="stat-l">passed every check</span></div>
             <div className="stat"><span className={`stat-n ${s.blocking ? "error" : ""}`}>{s.blocking}</span><span className="stat-l">need your attention</span></div>
-            <div className="stat"><span className="stat-n muted">{s.warnings}</span><span className="stat-l">warnings</span></div>
+            <div className="stat" title="Things we noticed that don't stop publishing. You don't need to do anything about them.">
+              <span className="stat-n muted">{s.warnings}</span><span className="stat-l">notes · no action needed</span>
+            </div>
           </div>
+
+          {!processing && s.blocking > 0 && (
+            <div className="callout bad next-step" role="status">
+              <div>
+                <strong>Your turn: {s.blocking} item{s.blocking === 1 ? "" : "s"} need{s.blocking === 1 ? "s" : ""} a decision before this can be published.</strong>{" "}
+                Each one shows the exact spot in the PDF next to what we read. Confirm it, correct it, or mark it as not a figure.
+              </div>
+              <Button className="primary" onClick={toReview}>Review {s.blocking} item{s.blocking === 1 ? "" : "s"} ↓</Button>
+            </div>
+          )}
+          {!processing && s.blocking === 0 && (
+            <div className="callout ok next-step" role="status">
+              <div><strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look.</div>
+              <Button className="primary" onClick={onContinue}>Next: Design →</Button>
+            </div>
+          )}
 
           {cons && consTotal > 0 && (
             <div className="card">
@@ -143,26 +166,24 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
             </div>
           )}
 
-          {!processing && s.blocking === 0 && (
-            <div className="callout ok">
-              <strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look — use <strong>Next: Design</strong> below.
-            </div>
-          )}
-          {!processing && s.blocking > 0 && (
-            <div className="callout bad"><strong>{s.blocking} item(s) need a decision before this can be published.</strong> Each one shows the exact spot in the PDF next to what we read — confirm it, correct it, or mark it as not a figure.</div>
-          )}
         </>
       )}
 
       {s && !processing && isAdmin && version.published_at === null && <AiCheckCard tenantId={tenantId} reportId={report.id} versionId={version.id} />}
-      {s && (s.blocking > 0 || s.warnings > 0) && <ValidationTab tenantId={tenantId} report={report} version={version} embedded />}
+      {s && (s.blocking > 0 || s.warnings > 0) && (
+        <div id="review-items" style={{ scrollMarginTop: 16 }}>
+          <h2>{s.blocking > 0 ? "Items to review" : "Notes"}</h2>
+          {s.blocking === 0 && <p className="muted small">Nothing here stops publishing. Use the filters to look through them if you like.</p>}
+          <ValidationTab tenantId={tenantId} report={report} version={version} embedded />
+        </div>
+      )}
       {isAdmin && !processing && version.published_at === null && (
         <p className="muted small">
           Checks improved since this ran?{" "}
           <Button className="link" busy={rerun.isPending} busyLabel="Restarting the checks" onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</Button>
         </p>
       )}
-      <WizardFooter next={next} hint="Every figure is checked. Next, choose how the page should look." />
+      <WizardFooter next={next} hint={mustReview ? `Decide the ${open} flagged item${open === 1 ? "" : "s"}; Design unlocks once none are left.` : "Every figure is checked. Next, choose how the page should look."} />
     </div>
   );
 }

@@ -698,8 +698,23 @@ def check_period_unit(schema: dict) -> list[Issue]:
 # ------------------------------------------------------------------ 6. completeness
 
 
-def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict) -> list[Issue]:
+_PAGE_ART = re.compile(rb'src="[^"]*/pages/p(\d{4})(?:-print)?\.webp"')
+
+
+def pages_shown_as_printed(bundle_files: dict[str, bytes] | None) -> set[int]:
+    """Pages whose own artwork the built web page shows (as picture crops of the printed
+    page, or the page shown whole). Pictures on those pages are on the web page."""
+    shown: set[int] = set()
+    for name, data in (bundle_files or {}).items():
+        if name.endswith(".html"):
+            shown.update(int(m) for m in _PAGE_ART.findall(data))
+    return shown
+
+
+def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict,
+                       bundle_files: dict[str, bytes] | None = None) -> list[Issue]:
     issues = []
+    with_art = pages_shown_as_printed(bundle_files)
     covered: dict[int, int] = defaultdict(int)
     for f in schema["figures"].values():
         covered[f["source"]["page"]] += sum(1 for part in f["raw"].split(" ") if has_digit(part))
@@ -733,7 +748,8 @@ def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict) -> l
         del in_images
     for sec in schema["sections"]:
         for blk in sec["blocks"]:
-            if blk["type"] == "chart" and not blk.get("extracted"):
+            # the web edition shows pictures as crops of the printed page: nothing is lost
+            if blk["type"] == "chart" and not blk.get("extracted") and blk["source"]["page"] not in with_art:
                 issues.append(Issue("completeness", "warning",
                                     "An image on this page (a chart, photo or logo) isn't reproduced on the web page; if it "
                                     "contains figures, they aren't included. The page links to the PDF for it.", None, blk["source"]["page"], sec["id"],
@@ -1065,7 +1081,7 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     issues += step("Periods & units", lambda: check_period_unit(schema))
     if bundle_files is not None:
         issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
-    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact))
+    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files))
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None))
     summary = summarize(schema, issues)

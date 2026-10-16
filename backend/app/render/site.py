@@ -457,7 +457,9 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-stat{background:var(--c-primary-soft);border-radius:14px;padding:14px 16px;line-height:1.45;font-weight:550}
 .ai-gallery{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:18px;margin:18px 0 28px}
 .ai-tile{margin:0;display:flex;flex-direction:column;gap:8px}
-.ai-tile .ai-pic,.ai-card .ai-pic{width:100%}
+/* a picture is never shown larger than printed (--vw): a logo stays logo-sized, a photo
+   isn't blown up past the page artwork's own resolution */
+.ai-tile .ai-pic,.ai-card .ai-pic{width:min(100%,var(--vw))}
 .ai-tile figcaption,.ai-figure figcaption{font-size:.92em;line-height:1.5;color:var(--c-muted)}
 .ai-figure{margin:20px 0 26px}
 .ai-chips{list-style:none;display:flex;flex-wrap:wrap;gap:10px;padding:0;margin:14px 0 24px}
@@ -467,9 +469,10 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-bar{gap:0;background:var(--lbl);border-radius:0 22px 0 0;padding:6px 10px;justify-content:space-around}
 .ai-bar li{background:none;border:0;color:#fff;padding:6px 14px;border-radius:0}
 .ai-bar li+li{border-left:1px solid rgba(255,255,255,.55)}
-.ai-media{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(20px,3vw,36px);align-items:center;margin:22px 0 30px}
+.ai-media{display:grid;grid-template-columns:fit-content(50%) minmax(0,1fr);gap:clamp(20px,3vw,36px);align-items:center;margin:22px 0 30px}
+.ai-media-right{grid-template-columns:minmax(0,1fr) fit-content(50%)}
 .ai-media-left .ai-media-pic{order:0}.ai-media-right .ai-media-pic{order:2}
-.ai-media-pic{margin:0}.ai-media-pic .ai-pic{width:100%}
+.ai-media-pic{margin:0}.ai-media-pic .ai-pic{width:var(--vw);max-width:100%}
 .ai-media-body>:first-child{margin-top:0}
 .ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto}
 .ai-pic img{position:absolute;max-width:none;height:auto}

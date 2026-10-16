@@ -459,3 +459,34 @@ def test_a_neighbours_edge_is_not_read_as_part_of_the_figure():
         y += 20
     issues = validation.check_reextraction({"figures": figs}, doc, verified=set(), text_confirmed=set())
     assert [i for i in issues if i.severity == "blocking"] == []
+
+
+def test_image_note_only_when_the_web_page_leaves_the_picture_out():
+    """The web edition shows pictures as crops of the printed page: an image there isn't
+    missing, so it mustn't be reported as one (it was 53 of 55 warnings on a real report)."""
+    data, schema, artifact = clean()
+    page = schema["sections"][0]["blocks"][0]["source"]["page"]
+    schema["sections"][0]["blocks"].append({"id": "img1", "type": "chart", "extracted": False,
+                                            "source": {"page": page, "bbox": [10, 10, 90, 90]}})
+    doc = __import__("pymupdf").open(stream=data, filetype="pdf")
+    note = lambda issues: [i for i in issues if i.section_id and i.bbox == [10, 10, 90, 90]]  # noqa: E731
+    assert note(validation.check_completeness(schema, doc, artifact))
+    shown = {"r/index.html": f'<img src="__PPDF_ORIGIN__/r/pages/p{page:04d}-print.webp" alt="">'.encode()}
+    assert validation.pages_shown_as_printed(shown) == {page}
+    assert not note(validation.check_completeness(schema, doc, artifact, shown))
+    other = {"r/index.html": f'<img src="/r/pages/p{page + 1:04d}.webp">'.encode()}
+    assert note(validation.check_completeness(schema, doc, artifact, other))
+
+
+def test_a_logo_sized_picture_is_kept_and_a_speck_is_not():
+    import pymupdf
+    from app.render import elements
+    doc = pymupdf.open()
+    pg = doc.new_page(width=595, height=842)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8), False)
+    pix.clear_with(120)
+    pg.insert_image(pymupdf.Rect(60, 100, 106, 146), pixmap=pix)      # 46×46pt brand logo (0.42%)
+    pg.insert_image(pymupdf.Rect(60, 300, 70, 310), pixmap=pix)       # 10×10pt bullet dot
+    pg.insert_text((130, 125), "Enhancing the snacking portfolio", fontsize=11)
+    pics = [e for e in elements.page_elements(pg, {"figures": {}}, 1) if e.kind == "picture"]
+    assert len(pics) == 1 and abs(pics[0].bbox[1] - 100) < 1

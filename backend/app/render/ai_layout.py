@@ -214,7 +214,7 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         w, h = max(1.0, x1 - x0), max(1.0, y1 - y0)
         return (f'<div class="{cls}" style="aspect-ratio:{w:.1f}/{h:.1f};--vw:{round(w * 1.6)}px">'
                 f'<img src="{html_mod.escape(printed_src)}" alt="" loading="lazy" decoding="async" '
-                f'style="width:{100 * W / w:.3f}%;left:-{100 * x0 / w:.3f}%;top:-{100 * y0 / h:.3f}%"></div>')
+                f'style="width:{100 * W / w:.3f}%;left:{-100 * x0 / w:.3f}%;top:{-100 * y0 / h:.3f}%"></div>')
 
     def text(ids: list[str], sep: str = " ") -> str:
         out = []
@@ -234,7 +234,7 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         px = 15.5 / body                                                   # px per point
         return (f'<span class="ai-pic ai-textcrop" style="aspect-ratio:{w:.1f}/{h:.1f};width:min(100%,{w * px:.0f}px)">'
                 f'<img src="{html_mod.escape(printed_src)}" alt="" loading="lazy" decoding="async" '
-                f'style="width:{100 * W / w:.3f}%;left:-{100 * x0 / w:.3f}%;top:-{100 * y0 / h:.3f}%"></span>')
+                f'style="width:{100 * W / w:.3f}%;left:{-100 * x0 / w:.3f}%;top:{-100 * y0 / h:.3f}%"></span>')
 
     def look(ids: list[str], heading: bool = False) -> tuple[str, str]:
         """(extra classes, inline style) that carry the PDF's own design: its typeface, a

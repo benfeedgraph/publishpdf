@@ -17,7 +17,11 @@ import pymupdf
 from app.extraction.pdf import vector_paths
 from app.render import pages as pages_mod
 
-MIN_PICTURE_SHARE = 0.008      # rasters smaller than this share of the page are decoration
+# Pictures smaller than this share of the page are decoration (bullets, dots, rules). A brand
+# logo or one product pack is ~0.3–0.6% of an A4 page, so the floor sits well below that;
+# specks are dropped before merging, so a row of packs merges into one picture.
+MIN_PICTURE_SHARE = 0.002
+SPECK_SHARE = 0.0005
 COLUMN_GAP_EM = 3.0            # a gap this wide (in font sizes) between spans = separate columns
 _DIGIT = re.compile(r"\d")
 
@@ -68,7 +72,7 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     for info in page.get_image_info():
         x0, y0, x1, y1 = info["bbox"]
         x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
-        if (x1 - x0) * (y1 - y0) >= MIN_PICTURE_SHARE * W * H:
+        if (x1 - x0) * (y1 - y0) >= SPECK_SHARE * W * H:
             boxes.append([x0, y0, x1, y1])
     raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_MEDIABOX_CLIP)
     text_blocks = _split_columns([b for b in raw["blocks"] if b.get("type") == 0])
@@ -77,7 +81,7 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         inner = sum(1 for t in text_blocks if _inside(t["bbox"], bb))
         if inner <= 2:
             boxes.append(list(bb))
-    pictures = _merge(boxes)
+    pictures = [b for b in _merge(boxes) if (b[2] - b[0]) * (b[3] - b[1]) >= MIN_PICTURE_SHARE * W * H]
     pieces = pages_mod.page_pieces(page, schema, n)
     marks, fills = _drawn(page)
     out: list[Element] = []

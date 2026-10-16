@@ -453,3 +453,52 @@ button.link.is-busy:disabled { opacity: .8; }
 /* AI credit note: what a report can spend on AI, shown before anything runs */
 .ai-cost-note { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; margin: 14px 0 4px; border-radius: 14px; background: var(--surface-2, #f6f5fe); border: 1px solid var(--border, #e6e3f5); }
 .ai-cost-note.compact { margin-top: 18px; }
+
+/* The step's one next action, right under the results (not only in the footer) */
+.callout.next-step { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.callout.next-step > div { flex: 1 1 320px; }
+.callout.next-step > button { flex: none; }
+
+/* Build options (upload + rebuild): three cards, the chosen one outlined */
+.build-picker { border: 0; padding: 0; margin: 4px 0 0; min-width: 0; }
+.build-picker > legend { margin-bottom: 8px; padding: 0; font-weight: 650; }
+.build-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.build-option { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1.5px solid var(--border);
+  border-radius: 14px; background: var(--surface); cursor: pointer; font-size: 13px; line-height: 1.45; }
+.build-option:hover { border-color: var(--accent-300, #b9b2f0); }
+.build-option.on { border-color: var(--accent, #6D4DF2); box-shadow: 0 0 0 3px rgba(109, 77, 242, .12); }
+.build-option.disabled { opacity: .55; cursor: not-allowed; }
+.build-option input { position: absolute; opacity: 0; pointer-events: none; }
+.build-option:has(input:focus-visible) { outline: 2px solid var(--accent, #6D4DF2); outline-offset: 2px; }
+.bo-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bo-title { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; font-size: 14px; color: var(--text); }
+.bo-credits { font-weight: 700; color: var(--accent-600, #4b36b8); }
+.bo-credits.free { color: var(--ok); }
+.bo-what { color: var(--text-2); }
+.bo-best { color: var(--text-2); font-size: 12.5px; }
+.bo-compare { margin-top: 8px; }
+.bo-compare table { font-size: 12.5px; }
+.bo-compare th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
+@media (max-width: 760px) { .build-options { grid-template-columns: 1fr; } }
+.modal:has(.build-picker) { max-width: min(920px, calc(100vw - 32px)); }
+
+/* Credits & plan */
+.plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.plan { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1.5px solid var(--border); border-radius: 16px; background: var(--surface); }
+.plan.current { border-color: var(--accent, #6D4DF2); box-shadow: 0 0 0 3px rgba(109, 77, 242, .1); }
+.plan-name { display: flex; gap: 6px; align-items: center; font-weight: 700; font-size: 15px; }
+.plan-price { font-size: 22px; font-weight: 800; }
+.plan-credits { font-weight: 650; color: var(--accent-600, #4b36b8); }
+.plan-features { margin: 2px 0 6px; padding-left: 18px; font-size: 13px; color: var(--text-2); flex: 1; }
+.plan > button { align-self: flex-start; }
+@media (max-width: 980px) { .plans { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .plans { grid-template-columns: 1fr; } }
+.month-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.month-bars button { width: 100%; display: grid; grid-template-columns: 140px minmax(0, 1fr) 110px 170px; gap: 10px; align-items: center;
+  padding: 6px 10px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; color: var(--text); font: inherit; }
+.month-bars button:hover { background: var(--surface-2); }
+.month-bars button.on { background: var(--info-bg, #f0eefc); }
+.mb-bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.mb-bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #6D4DF2, #A77BF8); min-width: 2px; }
+.mb-n { font-weight: 650; text-align: right; }
+@media (max-width: 640px) { .month-bars button { grid-template-columns: 1fr auto; } .mb-bar, .mb-usd { grid-column: 1 / -1; } }

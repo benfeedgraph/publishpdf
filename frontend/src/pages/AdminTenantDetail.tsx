@@ -7,7 +7,8 @@ import JobTable from "../components/JobTable";
 import { Button } from "../components/Spinner";
 
 interface Detail {
-  tenant: { id: string; slug: string; name: string; status: string; created_at: string; ai_monthly_credit_limit: number | null };
+  tenant: { id: string; slug: string; name: string; status: string; created_at: string; ai_monthly_credit_limit: number | null;
+            plan: string | null; plan_requested: string | null; plan_requested_at: string | null };
   ai_usage: AiUsageSummary;
   reports: Report[];
   members: { user_id: string; email: string; role: Role; mfa_enrolled: boolean }[];
@@ -43,6 +44,7 @@ export default function AdminTenantDetail() {
       <div className="card">
         <h2>AI usage</h2>
         <AiUsagePanel data={d.ai_usage} />
+        <PlanForm tenantId={d.tenant.id} plan={d.tenant.plan} requested={d.tenant.plan_requested} limit={d.tenant.ai_monthly_credit_limit} />
         <AiLimitForm tenantId={d.tenant.id} current={d.tenant.ai_monthly_credit_limit} />
       </div>
       <h2>Reports</h2>
@@ -83,6 +85,37 @@ function AiLimitForm({ tenantId, current }: { tenantId: string; current: number 
       <Button className="secondary" disabled={!valid} busy={save.isPending} busyLabel="Saving the limit">Save limit</Button>
       <span className="muted small">Leave blank for no limit. 0 turns AI off for this workspace.</span>
       {!valid && <span className="error small">Whole number, 0 or more.</span>}
+      {msg && <span className="small" role="status">{msg}</span>}
+    </form>
+  );
+}
+
+interface PlanDef { key: string; name: string; credits: number | null; price_usd_month: number | null }
+
+/** Put the workspace on a plan: its allowance becomes the monthly AI credit limit. */
+function PlanForm({ tenantId, plan, requested, limit }: { tenantId: string; plan: string | null; requested: string | null; limit: number | null }) {
+  const qc = useQueryClient();
+  const plans = useQuery({ queryKey: ["admin-plans"], queryFn: () => api<{ plans: PlanDef[] }>("/api/admin/plans") });
+  const [key, setKey] = useState(requested ?? plan ?? "free");
+  const [custom, setCustom] = useState(limit === null ? "" : String(limit));
+  const [msg, setMsg] = useState<string | null>(null);
+  const chosen = plans.data?.plans.find((p) => p.key === key);
+  const save = useMutation({
+    mutationFn: () => put(`/api/admin/tenants/${tenantId}/plan`, { plan: key, monthly_credits: chosen?.credits === null ? (custom.trim() === "" ? null : Number(custom)) : null }),
+    onSuccess: () => { setMsg("Plan saved."); qc.invalidateQueries({ queryKey: ["admin-tenant", tenantId] }); },
+    onError: (e: Error) => setMsg(e.message),
+  });
+  if (!plans.data) return null;
+  return (
+    <form className="toolbar" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }} onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+      <label className="small" htmlFor="plan">Plan</label>
+      <select id="plan" value={key} onChange={(e) => { setKey(e.target.value); setMsg(null); }}>
+        {plans.data.plans.map((p) => <option key={p.key} value={p.key}>{p.name}{p.credits !== null ? ` · ${p.credits.toLocaleString()} credits/month` : " · custom"}</option>)}
+      </select>
+      {chosen?.credits === null && <input aria-label="Custom monthly credits" inputMode="numeric" placeholder="No limit" value={custom}
+        style={{ width: 120 }} onChange={(e) => setCustom(e.target.value)} />}
+      <Button className="secondary" busy={save.isPending} busyLabel="Saving the plan">Save plan</Button>
+      <span className="muted small">Current: {plan ?? "none"}{requested ? ` · requested ${requested}` : ""}. Saving sets the monthly limit below.</span>
       {msg && <span className="small" role="status">{msg}</span>}
     </form>
   );

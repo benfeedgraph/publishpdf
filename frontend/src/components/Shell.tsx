@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { NavLink, useMatch, useNavigate } from "react-router-dom";
 import { post, ROLE_LABEL, type Me } from "../api";
-import { IconBuilding, IconChart, IconDesign, IconGear, IconGlobe, IconList, IconLogout, IconReports, IconShield, IconUsers } from "./Icons";
+import { IconBuilding, IconChart, IconDesign, IconGear, IconGlobe, IconList, IconLogout, IconReports, IconShield, IconSparkle, IconUsers } from "./Icons";
 import { Button } from "./Spinner";
 
 export default function Shell({ me, children }: { me: Me; children: ReactNode }) {
@@ -44,6 +44,7 @@ export default function Shell({ me, children }: { me: Me; children: ReactNode })
             <NavLink to={`/t/${tenantId}/domain`}><IconGlobe /> Domain</NavLink>
             <NavLink to={`/t/${tenantId}/analytics`}><IconChart /> Analytics</NavLink>
             <NavLink to={`/t/${tenantId}/team`}><IconUsers /> Team</NavLink>
+            <NavLink to={`/t/${tenantId}/credits`}><IconSparkle /> Credits &amp; plan</NavLink>
             <NavLink to={`/t/${tenantId}/settings`}><IconGear /> Settings</NavLink>
             {isAdmin && <NavLink to={`/t/${tenantId}/audit`}><IconShield /> Audit log</NavLink>}
           </nav>

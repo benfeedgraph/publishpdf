@@ -31,9 +31,18 @@ def cache_key(sha: str) -> str:
     return f"layouts/{sha}-v{ai_layout.LAYOUT_VERSION}.json"
 
 
-def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: dict, pdf: bytes) -> dict[int, dict]:
-    """{page: {"fingerprint", "sections"}} for design-led pages that have a layout."""
+def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: dict, pdf: bytes,
+                *, mode: str | None = None) -> dict[int, dict]:
+    """{page: {"fingerprint", "sections"}} for design-led pages that have a layout.
+
+    `mode` is the report's build option (app.build_modes): "none" uses no AI layout at all
+    (not even a cached one: the person chose the built-in layout); "layout"/"full" may
+    spend up to that option's estimate; None (a version from before options) keeps the
+    platform-wide AI_LAYOUT_MAX_CREDITS."""
+    from app import build_modes
     cfg = get_settings()
+    if mode == "none":
+        return {}
     pages = sorted(site.whole_pages(schema) - {1})            # page 1 is the hero's cover
     if not pages:
         return {}
@@ -61,10 +70,11 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
     finally:
         doc.close()
 
-    can_call = (cfg.ai_layout_max_credits > 0 and cfg.gemini_api_key and todo
+    cap = build_modes.caps(mode, len(schema.get("pages") or []))["layout"]
+    can_call = (cap > 0 and cfg.gemini_api_key and todo
                 and time.monotonic() >= _REJECTED_UNTIL[0])
     if can_call:
-        budget = cfg.ai_layout_max_credits
+        budget = cap
         try:
             allowance = ai_usage.allowance(ctx)
             if allowance["remaining"] is not None:

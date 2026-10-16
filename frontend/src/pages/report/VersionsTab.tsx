@@ -39,7 +39,7 @@ export default function VersionsTab({ tenantId, report }: { tenantId: string; re
                 : <span className={`badge ${STATUS_CLASS[v.status]}`}>{v.status === "published" ? "Published earlier" : VERSION_STATUS_LABEL[v.status]}</span>}</td>
               <td className="nowrap small">{formatDateTime(v.created_at)}</td>
               <td className="nowrap small">{formatDateTime(v.published_at)}</td>
-              <td className="small">{v.validation ? `${v.validation.blocking} blocking · ${v.validation.warnings} warnings` : "—"}</td>
+              <td className="small">{v.validation ? `${v.validation.blocking} blocking · ${v.validation.warnings} note${v.validation.warnings === 1 ? "" : "s"} (no action needed)` : "—"}</td>
               <td className="right nowrap">
                 {isAdmin && v.published_at && !v.is_live && (
                   <Button className="link" disabled={rollback.isPending} busy={rollback.isPending && rollback.variables === v.id} busyLabel="Rolling back" onClick={() => confirm(`Make v${v.version_no} live again?`) && rollback.mutate(v.id)}>Roll back to this</Button>

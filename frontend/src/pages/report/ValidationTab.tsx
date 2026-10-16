@@ -22,7 +22,7 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const [params, setParams] = useSearchParams();
   const base = `/api/tenants/${tenantId}/reports/${report.id}/versions/${version.id}`;
   // Open on what blocks publishing; warnings are one filter away.
-  const [severity, setSeverity] = useState("blocking");
+  const [severity, setSeverity] = useState(version.open_blocking > 0 ? "blocking" : "");
   const [status, setStatus] = useState("open");
   const [page, setPage] = useState("");
   const [section, setSection] = useState("");

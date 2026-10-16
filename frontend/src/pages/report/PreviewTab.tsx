@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, formatDateTime, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
+import RebuildCard from "../../components/RebuildCard";
 import { Button } from "../../components/Spinner";
 
 const DESKTOP_W = 1280;   // width the desktop preview is laid out at
@@ -66,6 +67,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
 
   return (
     <div className="stack">
+      <RebuildCard base={base} version={version} canChange={isAdmin && version.published_at === null} />
       <div className="toolbar">
         <div className="seg" role="group" aria-label="Width">
           <button className={width === "desktop" ? "active" : ""} onClick={() => setWidth("desktop")}>Desktop</button>

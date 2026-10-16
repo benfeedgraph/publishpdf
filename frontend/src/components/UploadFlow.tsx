@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { PERIOD_OPTIONS, post, REPORT_TYPE_LABEL, upload, type ReportType } from "../api";
 import { IconCheck, IconClose, IconUpload } from "./Icons";
 import { Button, Spinner } from "./Spinner";
-import { AiCostNote } from "./AiCostNote";
+import BuildModePicker, { type BuildMode, type BuildOptions } from "./BuildModePicker";
 
 interface Inspected {
   source_file_id: string;
@@ -12,6 +12,7 @@ interface Inspected {
   page_count: number;
   size_bytes: number;
   detected: Partial<{ company_name: string; report_type: ReportType; fiscal_year: number; period: string; currency: string; reporting_unit: string; confidence: Record<string, string> }>;
+  build_options?: BuildOptions;
 }
 
 export function Dropzone({ tenantId, compact = false }: { tenantId: string; compact?: boolean }) {
@@ -97,6 +98,10 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
   const [period, setPeriod] = useState(d.period ?? "q1");
   const [currency, setCurrency] = useState(d.currency ?? "INR");
   const [unit, setUnit] = useState(d.reporting_unit ?? "₹ crore");
+  const bo = data.build_options;
+  const firstAvailable = (m: BuildMode | undefined) =>
+    bo?.options.find((o) => o.mode === m && o.available) ? m! : "none";
+  const [mode, setMode] = useState<BuildMode>(firstAvailable(bo?.default));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const found = (k: string) => (d as Record<string, unknown>)[k] !== undefined;
@@ -109,6 +114,7 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
       const r = await post<{ report_id: string; version: { id: string } }>(`/api/tenants/${tenantId}/reports/create`, {
         source_file_id: data.source_file_id, company_name: company, report_type: type, fiscal_year: Number(fy),
         period: type === "annual_report" ? "fy" : period, currency, reporting_unit: unit,
+        build_mode: mode, credits_shown: bo?.options.find((o) => o.mode === mode)?.max_credits ?? 0,
       });
       await qc.invalidateQueries({ queryKey: ["reports", tenantId] });
       navigate(`/t/${tenantId}/reports/${r.report_id}?v=${r.version.id}`);
@@ -140,7 +146,7 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
           <label className="field span2"><span className="label">Reporting unit <Tag k="reporting_unit" /></span><input required value={unit} onChange={(e) => setUnit(e.target.value)} />
             <span className="hint">Used only where a table doesn't state its unit — those tables are flagged for you to confirm.</span></label>
         </div>
-        <AiCostNote tenantId={tenantId} compact />
+        {bo && <BuildModePicker data={bo} value={mode} onChange={setMode} />}
         {error && <p className="error" role="alert">{error}</p>}
         <div className="btn-row" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="secondary" onClick={onClose}>Cancel</button>

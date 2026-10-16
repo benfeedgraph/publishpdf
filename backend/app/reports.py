@@ -198,7 +198,20 @@ def store_source(s: Session, ctx: Context, data: bytes, filename: str) -> Source
     return src
 
 
-def create_version(s: Session, ctx: Context, src: SourceFile, raw_meta: dict[str, Any]) -> ReportVersion:
+def build_mode_of(s: Session, version_id: uuid.UUID) -> str | None:
+    """A version's build option (app.build_modes), or None for one made before options
+    existed — also None, not a failure, while migration 0008 hasn't been applied yet."""
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+    try:
+        with s.begin_nested():
+            return s.scalar(sql_text("SELECT build_mode FROM report_versions WHERE id = :id"), {"id": version_id})
+    except DBAPIError:
+        return None
+
+
+def create_version(s: Session, ctx: Context, src: SourceFile, raw_meta: dict[str, Any], *,
+                   build_mode: str | None = None) -> ReportVersion:
     meta = validate_metadata(raw_meta)
     tenant_id = ctx.require_tenant()
     report = s.scalars(select(Report).where(Report.fiscal_year == meta["fiscal_year"],
@@ -215,11 +228,12 @@ def create_version(s: Session, ctx: Context, src: SourceFile, raw_meta: dict[str
             setattr(report, k, meta[k])
     version_no = (s.scalar(select(func.max(ReportVersion.version_no)).where(ReportVersion.report_id == report.id)) or 0) + 1
     v = ReportVersion(tenant_id=tenant_id, report_id=report.id, version_no=version_no, source_file_id=src.id,
-                      source_sha256=src.sha256, status="processing", stage="queued", created_by=ctx.user_id)
+                      source_sha256=src.sha256, status="processing", stage="queued", created_by=ctx.user_id,
+                      build_mode=build_mode)
     s.add(v)
     s.flush()
     audit.record(s, ctx, "report.uploaded", target_type="report_version", target_id=v.id,
-                 after={"report_id": str(report.id), "version": version_no, "sha256": src.sha256,
+                 after={"report_id": str(report.id), "version": version_no, "sha256": src.sha256, "build_mode": build_mode,
                         "filename": src.original_filename, **{k: meta[k] for k in meta}})
     enqueue_stage(s, ctx, v, "extract")
     return v
@@ -500,7 +514,7 @@ def new_draft_from(s: Session, ctx: Context, v: ReportVersion) -> ReportVersion:
     nv = ReportVersion(tenant_id=ctx.tenant_id, report_id=v.report_id, version_no=no, source_file_id=v.source_file_id,
                        source_sha256=v.source_sha256, status="processing", stage="render",
                        created_from_version_id=v.id, extraction_key=v.extraction_key, schema_json=schema,
-                       schema_sha256=schema_sha256(schema), created_by=ctx.user_id)
+                       schema_sha256=schema_sha256(schema), created_by=ctx.user_id, build_mode=v.build_mode)
     s.add(nv)
     s.flush()
     audit.record(s, ctx, "report.draft_created", target_type="report_version", target_id=nv.id,
