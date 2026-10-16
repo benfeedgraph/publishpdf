@@ -10,9 +10,9 @@ export default function RebuildCard({ base, version, canChange }: { base: string
   const qc = useQueryClient();
   const current = version.build_mode ?? null;
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<BuildMode>(current ?? "layout");
-  const [err, setErr] = useState<string | null>(null);
   const bo = version.build_options;
+  const [mode, setMode] = useState<BuildMode>(current ?? bo?.default ?? "full");
+  const [err, setErr] = useState<string | null>(null);
   const rebuild = useMutation({
     mutationFn: () => post(`${base}/build-mode`, { build_mode: mode, credits_shown: bo?.options.find((o) => o.mode === mode)?.max_credits ?? 0 }),
     onSuccess: () => { setOpen(false); setErr(null); qc.invalidateQueries({ queryKey: ["version", version.id] }); },

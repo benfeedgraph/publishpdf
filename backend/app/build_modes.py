@@ -22,7 +22,7 @@ from app.config import get_settings
 from app.render import ai_layout
 
 MODES = ("none", "layout", "full")
-DEFAULT_MODE = "layout"
+DEFAULT_MODE = "full"
 
 # Upper bound used for estimates: elements on a busy page (text blocks + pictures).
 ELEMENTS_PER_PAGE = 60
@@ -88,8 +88,6 @@ def options(page_count: int) -> list[dict[str, Any]]:
             "available": mode == "none" or gemini,
             "unavailable_reason": None if mode == "none" or gemini else "AI isn't set up on this platform yet.",
             "labels_available": labels,
-            "models": [] if mode == "none" else
-                      [cfg.gemini_model] + ([cfg.llm_model] if mode == "full" and labels else []),
         })
     return out
 

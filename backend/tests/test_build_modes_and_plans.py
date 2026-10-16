@@ -61,8 +61,8 @@ def test_upload_offers_three_options_with_their_credits(admin_client):
     ins = _inspect(client, t)
     bo = ins["build_options"]
     modes = {o["mode"]: o for o in bo["options"]}
-    assert set(modes) == {"none", "layout", "full"} and bo["default"] == "layout"
-    assert modes["none"]["max_credits"] == 0 and modes["none"]["models"] == []
+    assert set(modes) == {"none", "layout", "full"} and bo["default"] == "full"
+    assert modes["none"]["max_credits"] == 0 and all("models" not in o for o in bo["options"])
     assert modes["layout"]["max_credits"] == build_modes.max_credits("layout", ins["page_count"])
     assert modes["full"]["max_credits"] >= modes["layout"]["max_credits"]
 
