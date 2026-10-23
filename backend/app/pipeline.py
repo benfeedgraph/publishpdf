@@ -93,8 +93,13 @@ def _llm_for(ctx: Context, version_id: uuid.UUID | None = None) -> classify.LlmC
         r = httpx.post("https://api.anthropic.com/v1/messages", timeout=60, headers={
             "x-api-key": cfg.anthropic_api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
             json={"model": cfg.llm_model, "max_tokens": 1024, "system":
-                  "Classify each report section. Reply with JSON only: {\"<id>\": \"<type>\"} using allowed_types. "
-                  "Never output numbers or dates.", "messages": [{"role": "user", "content": prompt}]})
+                  "You label the sections of a company's financial report so a web page can present each one "
+                  "correctly (a results table, a highlights strip, a commentary block, and so on). For every "
+                  "section you are given, pick the SINGLE best-fitting type from allowed_types based on its "
+                  "heading and sample text; when nothing fits well, use \"other\". Reply with JSON only, exactly "
+                  "{\"<id>\": \"<type>\"} for the ids provided — no commentary, no extra fields. Never output "
+                  "numbers or dates, and never change, add to or quote the section's words.",
+                  "messages": [{"role": "user", "content": prompt}]})
         r.raise_for_status()
         body = r.json()
         usage = body.get("usage") or {}

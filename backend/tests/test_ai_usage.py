@@ -292,7 +292,7 @@ def test_ai_lays_out_design_pages_with_ids_only_cached_and_capped(monkeypatch):
     vid = None                                      # no report version: usage is still recorded
     lays = page_layouts.layouts_for(ctx, vid, "sha-test-1", schema, pdf)
     assert list(lays) == [2] and len(seen) == 1
-    assert "Caption for brand range A" in seen[0] and "Never write any text yourself" in seen[0]
+    assert "Caption for brand range A" in seen[0] and "you arrange ids, you do not author text" in seen[0]
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf, layouts=lays)
     html_ = [v for k, v in files.items() if k.endswith(".html")][0].decode()
     import re as _re

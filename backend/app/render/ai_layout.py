@@ -39,26 +39,51 @@ def _unbullet(h: str) -> str:
 
 
 LAYOUT_VERSION = "1"
-PROMPT_TOKENS = 700            # instructions, per page
+PROMPT_TOKENS = 1250           # instructions, per page
 TOKENS_PER_ELEMENT = 45        # id, box, style and up to 140 characters of text
 OUTPUT_TOKENS_PER_ELEMENT = 6
 
-PROMPT = """You turn one page of a company's annual or quarterly report into the structure of a clean, modern web page.
-You get the page's elements: text blocks (with position as % of the page, font size, bold, colour) and pictures.
-Return JSON only, in this shape:
+PROMPT = """You are a senior web designer. You are given ONE page of a company's annual or quarterly report and
+you re-compose it as the structure of a beautiful, modern, magazine-quality web page — the kind of page a
+reader would call clean, well-presented and easy to scan, never a flat wall of text.
+
+You are NOT writing the page. Every word and number already exists as a page element; you only decide how those
+elements are grouped and arranged. You return element IDs, never text of your own.
+
+Each element you are given is a text block (with position as % of the page, font size, whether it is bold, and
+its colour) or a picture. Return JSON only, in this exact shape:
 {"sections": [ ... ]}
-where each section is one of:
-  {"type": "heading", "level": 1|2|3, "ids": [text ids]}            the page title is level 1, sub-titles 2, small titles 3
-  {"type": "paragraph", "ids": [text ids]}                           consecutive lines of ONE paragraph, in reading order
-  {"type": "list", "items": [[text ids], ...]}                       bullet points
+where each section is ONE of:
+  {"type": "heading", "level": 1|2|3, "ids": [text ids]}            the page's main title is level 1, section titles 2, small sub-titles 3
+  {"type": "paragraph", "ids": [text ids]}                           the consecutive lines of ONE paragraph, in reading order
+  {"type": "list", "items": [[text ids], ...]}                       a bullet / numbered list; each item is its own group of ids
   {"type": "cards", "cards": [{"title": [text ids], "body": [text ids], "picture": picture id or null}, ...]}
-                                                                     side-by-side columns/boxes, each with its own title and text
-  {"type": "stats", "items": [{"ids": [text ids]}, ...]}             short highlight lines built around a number (e.g. "Over 23 lakh children ...")
-  {"type": "gallery", "items": [{"picture": picture id, "caption": [text ids]}, ...]}   pictures, each with its nearby caption
-  {"type": "picture", "picture": picture id, "caption": [text ids]}  one picture on its own
-  {"type": "skip", "ids": [ids]}                                     ONLY page numbers, running headers and stray single characters
-Rules: use only the given ids; use each id at most once; keep the page's reading order; group the lines of a
-column under its column heading; put each caption with the picture it sits next to. Never write any text yourself.
+                                                                     parallel items shown side by side, each with its own mini-title, text and optional picture
+  {"type": "stats", "items": [{"ids": [text ids]}, ...]}             a row of highlight tiles, each built around one headline number (e.g. "₹1,234 cr revenue", "23 lakh customers")
+  {"type": "gallery", "items": [{"picture": picture id, "caption": [text ids]}, ...]}   a row of pictures, each with its nearby caption
+  {"type": "picture", "picture": picture id, "caption": [text ids]}  one picture shown on its own
+  {"type": "skip", "ids": [ids]}                                     ONLY page numbers, running headers/footers, and stray single characters
+
+How to make it look like a real web page, not a reflowed PDF:
+- Lead with structure. Open the page with a clear level-1 heading when the page has a title, and give every distinct
+  topic its own level-2 heading so the reader can scan. Use level 3 for sub-points under a section.
+- Never emit one giant paragraph. Keep each paragraph to the lines that truly belong to the same thought; start a
+  new paragraph (or heading) when the topic turns.
+- Turn repetition into components. When several short lines each carry a headline figure or metric (revenue, margin,
+  growth %, counts like "23 lakh children"), group them as a "stats" row — this is the single biggest win for a
+  report page and makes the numbers pop. When the page shows parallel blocks (pillars, segments, product lines,
+  "our values"), each with its own little title and blurb, make them "cards". When you have a simple enumeration,
+  make it a "list" rather than running the items together as prose.
+- Respect the design's intent. If the page is built as columns or boxes, mirror that with cards or a gallery rather
+  than flattening everything into one column. Group the lines of a column under that column's heading. Put each
+  caption with the picture it sits beside; keep a set of related pictures together as a gallery.
+- Prefer a few well-chosen, varied section types over a long chain of plain paragraphs. Visual rhythm — heading,
+  stats, short paragraph, cards, picture — is what makes the page feel designed.
+
+Hard rules: use only the given ids; use each id at most once; preserve the page's overall reading order; put an id in
+the section where it belongs and nowhere else. Choose "stats" only for genuinely short, number-led highlight lines;
+keep ordinary sentences and explanations as paragraphs. Never invent, rewrite, translate, summarise or re-order the
+words inside any element — you arrange ids, you do not author text.
 """
 
 

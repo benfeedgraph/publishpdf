@@ -195,6 +195,14 @@ def store_source(s: Session, ctx: Context, data: bytes, filename: str) -> Source
                          page_count=doc.page_count, uploaded_by=ctx.user_id)
         s.add(src)
         s.flush()
+    elif not storage.exists(ctx, source_key(sha)):
+        # The row says we already have this PDF, but the object is gone — a lifecycle
+        # expiry, a storage backend/bucket switch, or a manual cleanup can orphan a row
+        # whose blob no longer exists. Without this, every re-upload of that PDF would
+        # create a version that fails extraction with "not found", and "Try again" could
+        # never recover it (extract only reads the missing object). We hold the bytes
+        # right here, so re-store them and let processing proceed.
+        storage.put(ctx, source_key(sha), data, "application/pdf")
     return src
 
 

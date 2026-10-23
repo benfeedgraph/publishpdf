@@ -160,6 +160,38 @@ def test_published_version_is_immutable_and_rollback_works(admin_client):
     assert {"report.published", "report.rolled_back", "report.uploaded"} <= {e["action"] for e in audit}
 
 
+def test_reupload_reheals_a_missing_source_blob(admin_client):
+    """A PDF uploaded once leaves a source_files row keyed by its SHA. If that object later
+    vanishes from storage (lifecycle expiry, a storage backend switch, a manual cleanup),
+    re-uploading the same PDF used to skip the upload (dedup by SHA) and then fail extract
+    with "not found" — unrecoverable, since the bytes were gone. store_source now notices
+    the missing object and re-stores it, so the re-upload heals itself and processes."""
+    from app import storage
+    from app.reports import source_key
+    from app.tenancy import worker_context
+
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results.pdf", period="q2")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    assert _version(client, t, rid, vid)["status"] == "needs_review"
+
+    # the blob goes missing while the source_files row survives
+    with db.session(system_context()) as s:
+        sha = s.get(ReportVersion, vid).source_sha256
+    ctx = worker_context(t.id)
+    storage.delete(ctx, source_key(sha))
+    assert not storage.exists(ctx, source_key(sha))
+
+    # same PDF, a new period: must process, not fail with "not found"
+    again = upload(client, t, "acme_q2fy26_results.pdf", period="q3")
+    rid2, vid2 = again["report_id"], again["version"]["id"]
+    drain()
+    v2 = _version(client, t, rid2, vid2)
+    assert v2["status"] == "needs_review", v2
+    assert storage.exists(ctx, source_key(sha))
+
+
 def test_seeded_text_layer_error_blocks_publishing_until_fixed(admin_client):
     """The hidden text layer says 46.20 where the page prints 48.20."""
     client, t, _ = admin_client
