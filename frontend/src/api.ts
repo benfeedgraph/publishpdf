@@ -117,6 +117,8 @@ export interface VersionDetail extends Version {
   build_options?: import("./components/BuildModePicker").BuildOptions;
   /** Set while the next step is queued: how long it has waited and whether any worker is running. */
   queue: { waiting: boolean; waiting_seconds: number; workers_alive: number | null; stalled: boolean } | null;
+  /** Seconds this version has been processing (server clock); null unless processing has begun. */
+  elapsed_seconds?: number | null;
 }
 
 export interface Report {

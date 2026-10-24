@@ -6,6 +6,7 @@ import json
 import re
 import uuid
 from collections import OrderedDict
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
@@ -367,7 +368,19 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["pages"] = pages
         out["sections"] = sections
     out["queue"] = _queue_for(jobs) if v.status == "processing" else None
+    # How long this version has actually been processing (server clock, so the browser's
+    # clock never matters), for the progress screen's time-remaining estimate.
+    out["elapsed_seconds"] = _processing_elapsed(jobs) if v.status == "processing" else None
     return out
+
+
+def _processing_elapsed(version_jobs: list[Job]) -> int | None:
+    """Seconds since the first pipeline step began running (None until one has started —
+    while it only sits queued, there is no processing time to estimate from)."""
+    starts = [j.started_at for j in version_jobs if j.kind.startswith("pipeline.") and j.started_at]
+    if not starts:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - min(starts)).total_seconds()))
 
 
 def _queue_for(version_jobs: list[Job]) -> dict | None:

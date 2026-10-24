@@ -12,21 +12,43 @@ interface Agent { key: string; name: string; description: string; ran: boolean; 
 
 const STAGE_ORDER = ["queued", "extract", "render", "validate", "done"];
 
-function stageProgress(stage: string | null, status: string): { pct: number; label: string; exact: boolean } {
-  if (status !== "processing") return { pct: 100, label: "Done", exact: true };
+// Roughly how much of the wall-clock time each stage takes, so the bar advances at an even
+// pace and the time-left estimate is honest (the three stages each walk the pages/checks).
+// extract reads the PDF, render builds + saves every page, validate runs the checks.
+const STAGE_WEIGHT = { extract: 0.30, render: 0.45, validate: 0.25 };
+const STAGE_START = { extract: 0, render: 0.30, validate: 0.75 };  // cumulative weight before each
+
+// Progress as a single fraction (0–1) of the whole job, used for BOTH the bar width and the
+// time-left estimate so the two always agree. `exact` means we have a real X-of-Y count.
+function stageProgress(stage: string | null, status: string): { frac: number; label: string; exact: boolean } {
+  if (status !== "processing") return { frac: 1, label: "Done", exact: true };
   const s = stage ?? "queued";
+  const at = (base: keyof typeof STAGE_WEIGHT, within: number) =>
+    Math.min(0.99, Math.max(0.01, STAGE_START[base] + STAGE_WEIGHT[base] * Math.min(1, Math.max(0, within))));
   const m = s.match(/reading page (\d+) of (\d+)/);
-  if (m) return { pct: 5 + (Number(m[1]) / Number(m[2])) * 55, label: `Reading page ${m[1]} of ${m[2]}`, exact: true };
+  if (m) return { frac: at("extract", Number(m[1]) / Number(m[2])), label: `Reading page ${m[1]} of ${m[2]}`, exact: true };
   const r = s.match(/building page (\d+) of (\d+)/);
-  if (r) return { pct: 62 + (Number(r[1]) / Number(r[2])) * 6, label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
+  if (r) return { frac: at("render", 0.85 * (Number(r[1]) / Number(r[2]))), label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
   const u = s.match(/saving file (\d+) of (\d+)/);
-  if (u) return { pct: 68 + (Number(u[1]) / Math.max(1, Number(u[2]))) * 2, label: `Saving the web page — file ${u[1]} of ${u[2]}`, exact: true };
+  if (u) return { frac: at("render", 0.85 + 0.15 * (Number(u[1]) / Math.max(1, Number(u[2])))), label: `Saving the web page — file ${u[1]} of ${u[2]}`, exact: true };
   const v = s.match(/validate: (.+) \((\d+) of (\d+)\)/);
-  if (v) return { pct: 70 + (Number(v[2]) / Number(v[3])) * 28, label: `Checking figures — ${v[1]}`, exact: true };
+  if (v) return { frac: at("validate", Number(v[2]) / Number(v[3])), label: `Checking figures — ${v[1]}`, exact: true };
   const key = s.split(":")[0];
   const i = Math.max(0, STAGE_ORDER.indexOf(key));
   const label = { queued: "Waiting to start", extract: "Reading the PDF", render: "Building the web page", validate: "Checking every figure" }[key] ?? "Working";
-  return { pct: [3, 30, 65, 80][i] ?? 50, label, exact: false };
+  return { frac: [0.03, 0.15, 0.5, 0.85][i] ?? 0.5, label, exact: false };
+}
+
+// A plain-language "time left", from how long we've run and how far we've got. Deliberately
+// coarse (buckets, "about") — an exact countdown would only jump around on a variable job.
+function timeLeft(frac: number, elapsed: number | null | undefined): string | null {
+  if (frac >= 0.985) return "Almost done";
+  if (elapsed == null || elapsed < 8 || frac < 0.05) return "Estimating time left…";
+  const remaining = (elapsed * (1 - frac)) / frac;
+  if (remaining <= 45) return "Under a minute left";
+  if (remaining <= 90) return "About a minute left";
+  const mins = Math.round(remaining / 60);
+  return mins >= 15 ? "A few more minutes" : `About ${mins} min left`;
 }
 
 export default function VerifyStep({ tenantId, report, version, onContinue }: { tenantId: string; report: Report; version: VersionDetail; onContinue: () => void }) {
@@ -41,8 +63,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   const processing = version.status === "processing";
   const queue = processing ? version.queue : null;
   // A queued step hasn't started, whatever stage name the version carries.
-  const p = queue?.waiting ? { pct: 3, label: "Waiting to start", exact: false } : stageProgress(version.stage, version.status);
+  const p = queue?.waiting ? { frac: 0.03, label: "Waiting to start", exact: false } : stageProgress(version.stage, version.status);
   const noWorker = !!queue?.waiting && (queue.stalled || (queue.workers_alive === 0 && queue.waiting_seconds > 30));
+  // Time remaining: only once a worker is actually processing (not while queued/stalled).
+  const eta = processing && !queue?.waiting && !noWorker ? timeLeft(p.frac, version.elapsed_seconds) : null;
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
@@ -82,14 +106,17 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
             <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}><Spinner label="Processing" /> {p.label}…</h2>
             <span className="muted small">{version.pages.length ? `${version.pages.length} pages` : version.page_count ? `${version.page_count} pages` : ""}</span>
           </div>
-          <div className={`progress ${p.exact ? "" : "indeterminate"}`}><span style={{ width: `${p.pct}%` }} /></div>
+          <div className={`progress ${p.exact ? "" : "indeterminate"}`}><span style={{ width: `${Math.round(p.frac * 100)}%` }} /></div>
           {noWorker ? (
             <div className="callout warn" role="status" style={{ marginTop: 12 }}>
               <strong>Processing hasn't started yet.</strong> Our processing service isn't running right now, so this report is waiting in line.
               It will start on its own as soon as the service is back. You don't need to upload it again.
             </div>
           ) : (
-            <p className="muted small" style={{ marginTop: 10 }}>Large reports take a few minutes. You can leave this page — processing continues in the background.</p>
+            <div className="toolbar" style={{ justifyContent: "space-between", gap: 12, marginTop: 10 }}>
+              <span className="small" aria-live="polite" style={{ fontWeight: 600 }}>{eta ?? ""}</span>
+              <span className="muted small">Large reports take a few minutes — you can leave this page; processing continues in the background.</span>
+            </div>
           )}
         </div>
       )}
