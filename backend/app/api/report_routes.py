@@ -30,6 +30,7 @@ from app.reports import (
     create_upload,
     create_version,
     delete_report,
+    landing_of,
     store_source,
     enqueue_stage,
     flag_figure,
@@ -205,7 +206,8 @@ def _build_options(ctx: Context, page_count: int) -> dict:
     except Exception:  # noqa: BLE001 - the options still show without the allowance
         allowance = None
     return {"default": build_modes.DEFAULT_MODE, "options": build_modes.options(page_count),
-            "allowance": allowance, "credit_usd": get_settings().ai_credit_usd}
+            "allowance": allowance, "credit_usd": get_settings().ai_credit_usd,
+            "landing": build_modes.landing_option(page_count)}
 
 
 class CreateIn(BaseModel):
@@ -217,6 +219,8 @@ class CreateIn(BaseModel):
     currency: str
     reporting_unit: str
     build_mode: str = Field(default="none", pattern="^(none|layout|full)$")
+    # Opt-in extractive landing page (only for reports with >= 20 pages; ignored otherwise).
+    landing: bool = False
     # The most the chosen option could spend, as the person saw it (checked again here).
     credits_shown: int | None = Field(default=None, ge=0)
 
@@ -231,8 +235,11 @@ def create_from_source(body: CreateIn, ctx: Context = Depends(require("report.up
             if src is None:
                 raise HTTPException(404, "Upload not found. Upload the PDF again.")
             _check_build_estimate(body.build_mode, src.page_count, body.credits_shown)
-            v = create_version(s, ctx, src, body.model_dump(exclude={"source_file_id", "build_mode", "credits_shown"}),
-                               build_mode=body.build_mode)
+            from app import build_modes
+            landing = body.landing and build_modes.landing_available(src.page_count)
+            v = create_version(s, ctx, src,
+                               body.model_dump(exclude={"source_file_id", "build_mode", "credits_shown", "landing"}),
+                               build_mode=body.build_mode, landing=landing)
             return {"report_id": str(v.report_id), "version": version_json(v)}
     except ReportError as e:
         raise _err(e) from e
@@ -363,6 +370,7 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["open_blocking"] = open_blocking(s, v.id)
         out["page_count"] = page_count
         out["build_mode"] = build_mode_of(s, v.id)
+        out["landing"] = landing_of(s, v.id)
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
             out["build_options"] = _build_options(ctx, page_count or 0)
         out["pages"] = pages
@@ -566,6 +574,7 @@ def rerun(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(re
 
 class BuildModeIn(BaseModel):
     build_mode: str = Field(pattern="^(none|layout|full)$")
+    landing: bool | None = None
     credits_shown: int | None = Field(default=None, ge=0)
 
 
@@ -584,15 +593,19 @@ def change_build_mode(report_id: uuid.UUID, version_id: uuid.UUID, body: BuildMo
             raise HTTPException(409, "This version is still being processed. Try again when it has finished.")
         page_count, _, _ = _schema_bits(s, v.id)
         _check_build_estimate(body.build_mode, page_count or 0, body.credits_shown)
+        from app import build_modes
         before = build_mode_of(s, v.id)
-        s.execute(sql_text("UPDATE report_versions SET build_mode = :m WHERE id = :id"),
-                  {"m": body.build_mode, "id": v.id})
+        before_landing = landing_of(s, v.id)
+        landing = before_landing if body.landing is None else (body.landing and build_modes.landing_available(page_count))
+        s.execute(sql_text("UPDATE report_versions SET build_mode = :m, landing = :l WHERE id = :id"),
+                  {"m": body.build_mode, "l": landing, "id": v.id})
         enqueue_stage(s, ctx, v, "render", force=True)
         audit.record(s, ctx, "report.build_mode_changed", target_type="report_version", target_id=v.id,
-                     before={"build_mode": before}, after={"build_mode": body.build_mode,
-                                                           "credits_shown": body.credits_shown})
+                     before={"build_mode": before, "landing": before_landing},
+                     after={"build_mode": body.build_mode, "landing": landing, "credits_shown": body.credits_shown})
         out = version_json(v)
         out["build_mode"] = body.build_mode
+        out["landing"] = landing
         return out
 
 

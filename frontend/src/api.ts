@@ -113,6 +113,8 @@ export interface VersionDetail extends Version {
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];
   /** How the page is built (null: uploaded before build options existed). */
   build_mode?: import("./components/BuildModePicker").BuildMode | null;
+  /** Whether the extractive "overview" landing page is included (long reports only). */
+  landing?: boolean;
   /** The options to rebuild with, and their credits (unpublished, not processing). */
   build_options?: import("./components/BuildModePicker").BuildOptions;
   /** Set while the next step is queued: how long it has waited and whether any worker is running. */

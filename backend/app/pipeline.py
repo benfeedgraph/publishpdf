@@ -166,8 +166,9 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         if v.published_at is not None:
             return {"skipped": "published"}
         report = s.get(Report, v.report_id)
-        from app.reports import build_mode_of
+        from app.reports import build_mode_of, landing_of
         build_mode = build_mode_of(s, v.id)
+        landing = landing_of(s, v.id)
         st = settings_for(s, ctx)
         theme, adjustments = effective_theme(st, report)
         disclaimer = effective_disclaimer(st)
@@ -199,7 +200,7 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         log.exception("AI layouts unavailable")
         layouts = {}
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page, layouts=layouts)
+                               progress=on_page, layouts=layouts, landing=landing)
     prefix = bundle_prefix(vid)
     # A re-render (a confirmed figure, a new theme) changes few files: upload only those.
     # _hashes.json records what is stored; anything missing from it is uploaded.

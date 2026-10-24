@@ -25,6 +25,7 @@
         <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
         <p class="web-actions">
           {%- if first_q %}<a class="btn btn-primary" href="#{{ first_q.slug }}">Start reading <span class="arr" aria-hidden="true">↓</span></a>{% endif %}
+          {%- if has_landing %}<a class="btn" href="{{ overview_href }}">Overview</a>{% endif %}
           <a class="btn" href="{{ pdf_href }}">Download the PDF</a>
         </p>
       </div>

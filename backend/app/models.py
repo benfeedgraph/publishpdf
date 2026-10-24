@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, Text, text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -198,6 +198,8 @@ class ReportVersion(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     # How the page is built: app.build_modes ('none' | 'layout' | 'full'); NULL = before 0008.
     build_mode: Mapped[str | None] = mapped_column(Text, deferred=True)
+    # Opt-in extractive landing page (overview) for long reports (>= 20 pages); added in 0009.
+    landing: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), deferred=True)
     created_at: Mapped[datetime] = _now()
 
 

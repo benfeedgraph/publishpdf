@@ -24,6 +24,20 @@ from app.render import ai_layout
 MODES = ("none", "layout", "full")
 DEFAULT_MODE = "full"
 
+# The extractive "overview" landing page is offered only for long reports. It is orthogonal
+# to the build mode above: no AI, no credits — just a second page composed verbatim from the
+# content already in the schema.
+LANDING_MIN_PAGES = 20
+
+
+def landing_available(page_count: int | None) -> bool:
+    return bool(page_count) and page_count >= LANDING_MIN_PAGES
+
+
+def landing_option(page_count: int | None) -> dict[str, Any]:
+    """What the upload screen needs to show (or hide) the landing-page opt-in."""
+    return {"available": landing_available(page_count), "min_pages": LANDING_MIN_PAGES}
+
 # Upper bound used for estimates: elements on a busy page (text blocks + pictures).
 ELEMENTS_PER_PAGE = 60
 # Section labelling: one request for the sections rules can't name (≈2 per page, at most 400).

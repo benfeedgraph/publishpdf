@@ -17,6 +17,31 @@ export interface BuildOptions {
   options: BuildOption[];
   allowance: { limit: number | null; used: number; remaining: number | null } | null;
   credit_usd: number;
+  /** The extractive "overview" landing page, offered only for long reports. */
+  landing?: { available: boolean; min_pages: number };
+}
+
+/** Opt-in extractive "overview" landing page for long reports. No AI, no credits: a second
+ *  page composed entirely of content already in the report. Shown only when it's available. */
+export function LandingOption({ data, value, onChange }: {
+  data: BuildOptions; value: boolean; onChange: (v: boolean) => void;
+}) {
+  if (!data.landing?.available) return null;
+  return (
+    <fieldset className="build-picker landing-picker">
+      <legend>A short overview page?</legend>
+      <label className={`landing-option${value ? " on" : ""}`}>
+        <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+        <span className="lo-body">
+          <span className="lo-title">Add an overview page</span>
+          <span className="bo-summary">A short landing page that pulls this report's own highlights, key figures and
+            contents onto one page, linking into the full report. Free — no AI, and every word and number is copied
+            unchanged from the report.</span>
+          <span className="bo-best">Best for: long reports ({data.landing.min_pages}+ pages). The full report keeps its own address.</span>
+        </span>
+      </label>
+    </fieldset>
+  );
 }
 
 export const BUILD_MODE_LABEL: Record<BuildMode, string> = {

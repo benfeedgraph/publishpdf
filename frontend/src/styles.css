@@ -494,6 +494,16 @@ button.link.is-busy:disabled { opacity: .8; }
 .bo-compare th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
 @media (max-width: 760px) { .build-options { grid-template-columns: 1fr; gap: 18px; } }
 .modal:has(.build-picker) { max-width: min(980px, calc(100vw - 32px)); }
+/* Opt-in overview landing page */
+.landing-picker { margin-top: 18px; }
+.landing-option { position: relative; display: flex; gap: 12px; padding: 16px 18px; border: 1.5px solid var(--border);
+  border-radius: 18px; background: var(--surface); cursor: pointer; font-size: 13.5px; line-height: 1.45; transition: border-color .15s, box-shadow .15s; }
+.landing-option:hover { border-color: #c9c1f5; }
+.landing-option.on { border-color: #6D4DF2; box-shadow: 0 0 0 4px rgba(109, 77, 242, .13); }
+.landing-option input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: #6D4DF2; }
+.landing-option:has(input:focus-visible) { outline: 2px solid #6D4DF2; outline-offset: 3px; }
+.lo-body { display: flex; flex-direction: column; gap: 8px; }
+.lo-title { font-weight: 750; font-size: 15px; color: var(--text); }
 
 /* Credits & plan */
 .plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }

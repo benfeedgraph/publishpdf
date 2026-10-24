@@ -326,6 +326,37 @@ def index_links(schema: dict, page_count: int | None) -> dict[str, dict[int, str
     return out
 
 
+def landing_parts(schema: dict, max_stats: int = 8, max_highlights: int = 8) -> dict:
+    """Content for the extractive landing page — all referenced verbatim, never recomputed.
+
+    - stats:      the report's own stat blocks (label + value), in reading order, for tiles.
+    - highlights: paragraph blocks from the classified "highlights" section(s) — the report's
+                  own summary lines (bullets kept as bullets via bullet_runs in the template).
+    - toc:        sections that carry a heading, to link into the full report's anchors.
+
+    Returns block dicts straight from the schema so the template renders them through the
+    same fig()/runs() macros as the main page (figures keep their exact PDF string and
+    data-fig, so the rendered-page check covers them too)."""
+    sections = schema.get("sections") or []
+    stats: list[dict] = []
+    highlights: list[dict] = []
+    for s in sections:
+        for b in s["blocks"]:
+            if b["type"] == "stat" and len(stats) < max_stats:
+                stats.append(b)
+        if s.get("type") == "highlights":
+            # Same bullet mending as the full report, so a list the PDF ran into one paragraph
+            # ("…accuracy • E-Commerce…") reads as separate bullets here too.
+            for b in mend_lists(s["blocks"]):
+                # Only the report's own prose/bullets here; tables and charts stay in the
+                # full report (the landing links to it).
+                if b["type"] == "paragraph" and len(highlights) < max_highlights \
+                        and any(("f" in r) or r.get("t", "").strip() for r in b.get("runs") or []):
+                    highlights.append(b)
+    toc = [s for s in sections if s.get("heading") or question_parts(schema, s)]
+    return {"stats": stats, "highlights": highlights, "toc": toc}
+
+
 def plain_excerpt(sec: dict, max_chars: int = 155) -> str:
     """Digit-free summary for meta descriptions: text runs up to the first figure."""
     for b in sec["blocks"]:

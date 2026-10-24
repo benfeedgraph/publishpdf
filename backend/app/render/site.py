@@ -506,6 +506,20 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
   .web-page{--ww:100%}
   .web .doc-body{font-size:1.04em}
 }
+/* ---- landing page ("overview"): an extractive summary of a long report ---- */
+.landing-lede{margin:.9em 0 0;max-width:40em}
+.landing-sec{padding:clamp(28px,4vw,44px) 0;border-top:1px solid var(--c-border)}
+.landing-sec:first-of-type{border-top:0}
+.landing-h{font-size:clamp(1.3em,2.3vw,1.7em);margin:0 0 .7em}
+.landing .ai-stats{margin:0}
+.landing .ai-stat{display:flex;flex-direction:column;gap:4px;border:1px solid var(--c-border);border-top:4px solid var(--c-primary);box-shadow:var(--shadow-1)}
+.landing-toc{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 24px;counter-reset:toc}
+.landing-toc li{counter-increment:toc;border-bottom:1px solid color-mix(in srgb,var(--c-border) 70%,transparent)}
+.landing-toc a{display:flex;gap:.6em;align-items:baseline;padding:10px 4px;text-decoration:none;color:var(--c-text);line-height:1.35}
+.landing-toc a::before{content:counter(toc,decimal-leading-zero);color:var(--c-primary);font-weight:800;font-variant-numeric:tabular-nums;flex:none}
+.landing-toc a:hover{color:var(--c-primary)}
+.landing-toc .tq{font-weight:800;color:var(--c-text)}
+.landing-cta{margin:clamp(28px,4vw,44px) 0 0}
 @media print{"""
 
 
@@ -534,7 +548,8 @@ def page_css(theme: dict) -> str:
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
                   pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None,
-                  pdf_page_sink=None, layouts: dict[int, dict] | None = None) -> dict[str, bytes]:
+                  pdf_page_sink=None, layouts: dict[int, dict] | None = None,
+                  landing: bool = False) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
 
     With the PDF (always, in the pipeline) the report page is the page-faithful web
@@ -698,6 +713,12 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             if front else []
         doclayout = story.document_layout(schema, {})
         css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
+        # An opt-in extractive landing page for long reports — a second page in the same
+        # bundle, served at <base>overview/. It only summarises by selecting content already
+        # in the schema (no AI, no new words or figures); the full report keeps its URL.
+        from app import build_modes
+        want_landing = bool(landing) and bool(page_count) and page_count >= build_modes.LANDING_MIN_PAGES
+        overview_href = href("overview/")
         files[base.lstrip("/") + "index.html"] = _ENV.get_template("web.html").render(
             **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
             jsonld=Markup(_jsonld(schema, base)), qparts=qparts, faq=story.is_faq(schema), front=front,
@@ -706,7 +727,14 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             doc_order=story.document_order(schema, doclayout), heading_ids=story.heading_like(schema),
             index_links=index_links, crops=crops, graphic_start=set(region_at), in_graphic=in_graphic, cover=cover,
             quiet=quiet, ai_pages=ai_pages, pictures=pictures, anchors=anchors,
+            has_landing=want_landing, overview_href=overview_href,
             og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
+        if want_landing:
+            files[base.lstrip("/") + "overview/index.html"] = _ENV.get_template("landing.html").render(
+                **{**common, "css": css_all}, page_title=f"Overview · {title}", canonical_path=base + "overview/",
+                description=desc, jsonld=None, qparts=qparts, parts=story.landing_parts(schema),
+                report_href=f"{ORIGIN_PLACEHOLDER}{base}", cover=cover,
+                og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
         page_count = (m.get("source_pdf") or {}).get("page_count")
@@ -912,6 +940,8 @@ def _sitemap(reports: list[dict]) -> str:
     urls = [("/", None), ("/latest/", reports[0]["lastmod"] if reports else None), ("/archive/", None)]
     for r in reports:
         urls.append((r["base"], r["lastmod"]))
+        if r.get("has_landing"):
+            urls.append((f"{r['base']}overview/", r["lastmod"]))
         urls += [(f"{r['base']}report.md", r["lastmod"])]
     body = "".join(
         f"<url><loc>{ORIGIN_PLACEHOLDER}{html.escape(u)}</loc>{f'<lastmod>{lm}</lastmod>' if lm else ''}</url>"
