@@ -162,11 +162,12 @@ def _join_wrapped(texts: list[Element]) -> list[Element]:
 
 
 def _wraps(a: Element, b: Element) -> bool:
-    """b is the next wrapped line directly under a, in the same paragraph."""
+    """b is the next wrapped line directly under a, in the same paragraph. Weight and face may
+    differ (a paragraph can carry bold or differently-set phrases); size and colour must match,
+    so a heading or a coloured label never merges into body text."""
     if not (a.safe and b.safe) or is_bullet(a) or is_bullet(b) or a.meta.get("bg") or b.meta.get("bg"):
         return False
-    if abs(a.size - b.size) > 1.0 or a.bold != b.bold or a.color != b.color \
-            or a.meta.get("face") != b.meta.get("face"):
+    if abs(a.size - b.size) > 1.0 or a.color != b.color:
         return False
     size = max(a.size, b.size) or 10.0
     gap = b.bbox[1] - a.bbox[3]                         # b starts below a's bottom
@@ -368,12 +369,12 @@ def _merge_rows(boxes: list[tuple]) -> list[tuple]:
                 a, b = rows[i], rows[j]
                 ha, hb = a[3] - a[1], b[3] - b[1]
                 lo, hi = min(ha, hb), max(ha, hb)
-                if lo <= 0 or lo / hi < 0.45:                       # very different heights: not a row
-                    continue
-                if min(a[3], b[3]) - max(a[1], b[1]) < 0.6 * lo:    # not the same vertical band
+                if lo <= 0 or min(a[3], b[3]) - max(a[1], b[1]) < 0.6 * lo:   # not the same vertical band
                     continue
                 gap = max(a[0], b[0]) - min(a[2], b[2])             # horizontal gap (negative = overlap)
-                if gap <= 0.35 * lo:
+                # A row of similar-height packs with a small gap, OR a small logo pressed right up
+                # against a larger image on the same band (a trailing brand mark on a logo wall).
+                if (lo / hi >= 0.45 and gap <= 0.35 * lo) or gap <= 6:
                     rows[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
                     rows.pop(j)
                     changed = True
