@@ -464,15 +464,23 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-list li{margin:.28em 0;padding-left:.2em}
 .ai-list li::marker{color:var(--bul,var(--c-primary));content:"● ";font-size:.8em}
 .ai-list[data-cols]{columns:2;column-gap:40px}.ai-list[data-cols] li{break-inside:avoid}
-.ai-cards{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));gap:clamp(18px,3vw,32px);margin:18px 0 26px;
-  align-items:start}
-.ai-card{padding:0}
+/* Parallel blocks tile into a dense grid that fills the width (auto-fit collapses empty
+   tracks, so a part-full last row stretches instead of leaving blank cells). */
+.ai-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:18px;margin:18px 0 28px;
+  align-items:stretch}
+.ai-card{padding:18px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-background);
+  box-shadow:var(--shadow-1)}
+.ai-card>:last-child{margin-bottom:0}
 .ai-card>.ai-pic{margin:0 0 10px}
 .ai-card-t{margin:0 0 .6em;font-size:1.02em;color:var(--c-text)}
 .ai-card .ai-p,.ai-card li{font-size:.95em;line-height:1.55}.ai-card .ai-p{margin:0 0 .7em}
 .ai-card .ai-h{font-size:1em;margin:.8em 0 .4em}
-.ai-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:14px 0 26px}
-.ai-stat{background:var(--c-primary-soft);border-radius:14px;padding:14px 16px;line-height:1.45;font-weight:550}
+.ai-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:14px 0 26px}
+.ai-stat{background:var(--c-primary-soft);border:1px solid var(--c-primary-line);border-left:4px solid var(--c-primary);
+  border-radius:12px;padding:14px 16px;line-height:1.5;font-weight:550}
+/* the figure inside a KPI tile is the headline — make it stand out */
+.ai-stat data,.ai-stat time{font-family:var(--font-heading);font-weight:800;font-size:1.25em;color:var(--c-primary);
+  font-variant-numeric:tabular-nums}
 .ai-gallery{display:grid;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:18px;margin:18px 0 28px}
 .ai-tile{margin:0;display:flex;flex-direction:column;gap:8px}
 /* a picture is never shown larger than printed (--vw): a logo stays logo-sized, a photo

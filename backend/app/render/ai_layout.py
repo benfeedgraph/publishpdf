@@ -39,8 +39,8 @@ def _unbullet(h: str) -> str:
 
 
 # Bump when the prompt or the id→HTML mapping changes in a way that should re-ask cached pages.
-LAYOUT_VERSION = "3"
-PROMPT_TOKENS = 1650           # instructions, per page
+LAYOUT_VERSION = "4"
+PROMPT_TOKENS = 1800           # instructions, per page
 TOKENS_PER_ELEMENT = 45        # id, box, style and up to 140 characters of text
 OUTPUT_TOKENS_PER_ELEMENT = 6
 
@@ -81,8 +81,14 @@ How to make it look like a real web page, not a reflowed PDF:
 - Turn repetition into components. When several short lines each carry a headline figure or metric (revenue, margin,
   growth %, counts like "23 lakh children"), group them as a "stats" row — this is the single biggest win for a
   report page and makes the numbers pop. When the page shows parallel blocks (pillars, segments, product lines,
-  "our values"), each with its own little title and blurb, make them "cards". When you have a simple enumeration,
-  make it a "list" rather than running the items together as prose.
+  business units, "our values"), each with its own little title and maybe a picture and a few lines, put them ALL
+  in ONE "cards" section — one card per block — so they tile into a compact grid. Do NOT emit each block as its own
+  separate full-width section: that strands each one in a wide empty row and makes the page feel blank. When you have
+  a simple enumeration, make it a "list" rather than running the items together as prose.
+- Fill the width; match the page's density. A report page is information-rich: when the source packs several panels,
+  tiles or boxes across the page, your output should be an equally dense grid of cards/stats that uses the full
+  width — never a thin column of one item per row with large empty margins beside it. Aim for the richness of the
+  original: group aggressively into stats rows and card grids so the page looks full and considered, not sparse.
 - Respect the design's intent. If the page is built as columns or boxes, mirror that with cards or a gallery rather
   than flattening everything into one column. Group the lines of a column under that column's heading. Put each
   caption with the picture it sits beside.
