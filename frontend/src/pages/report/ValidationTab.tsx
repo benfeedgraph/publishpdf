@@ -45,7 +45,7 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const bulkable = useMemo(() => issues.filter((i) => i.status === "open" && i.page && i.bbox
     && !["rendered_page", "schema", "reviewer_flag", "completeness"].includes(i.check)), [issues]);
   const [view, setView] = useState<"grid" | "list" | null>(null);
-  const mode = view ?? (bulkable.length > 12 ? "grid" : "list");
+  const mode = view ?? "grid";                    // Side by side is the default
 
   const pagesWithIssues = [...new Set((q.data?.issues ?? []).map((i) => i.page).filter(Boolean))].sort((a, b) => a! - b!);
   const checks = [...new Set((q.data?.issues ?? []).map((i) => i.check))];
