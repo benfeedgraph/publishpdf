@@ -161,6 +161,7 @@ export function PublishPanel({ tenantId, report, version, isAdmin, disclaimer, s
       <div className="callout ok">
         <strong>This version is live.</strong> Published {formatDateTime(version.published_at)}.{" "}
         {siteOrigin && <a href={`${siteOrigin}${report.path}`} target="_blank" rel="noreferrer">View the live page</a>}
+        {siteOrigin && version.has_overview && <>{" · "}<a href={`${siteOrigin}${report.path}overview/`} target="_blank" rel="noreferrer">View the overview page</a></>}
       </div>
     );
   }

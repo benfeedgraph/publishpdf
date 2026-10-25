@@ -115,6 +115,8 @@ export interface VersionDetail extends Version {
   build_mode?: import("./components/BuildModePicker").BuildMode | null;
   /** Whether the extractive "overview" landing page is included (long reports only). */
   landing?: boolean;
+  /** Whether the built bundle actually contains the overview page (so the link is safe to show). */
+  has_overview?: boolean;
   /** The options to rebuild with, and their credits (unpublished, not processing). */
   build_options?: import("./components/BuildModePicker").BuildOptions;
   /** Set while the next step is queued: how long it has waited and whether any worker is running. */

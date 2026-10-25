@@ -587,6 +587,7 @@ def test_opt_in_landing_page_for_long_reports(admin_client):
     assert v["status"] == "needs_review", v
     assert v["validation"]["blocking"] == 0          # the landing page's figures validate too
     assert v["landing"] is True
+    assert v["has_overview"] is True                 # the dashboard can offer the overview link
 
     base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview"
     # the full report is still served at the root of the bundle, and links to the overview
@@ -634,6 +635,7 @@ def test_landing_page_is_not_offered_or_built_for_short_reports(admin_client):
     drain()
     v = _version(client, t, rid, vid)
     assert v["status"] == "needs_review" and v["landing"] is False    # coerced off below the threshold
+    assert v["has_overview"] is False                                  # so no overview link is offered
     base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview"
     assert client.get(base + "/").status_code == 200                   # full report still built
     assert client.get(base + "/fy2026/q3/results/overview/").status_code == 404   # but no landing page

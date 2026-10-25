@@ -358,6 +358,19 @@ def _schema_bits(s, version_id: uuid.UUID) -> tuple[int | None, list, list]:
     return row.page_count, _as_list(row.pages), _as_list(row.sections)
 
 
+def _bundle_has_overview(ctx: Context, bundle_key: str | None) -> bool:
+    """Whether this version's built bundle actually includes the extractive overview page.
+    Read from the bundle's file list (not just the landing flag), so the dashboard only
+    offers the overview link when the page is really there (e.g. not on an older build)."""
+    if not bundle_key:
+        return False
+    try:
+        files = json.loads(storage.get(ctx, bundle_key + "_files.json"))
+        return any(f.endswith("overview/index.html") for f in files)
+    except Exception:  # noqa: BLE001 - absence just hides the link
+        return False
+
+
 @router.get("/{report_id}/versions/{version_id}")
 def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
     with db.session(ctx) as s:
@@ -371,6 +384,7 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["page_count"] = page_count
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
+        out["has_overview"] = _bundle_has_overview(ctx, v.bundle_key)
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
             out["build_options"] = _build_options(ctx, page_count or 0)
         out["pages"] = pages

@@ -213,6 +213,7 @@ function PublishStep({ tenantId, report, version, isAdmin, back }: { tenantId: s
   const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ effective_disclaimer: string | null; site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
   const [copied, setCopied] = useState(false);
   const liveUrl = version.is_live && settings.data?.site_origin ? `${settings.data.site_origin}${report.path}` : null;
+  const overviewUrl = liveUrl && version.has_overview ? `${liveUrl}overview/` : null;
   const copy = async () => {
     if (!liveUrl) return;
     try { await navigator.clipboard.writeText(liveUrl); setCopied(true); window.setTimeout(() => setCopied(false), 2000); }
@@ -229,7 +230,10 @@ function PublishStep({ tenantId, report, version, isAdmin, back }: { tenantId: s
       {version.is_live ? (
         <WizardFooter back={back}
           hint={<>Your page is live. <Link to={`/t/${tenantId}`}>Back to all reports</Link></>}
-          extra={liveUrl && <button type="button" className="secondary" onClick={copy} aria-live="polite">{copied ? <><IconCheck size={14} /> Copied</> : "Copy link"}</button>}
+          extra={<>
+            {overviewUrl && <a className="button secondary" href={overviewUrl} target="_blank" rel="noreferrer">View overview ↗</a>}
+            {liveUrl && <button type="button" className="secondary" onClick={copy} aria-live="polite">{copied ? <><IconCheck size={14} /> Copied</> : "Copy link"}</button>}
+          </>}
           next={liveUrl ? { label: "View live page ↗", href: liveUrl } : { label: "View live page ↗", disabled: true, waiting: true, reason: "Getting the page address…" }} />
       ) : (
         <WizardFooter back={back}
