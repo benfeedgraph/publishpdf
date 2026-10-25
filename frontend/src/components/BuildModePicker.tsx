@@ -55,8 +55,8 @@ const SUMMARY: Record<BuildMode, string> = {
 };
 
 function points(o: BuildOption): string[] {
-  if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them", "All nine figure checks"];
-  return ["Everything in AI just for layout", "AI double-checks flagged figures before you do",
+  if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them", "All nine figure checks (every number verified against the PDF)"];
+  return [`Everything in “${BUILD_MODE_LABEL.layout}”, and:`, "AI double-checks flagged figures before you do",
     ...(o.labels_available ? ["AI names sections our rules can't"] : [])];
 }
 

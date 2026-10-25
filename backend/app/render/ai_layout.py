@@ -39,8 +39,8 @@ def _unbullet(h: str) -> str:
 
 
 # Bump when the prompt or the id→HTML mapping changes in a way that should re-ask cached pages.
-LAYOUT_VERSION = "2"
-PROMPT_TOKENS = 1500           # instructions, per page
+LAYOUT_VERSION = "3"
+PROMPT_TOKENS = 1650           # instructions, per page
 TOKENS_PER_ELEMENT = 45        # id, box, style and up to 140 characters of text
 OUTPUT_TOKENS_PER_ELEMENT = 6
 
@@ -85,7 +85,14 @@ How to make it look like a real web page, not a reflowed PDF:
   make it a "list" rather than running the items together as prose.
 - Respect the design's intent. If the page is built as columns or boxes, mirror that with cards or a gallery rather
   than flattening everything into one column. Group the lines of a column under that column's heading. Put each
-  caption with the picture it sits beside; keep a set of related pictures together as a gallery.
+  caption with the picture it sits beside.
+- Handle pictures well. A wide picture — a banner, or a row of product packs shown as one strip — is a SINGLE
+  picture: give it its own "picture" section (with its caption) at full width, never slice it up or drop it into a
+  multi-column grid. Use a "gallery" ONLY for several separate pictures of similar size that belong together (a set
+  of logos, a set of photos). A picture that illustrates a short block of text pairs well as a "cards" item (picture
+  + its title + blurb); keep that picture with its own text, not someone else's.
+- Keep prose whole. Each paragraph element is already a full paragraph — place it as one "paragraph"; never split a
+  paragraph across sections or print a heading between its sentences.
 - Prefer a few well-chosen, varied section types over a long chain of plain paragraphs. Visual rhythm — heading,
   stats, short paragraph, cards, picture — is what makes the page feel designed.
 

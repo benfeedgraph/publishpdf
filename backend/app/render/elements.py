@@ -82,6 +82,9 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         if inner <= 2:
             boxes.append(list(bb))
     pictures = [b for b in _merge(boxes) if (b[2] - b[0]) * (b[3] - b[1]) >= MIN_PICTURE_SHARE * W * H]
+    # A row of product packs is drawn as many small images side by side; keep them as ONE
+    # strip (as the PDF shows them) instead of scattering them across a web gallery.
+    pictures = _merge_rows(pictures)
     pieces = pages_mod.page_pieces(page, schema, n)
     marks, fills = _drawn(page)
     out: list[Element] = []
@@ -119,12 +122,67 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
                            meta={k: v for k, v in (("bullet", bullet), ("bg", label),
                                                    ("bg_box", tuple(panel[0]) if panel else None),
                                                    ("face", pages_mod.face_class(fam, fw, fit))) if v}))
+    # Many design-tool PDFs store each wrapped line of a paragraph as its own text object, so a
+    # single sentence arrives as several blocks. Re-join them (within one column, same style)
+    # into one paragraph element, so the web page reads as prose, not one line per row.
+    texts = _join_wrapped([e for e in out if e.kind == "text"])
+    for i, e in enumerate(texts, start=1):
+        e.id = f"t{i}"
+    out = texts
     n_text = len(out)
     for k, p in enumerate(pictures, start=1):
-        out.append(Element(f"p{k}", "picture", _trim(p, [e.bbox for e in out[:n_text]])))
+        out.append(Element(f"p{k}", "picture", _trim(p, [e.bbox for e in texts])))
     out.sort(key=lambda e: (round(e.bbox[1] / 6), e.bbox[0]))
     assert len([e for e in out if e.kind == "text"]) == n_text
     return out
+
+
+def _join_wrapped(texts: list[Element]) -> list[Element]:
+    """Merge text elements that are consecutive wrapped lines of ONE paragraph: directly
+    below one another in the same column, same size/weight/colour/face, neither a bullet nor a
+    label bar. Figures (data-fig) are preserved in reading order; unverified crops are never
+    merged so they stay as crops."""
+    items = list(texts)
+    changed = True
+    while changed:
+        changed = False
+        for i, a in enumerate(items):
+            best, gap = None, 1e9
+            for j, b in enumerate(items):
+                if i != j and _wraps(a, b):
+                    g = b.bbox[1] - a.bbox[3]
+                    if g < gap:
+                        best, gap = j, g
+            if best is not None:
+                items[i] = _combine_text(a, items[best])
+                items.pop(best)
+                changed = True
+                break
+    return items
+
+
+def _wraps(a: Element, b: Element) -> bool:
+    """b is the next wrapped line directly under a, in the same paragraph."""
+    if not (a.safe and b.safe) or is_bullet(a) or is_bullet(b) or a.meta.get("bg") or b.meta.get("bg"):
+        return False
+    if abs(a.size - b.size) > 1.0 or a.bold != b.bold or a.color != b.color \
+            or a.meta.get("face") != b.meta.get("face"):
+        return False
+    size = max(a.size, b.size) or 10.0
+    gap = b.bbox[1] - a.bbox[3]                         # b starts below a's bottom
+    if not (-0.6 * size <= gap <= 1.4 * size) or b.bbox[1] < a.bbox[1] - 1:
+        return False
+    overlap = min(a.bbox[2], b.bbox[2]) - max(a.bbox[0], b.bbox[0])
+    return overlap >= 0.5 * min(a.bbox[2] - a.bbox[0], b.bbox[2] - b.bbox[0])
+
+
+def _combine_text(a: Element, b: Element) -> Element:
+    return Element(a.id, "text",
+                   (min(a.bbox[0], b.bbox[0]), min(a.bbox[1], b.bbox[1]),
+                    max(a.bbox[2], b.bbox[2]), max(a.bbox[3], b.bbox[3])),
+                   text=f"{a.text} {b.text}".strip(), html=f"{a.html} {b.html}".strip(),
+                   size=a.size, bold=a.bold, color=a.color, safe=True,
+                   lines=a.lines + b.lines, meta=a.meta)
 
 
 def _trim(pic: tuple, texts: list[tuple]) -> tuple:
@@ -295,6 +353,34 @@ def _merge(boxes: list[list[float]]) -> list[tuple[float, float, float, float]]:
             if changed:
                 break
     return [tuple(b) for b in boxes]
+
+
+def _merge_rows(boxes: list[tuple]) -> list[tuple]:
+    """Join pictures that sit in one horizontal row — similar height, same vertical band, a
+    small gap between them — into a single strip, the way a row of product packs reads as one
+    image in the PDF. Conservative: only near-equal-height neighbours that nearly touch."""
+    rows = [list(b) for b in boxes]
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(rows)):
+            for j in range(i + 1, len(rows)):
+                a, b = rows[i], rows[j]
+                ha, hb = a[3] - a[1], b[3] - b[1]
+                lo, hi = min(ha, hb), max(ha, hb)
+                if lo <= 0 or lo / hi < 0.45:                       # very different heights: not a row
+                    continue
+                if min(a[3], b[3]) - max(a[1], b[1]) < 0.6 * lo:    # not the same vertical band
+                    continue
+                gap = max(a[0], b[0]) - min(a[2], b[2])             # horizontal gap (negative = overlap)
+                if gap <= 0.35 * lo:
+                    rows[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    rows.pop(j)
+                    changed = True
+                    break
+            if changed:
+                break
+    return [tuple(b) for b in rows]
 
 
 def _join(pieces: list, figures: dict) -> str:

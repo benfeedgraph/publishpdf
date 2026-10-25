@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type React from "react";
 import { api, post, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
@@ -39,16 +39,35 @@ function stageProgress(stage: string | null, status: string): { frac: number; la
   return { frac: [0.03, 0.15, 0.5, 0.85][i] ?? 0.5, label, exact: false };
 }
 
-// A plain-language "time left", from how long we've run and how far we've got. Deliberately
-// coarse (buckets, "about") — an exact countdown would only jump around on a variable job.
-function timeLeft(frac: number, elapsed: number | null | undefined): string | null {
-  if (frac >= 0.985) return "Almost done";
-  if (elapsed == null || elapsed < 8 || frac < 0.05) return "Estimating time left…";
-  const remaining = (elapsed * (1 - frac)) / frac;
+// Coarse buckets for a seconds-remaining value ("about", never an exact countdown).
+function formatTimeLeft(remaining: number): string {
   if (remaining <= 45) return "Under a minute left";
   if (remaining <= 90) return "About a minute left";
   const mins = Math.round(remaining / 60);
   return mins >= 15 ? "A few more minutes" : `About ${mins} min left`;
+}
+
+type EtaFloor = { vid: string; secs: number; at: number };
+
+// A plain-language, NON-INCREASING "time left". The raw projection (elapsed × remaining-fraction
+// ÷ done-fraction) jumps around on a variable job — a slow stage makes it grow. So we keep a
+// floor per version that only ever ticks DOWN with real elapsed time: a fresh projection can
+// pull the estimate lower, but never push it back up. The result only decreases, which is what
+// a person expects from "time left".
+function timeLeft(frac: number, elapsed: number | null | undefined, vid: string,
+                  floor: React.MutableRefObject<EtaFloor | null>): string | null {
+  if (frac >= 0.985) return "Almost done";
+  if (elapsed == null || elapsed < 8 || frac < 0.05) return "Estimating time left…";
+  const projection = (elapsed * (1 - frac)) / frac;
+  const prev = floor.current;
+  // Reset when this is a new version, or elapsed went backwards (a re-run restarted the clock).
+  let secs = projection;
+  if (prev && prev.vid === vid && elapsed >= prev.at) {
+    const ticked = Math.max(0, prev.secs - (elapsed - prev.at));   // old estimate, aged by real time
+    secs = Math.min(projection, ticked);                           // never above what we last showed
+  }
+  floor.current = { vid, secs, at: elapsed };
+  return formatTimeLeft(secs);
 }
 
 export default function VerifyStep({ tenantId, report, version, onContinue }: { tenantId: string; report: Report; version: VersionDetail; onContinue: () => void }) {
@@ -65,8 +84,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   // A queued step hasn't started, whatever stage name the version carries.
   const p = queue?.waiting ? { frac: 0.03, label: "Waiting to start", exact: false } : stageProgress(version.stage, version.status);
   const noWorker = !!queue?.waiting && (queue.stalled || (queue.workers_alive === 0 && queue.waiting_seconds > 30));
-  // Time remaining: only once a worker is actually processing (not while queued/stalled).
-  const eta = processing && !queue?.waiting && !noWorker ? timeLeft(p.frac, version.elapsed_seconds) : null;
+  // Time remaining: only once a worker is actually processing (not while queued/stalled). The
+  // floor keeps the estimate from jumping back up when a stage runs slower than expected.
+  const etaFloor = useRef<EtaFloor | null>(null);
+  const eta = processing && !queue?.waiting && !noWorker ? timeLeft(p.frac, version.elapsed_seconds, version.id, etaFloor) : null;
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
