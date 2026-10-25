@@ -289,16 +289,24 @@ GRAPHIC_FRAGMENT_WORDS = 5   # a "paragraph" this short, among many, is a label 
 
 
 def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict[int, dict], base: str,
-               art: dict) -> dict[int, Markup]:
+               art: dict) -> tuple[dict[int, Markup], dict[str, bytes]]:
     """Design-led pages rebuilt as web sections. A paid-for AI layout is used when it was
     made for exactly these elements (same fingerprint); every other page gets the built-in
-    layout (no AI, no credits). A page that can't be read keeps its designed look."""
+    layout (no AI, no credits). A page that can't be read keeps its designed look.
+
+    Each picture and each kept line is cut from the page's printed artwork into its own small
+    webp file, so the reader sees images appear one by one instead of waiting on the whole
+    page to download. Returns (page HTML, the crop files to add to the bundle)."""
     if not numbers:
-        return {}
+        return {}, {}
+    import io
+
     import pymupdf
+    from PIL import Image
 
     from app.render import ai_layout, elements, web_layout
     out: dict[int, Markup] = {}
+    crop_files: dict[str, bytes] = {}
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
         bands = pages_mod.running_bands(doc, range(1, doc.page_count + 1))
@@ -317,11 +325,24 @@ def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict
                 secs, drawn = web_layout.auto_layout(els, bands.get(n))
             if not secs:
                 continue
-            out[n] = Markup(ai_layout.render(secs, drawn, printed_src=f"{ORIGIN_PLACEHOLDER}{base}{printed}",
-                                             W=page.rect.width, H=page.rect.height))
+            W, H = page.rect.width, page.rect.height
+            sheet = Image.open(io.BytesIO(art[printed]))         # the page as printed, at render scale
+            sx, sy = sheet.width / W, sheet.height / H
+
+            def crop_url(e, _n=n, _sheet=sheet, _sx=sx, _sy=sy) -> str:
+                name = f"pages/p{_n:04d}-x{e.id}.webp"
+                if name not in crop_files:
+                    x0, y0, x1, y1 = e.bbox
+                    box = (max(0, int(x0 * _sx)), max(0, int(y0 * _sy)),
+                           min(_sheet.width, int(round(x1 * _sx))), min(_sheet.height, int(round(y1 * _sy))))
+                    if box[2] > box[0] and box[3] > box[1]:
+                        crop_files[name] = pages_mod.webp(_sheet.crop(box))
+                return f"{ORIGIN_PLACEHOLDER}{base}{name}"
+
+            out[n] = Markup(ai_layout.render(secs, drawn, crop_url=crop_url, W=W, H=H))
     finally:
         doc.close()
-    return out
+    return out, crop_files
 
 
 def design_led_pages(schema: dict) -> set[int]:
@@ -452,6 +473,18 @@ WEB_CSS = """
    heading colours, coloured label bars and bullets, and its column arrangement. */
 .ai-page{--ww:min(1040px,calc(100vw - 48px));width:var(--ww);margin-left:calc((100% - var(--ww)) / 2);padding:clamp(12px,2vw,20px) 0}
 .ai-page>:first-child{margin-top:clamp(20px,3vw,36px)}
+/* a coloured card/section carried over from the PDF: the run of blocks that sat on one fill is
+   painted with that fill, so the page keeps the report's colour blocking instead of going white */
+.ai-panel{background:var(--panel);border-radius:var(--radius);padding:clamp(18px,3vw,32px);
+  margin:24px 0;box-shadow:var(--shadow-1)}
+.ai-panel>:first-child{margin-top:0}.ai-panel>:last-child{margin-bottom:0}
+.ai-panel-dark,.ai-panel-dark .ai-h,.ai-panel-dark .ai-p,.ai-panel-dark .ai-list{color:#fff}
+.ai-panel-dark .ai-list li::marker{color:rgba(255,255,255,.75)}
+.ai-panel-dark a{color:#fff;text-decoration-thickness:1px}
+/* boxes keep their own light background, so their text stays dark even on a dark panel */
+.ai-panel-dark .ai-card,.ai-panel-dark .ai-stat{color:var(--c-text)}
+.ai-panel-dark .ai-card .ai-h,.ai-panel-dark .ai-card-t,.ai-panel-dark .ai-card .ai-p,
+.ai-panel-dark .ai-card li{color:var(--c-text)}
 .ai-h{color:var(--c-text);text-wrap:balance;line-height:1.2;letter-spacing:-.01em}
 .ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.2em 0 .5em}
 .ai-h-b{font-size:1.4em;margin:1.2em 0 .5em}
@@ -501,7 +534,7 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-media-pic{margin:0}.ai-media-pic .ai-pic{width:var(--vw);max-width:100%}
 .ai-media-body>:first-child{margin-top:0}
 .ai-pic{position:relative;overflow:hidden;width:min(100%,var(--vw));margin:0 auto}
-.ai-pic img{position:absolute;max-width:none;height:auto}
+.ai-pic img{display:block;width:100%;height:100%;object-fit:cover}
 .ai-textcrop{display:inline-block;vertical-align:middle;margin:0}
 /* Tables of amounts get a bar chart above them, drawn from the table's own figures */
 .tchart{margin:22px 0 10px;padding:18px 20px 14px;border:1px solid var(--c-border);border-radius:16px;background:var(--c-surface)}
@@ -734,9 +767,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         for pg, sid in sorted(first.items()):
             anchors.setdefault(sid, []).append(pg)
         # Picture-led pages as web sections, not as pictures of the page.
-        ai_pages = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+        ai_pages, ai_crops = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+        files.update({base.lstrip("/") + k: v for k, v in ai_crops.items()})
         for n in ai_pages:
+            # the page's pictures now ship as their own per-element crops, so the whole-page
+            # and full-page printed images aren't referenced — drop them from the bundle
             files.pop(f"{base.lstrip('/')}pages/p{n:04d}.webp", None)
+            files.pop(f"{base.lstrip('/')}pages/p{n:04d}-print.webp", None)
         qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
         front = sections[0] if sections and not sections[0].get("heading") else None
         front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])

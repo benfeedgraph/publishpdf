@@ -132,6 +132,14 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     n_text = len(out)
     for k, p in enumerate(pictures, start=1):
         out.append(Element(f"p{k}", "picture", _trim(p, [e.bbox for e in texts])))
+    # a coloured card/section behind a group of text: tag its text so the web page paints it
+    panels = _panels(fills, text_blocks, W, H)
+    if panels:
+        for e in out:
+            if e.kind == "text":
+                pc = _panel_at(e.bbox, panels)
+                if pc:
+                    e.meta["panel"] = pc
     out.sort(key=lambda e: (round(e.bbox[1] / 6), e.bbox[0]))
     assert len([e for e in out if e.kind == "text"]) == n_text
     return out
@@ -221,7 +229,8 @@ def _drawn(page: pymupdf.Page) -> tuple[list[tuple], list[tuple]]:
                 continue
             if 1.5 <= r.width <= 7 and 1.5 <= r.height <= 7 and abs(r.width - r.height) <= 1.5:
                 marks.append(((r.x0, r.y0, r.x1, r.y1), _rgb_hex(fill)))
-            elif r.width >= 12 and r.height >= 6 and r.width * r.height < 0.5 * W * H:
+            elif r.width >= 12 and r.height >= 6 and r.width * r.height < 0.85 * W * H:
+                # label bars and group panels alike; _panel_for and _panels sort them out
                 fills.append(((r.x0, r.y0, r.x1, r.y1), _rgb_hex(fill)))
     except Exception:  # noqa: BLE001 - nothing found is a safe answer
         pass
@@ -255,6 +264,46 @@ def _panel_for(bx: tuple, fills: list[tuple]) -> tuple | None:
         if best is None or (f[2] - f[0]) * (f[3] - f[1]) < (best[0][2] - best[0][0]) * (best[0][3] - best[0][1]):
             best = (f, colour)
     return best if best else None
+
+
+# A fill larger than a one-line label bar that sits behind a group of text — a coloured card or
+# a section's background. The web page paints these so a colour-blocked PDF page doesn't flatten
+# into plain white. Near-white fills carry no colour worth showing; a near-full-page fill is the
+# page background, not a panel.
+PANEL_MIN_SHARE = 0.015
+PANEL_MAX_SHARE = 0.85
+
+
+def _panels(fills: list[tuple], text_blocks: list[dict], W: float, H: float) -> list[tuple]:
+    """(id, bbox, colour) for the colour panels behind grouped content, smallest first so the
+    most specific panel wins when they nest (an inner card inside an outer section)."""
+    cand = []
+    for f, colour in fills:
+        area = (f[2] - f[0]) * (f[3] - f[1])
+        if not (PANEL_MIN_SHARE * W * H <= area <= PANEL_MAX_SHARE * W * H):
+            continue
+        if _lum(colour) > 0.95:                     # no colour worth painting
+            continue
+        inside = sum(1 for t in text_blocks if _inside(t["bbox"], f, pad=2.0))
+        if inside >= 2 or (inside >= 1 and area >= 0.05 * W * H):
+            cand.append((f, colour))
+    cand.sort(key=lambda fc: (fc[0][2] - fc[0][0]) * (fc[0][3] - fc[0][1]))
+    kept: list[tuple] = []
+    for f, colour in cand:
+        area = (f[2] - f[0]) * (f[3] - f[1])
+        if any(_overlap(f, g) >= 0.85 * area for g, _ in kept):
+            continue                                # a near-duplicate of a panel already kept
+        kept.append((f, colour))
+    return [(i, f, colour) for i, (f, colour) in enumerate(kept)]
+
+
+def _panel_at(bbox: tuple, panels: list[tuple]) -> tuple | None:
+    """The (id, colour) of the smallest panel whose box contains this element's centre."""
+    cx, cy = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+    for pid, f, colour in panels:                   # smallest first: the first hit is the tightest
+        if f[0] - 2 <= cx <= f[2] + 2 and f[1] - 2 <= cy <= f[3] + 2:
+            return (pid, colour)
+    return None
 
 
 def _lum(colour: str) -> float:

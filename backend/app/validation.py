@@ -698,7 +698,10 @@ def check_period_unit(schema: dict) -> list[Issue]:
 # ------------------------------------------------------------------ 6. completeness
 
 
-_PAGE_ART = re.compile(rb'src="[^"]*/pages/p(\d{4})(?:-print)?\.webp"')
+# Matches a page's whole-page image, its printed-page image, or a per-element crop of it
+# (pages/pNNNN-x<id>.webp): all carry the 4-digit page number, so a page shown as web
+# sections with its pictures as crops still counts as "shown as printed".
+_PAGE_ART = re.compile(rb'src="[^"]*/pages/p(\d{4})(?:-[a-z0-9]+)?\.webp"')
 
 
 def pages_shown_as_printed(bundle_files: dict[str, bytes] | None) -> set[int]:

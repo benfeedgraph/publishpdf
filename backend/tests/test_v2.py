@@ -177,6 +177,22 @@ def test_theme_from_a_brand_pdf():
     assert theming.validate(p["theme"]) and p["source"] == "your PDF"
 
 
+def test_pdf_background_detection_uses_the_dominant_light_colour():
+    from collections import Counter
+
+    # A cream page with a little brand colour: the page's own background is kept, not forced white.
+    assert analyze._background_from_counts(Counter({"#F7F3E8": 1000, "#0B3D91": 60})) == "#F7F3E8"
+    # A dark dominant is risky to treat as a background, so it falls back to white.
+    assert analyze._background_from_counts(Counter({"#101020": 1000, "#0B3D91": 60})) == "#FFFFFF"
+    assert analyze._background_from_counts(Counter()) == "#FFFFFF"
+
+
+def test_pdf_pages_are_sampled_across_the_whole_report():
+    assert analyze._sample_pages(3, 8) == [0, 1, 2]                 # short report: every page
+    spread = analyze._sample_pages(120, 8)
+    assert spread[0] == 0 and spread[-1] == 119 and len(spread) == 8   # cover, last page, spread
+
+
 # ------------------------------------------------------------------ new agents
 
 

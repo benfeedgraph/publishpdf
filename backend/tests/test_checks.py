@@ -476,6 +476,10 @@ def test_image_note_only_when_the_web_page_leaves_the_picture_out():
     assert not note(validation.check_completeness(schema, doc, artifact, shown))
     other = {"r/index.html": f'<img src="/r/pages/p{page + 1:04d}.webp">'.encode()}
     assert note(validation.check_completeness(schema, doc, artifact, other))
+    # a page shown as web sections with its pictures as per-element crops still counts as shown
+    crops = {"r/index.html": f'<img src="__PPDF_ORIGIN__/r/pages/p{page:04d}-xp1.webp"><img src="/r/pages/p{page:04d}-xt3.webp">'.encode()}
+    assert validation.pages_shown_as_printed(crops) == {page}
+    assert not note(validation.check_completeness(schema, doc, artifact, crops))
 
 
 def test_a_logo_sized_picture_is_kept_and_a_speck_is_not():

@@ -13,8 +13,8 @@ They are pure-function tests (no DB, no PDF), so they run fast and localise any 
 
 from __future__ import annotations
 
-from app.render import site
-from app.render.elements import Element, _join_wrapped, _merge_rows, is_bullet
+from app.render import ai_layout, site
+from app.render.elements import Element, _join_wrapped, _merge_rows, _panel_at, _panels, is_bullet
 
 
 def _t(id: str, x0, y0, x1, y1, *, size=8.0, bold=False, color="#111111", text="word word",
@@ -95,6 +95,68 @@ def test_pictures_far_apart_stay_separate():
 def test_pictures_in_different_bands_stay_separate():
     out = _merge_rows([(10, 10, 60, 60), (12, 200, 62, 250)])
     assert len(out) == 2
+
+
+# ------------------------------------------------------------------ _panels / _panel_at
+
+W, H = 600.0, 800.0
+
+
+def test_coloured_section_behind_a_group_is_a_panel():
+    # A navy section fill behind two text blocks: a panel the web page should paint.
+    fills = [((40, 100, 560, 300), "#17153B")]
+    blocks = [{"bbox": (60, 120, 520, 160)}, {"bbox": (60, 180, 520, 260)}]
+    panels = _panels(fills, blocks, W, H)
+    assert len(panels) == 1
+    assert panels[0][2] == "#17153B"
+    assert _panel_at((60, 120, 520, 160), panels) == (0, "#17153B")
+    assert _panel_at((60, 500, 300, 520), panels) is None   # outside the fill
+
+
+def test_near_white_fill_is_not_a_panel():
+    fills = [((40, 100, 560, 300), "#FFFFFF")]
+    blocks = [{"bbox": (60, 120, 520, 160)}, {"bbox": (60, 180, 520, 260)}]
+    assert _panels(fills, blocks, W, H) == []
+
+
+def test_tight_one_line_bar_is_not_a_panel():
+    # A label bar (one short line, tiny area) is handled per-block, not as a section panel.
+    fills = [((40, 100, 160, 116), "#17153B")]
+    blocks = [{"bbox": (46, 101, 150, 115)}]
+    assert _panels(fills, blocks, W, H) == []
+
+
+def test_nested_panels_pick_the_smallest():
+    # An inner card inside an outer section: an element in the card gets the card's colour.
+    fills = [((20, 80, 580, 400), "#102A54"), ((60, 120, 300, 300), "#E8F0FF")]
+    blocks = [{"bbox": (80, 140, 280, 180)}, {"bbox": (80, 200, 280, 280)}]
+    panels = _panels(fills, blocks, W, H)
+    assert len(panels) == 2
+    inner = _panel_at((80, 140, 280, 180), panels)
+    assert inner is not None and inner[1] == "#E8F0FF"      # the tighter fill wins
+
+
+# ------------------------------------------------------------------ ai_layout.render crops
+
+
+def test_each_picture_and_unverified_line_becomes_its_own_crop_file():
+    # Every picture and every kept (unverified-number) line asks for its own crop URL, and the
+    # img has no full-page windowing offsets — so each loads as its own small file.
+    pic = Element("p1", "picture", (40, 40, 560, 200))
+    num = _t("t1", 40, 220, 300, 236, text="Rs 1,234")
+    num.safe = False
+    secs = [{"type": "picture", "picture": "p1", "caption": []}, {"type": "paragraph", "ids": ["t1"]}]
+    asked: list[str] = []
+
+    def crop_url(e):
+        asked.append(e.id)
+        return f"/r/pages/p0005-x{e.id}.webp"
+
+    html = ai_layout.render(ai_layout.validate({"sections": secs}, [pic, num]), [pic, num],
+                            crop_url=crop_url, W=600, H=800)
+    assert asked == ["p1", "t1"]
+    assert "/r/pages/p0005-xp1.webp" in html and "/r/pages/p0005-xt1.webp" in html
+    assert "left:" not in html and "%;top:" not in html      # no CSS-windowing of a full-page image
 
 
 # ------------------------------------------------------------------ page1_is_cover

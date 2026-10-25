@@ -33,26 +33,40 @@ def _light(colour: str) -> bool:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.8
 
 
+def _panel_dark(colour: str) -> bool:
+    """A panel dark enough that text on it should go white."""
+    try:
+        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return False
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
+
+
 def _unbullet(h: str) -> str:
     """A list item without its printed bullet (the list draws one)."""
     return _LEAD_BULLET.sub(r"\1", h, count=1)
 
 
 # Bump when the prompt or the id→HTML mapping changes in a way that should re-ask cached pages.
-LAYOUT_VERSION = "4"
+LAYOUT_VERSION = "5"
 PROMPT_TOKENS = 1800           # instructions, per page
 TOKENS_PER_ELEMENT = 45        # id, box, style and up to 140 characters of text
 OUTPUT_TOKENS_PER_ELEMENT = 6
 
 PROMPT = """You are a senior web designer building the definitive web version of a company's financial report —
 pages that will represent big, listed companies to investors, so they must look genuinely professional. You are
-given ONE page of the report and you re-compose it as the structure of a clean, modern, magazine-quality web page:
-the kind of page a reader opens on their phone or laptop and finds a pleasure to read, with a clear hierarchy and
-calm whitespace — NEVER a screenshot of a PDF, a flat wall of text, or elements scattered to mirror the paper layout.
+given ONE page of the report and you re-compose it as the structure of a rich, modern, magazine-quality web page:
+the kind of page a reader opens on their phone or laptop and finds a pleasure to read — with a clear hierarchy, a
+confident visual rhythm, and the same richness and care as the printed page. It is a responsive web page, not a
+photograph of the PDF, so you reflow the content to work at any width; but it is NOT a stripped-back page — never
+flatten a designed, colour-blocked, multi-panel spread into a thin single column of plain grey paragraphs, and never
+leave a flat wall of text.
 
-Think of the page as web content, not paper. Do not try to reproduce the PDF's exact geometry, its columns, or where
-things sat on the page. Decide instead how this content reads best on the web: a strong lead, then self-contained,
-scannable sections flowing top to bottom in one readable column, with repetition pulled into real components.
+Think of the page as web content that honours the original's design. You decide how the content reads best on the
+web, but you preserve what the designer built: how the page groups into sections, columns, boxes and colour-blocked
+panels, and how dense and considered it feels. Reflow the geometry for the web; keep the structure, the grouping and
+the richness. Open with a strong lead, then carry the reader through self-contained, scannable sections, with
+repetition pulled into real components.
 
 Accuracy is absolute and comes first. Every word and number already exists as a page element; you only decide how
 those elements are grouped and arranged. You return element IDs only — never text, numbers or dates of your own, and
@@ -73,7 +87,7 @@ where each section is ONE of:
   {"type": "picture", "picture": picture id, "caption": [text ids]}  one picture shown on its own
   {"type": "skip", "ids": [ids]}                                     ONLY page numbers, running headers/footers, and stray single characters
 
-How to make it look like a real web page, not a reflowed PDF:
+How to make it look like a real web page that keeps the original's richness, not a stripped-back reflow:
 - Lead with structure. Open the page with a clear level-1 heading when the page has a title, and give every distinct
   topic its own level-2 heading so the reader can scan. Use level 3 for sub-points under a section.
 - Never emit one giant paragraph. Keep each paragraph to the lines that truly belong to the same thought; start a
@@ -89,9 +103,11 @@ How to make it look like a real web page, not a reflowed PDF:
   tiles or boxes across the page, your output should be an equally dense grid of cards/stats that uses the full
   width — never a thin column of one item per row with large empty margins beside it. Aim for the richness of the
   original: group aggressively into stats rows and card grids so the page looks full and considered, not sparse.
-- Respect the design's intent. If the page is built as columns or boxes, mirror that with cards or a gallery rather
-  than flattening everything into one column. Group the lines of a column under that column's heading. Put each
-  caption with the picture it sits beside.
+- Preserve the design's structure and its colour. Where the page is built as columns, boxes or coloured panels, keep
+  that: mirror columns and boxes with cards or a gallery rather than flattening everything into one column, and group
+  the lines of a column under that column's heading. When a run of blocks sits together inside one coloured panel,
+  card or box in the source, keep those blocks together and in their order — do not interleave content from outside it
+  — so that section reads, and is coloured, as one coherent unit. Put each caption with the picture it sits beside.
 - Handle pictures well. A wide picture — a banner, or a row of product packs shown as one strip — is a SINGLE
   picture: give it its own "picture" section (with its caption) at full width, never slice it up or drop it into a
   multi-column grid. Use a "gallery" ONLY for several separate pictures of similar size that belong together (a set
@@ -254,17 +270,20 @@ def _section_ids(sec: dict) -> list[str]:
 # ------------------------------------------------------------------ HTML
 
 
-def render(sections: list[dict], elements: list[Element], *, printed_src: str, W: float, H: float) -> str:
+def render(sections: list[dict], elements: list[Element], *, crop_url, W: float, H: float) -> str:
     """The page as web HTML. Text comes from the elements' safe HTML (figures as data-fig);
-    pictures, and any text block holding an unverified number, are crops of the printed page."""
+    pictures, and any text block holding an unverified number, are crops of the printed page.
+
+    `crop_url(element)` returns the URL of that element's own cropped image (and arranges for the
+    file to be produced): each picture or kept line is its own small file, so the reader isn't
+    waiting on a full-page image to decode before anything appears."""
     by_id = {e.id: e for e in elements}
 
     def crop(e: Element, cls: str = "ai-pic") -> str:
         x0, y0, x1, y1 = e.bbox
         w, h = max(1.0, x1 - x0), max(1.0, y1 - y0)
         return (f'<div class="{cls}" style="aspect-ratio:{w:.1f}/{h:.1f};--vw:{round(w * 1.6)}px">'
-                f'<img src="{html_mod.escape(printed_src)}" alt="" loading="lazy" decoding="async" '
-                f'style="width:{100 * W / w:.3f}%;left:{-100 * x0 / w:.3f}%;top:{-100 * y0 / h:.3f}%"></div>')
+                f'<img src="{html_mod.escape(crop_url(e))}" alt="" loading="lazy" decoding="async"></div>')
 
     def text(ids: list[str], sep: str = " ") -> str:
         out = []
@@ -283,8 +302,7 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         w, h = max(1.0, x1 - x0), max(1.0, y1 - y0)
         px = 15.5 / body                                                   # px per point
         return (f'<span class="ai-pic ai-textcrop" style="aspect-ratio:{w:.1f}/{h:.1f};width:min(100%,{w * px:.0f}px)">'
-                f'<img src="{html_mod.escape(printed_src)}" alt="" loading="lazy" decoding="async" '
-                f'style="width:{100 * W / w:.3f}%;left:{-100 * x0 / w:.3f}%;top:{-100 * y0 / h:.3f}%"></span>')
+                f'<img src="{html_mod.escape(crop_url(e))}" alt="" loading="lazy" decoding="async"></span>')
 
     def look(ids: list[str], heading: bool = False) -> tuple[str, str]:
         """(extra classes, inline style) that carry the PDF's own design: its typeface, a
@@ -385,7 +403,38 @@ def render(sections: list[dict], elements: list[Element], *, printed_src: str, W
         return parts
 
     parts = draw(sections)
-    return '<section class="ai-page">' + "".join(parts) + "</section>"
+
+    def panel_of(sec: dict):
+        """The colour panel (id, colour) most of a top-level section's text sits on, if any."""
+        try:
+            ids = _section_ids(sec)
+        except Exception:  # noqa: BLE001 - an unusual section shape just gets no panel
+            return None
+        counts: dict = {}
+        for i in ids:
+            p = by_id[i].meta.get("panel") if i in by_id else None
+            if p:
+                counts[p] = counts.get(p, 0) + 1
+        return max(counts, key=counts.get) if counts else None
+
+    # Paint a coloured card/section behind the runs of sections that share one panel, so the
+    # page keeps the PDF's colour blocking instead of flattening every block onto white.
+    pids = [panel_of(s) for s in sections]
+    grouped: list[str] = []
+    i = 0
+    while i < len(parts):
+        pid = pids[i]
+        if not pid:
+            grouped.append(parts[i])
+            i += 1
+            continue
+        j = i
+        while j < len(parts) and pids[j] == pid:
+            j += 1
+        cls = "ai-panel ai-panel-dark" if _panel_dark(pid[1]) else "ai-panel"
+        grouped.append(f'<div class="{cls}" style="--panel:{pid[1]}">' + "".join(parts[i:j]) + "</div>")
+        i = j
+    return '<section class="ai-page">' + "".join(grouped) + "</section>"
 
 
 def credits_for(input_tokens: int, output_tokens: int) -> int:

@@ -25,6 +25,8 @@ from app.render import theme as theming
 
 MAX_BYTES = 2 * 1024 * 1024
 TIMEOUT = 8.0
+PDF_SAMPLE_PAGES = 8          # pages to read for colours/fonts, spread across the report
+PDF_SAMPLE_DPI = 96           # render resolution: enough to pick up real brand colours and tints
 UA = "PublishPDF-ThemeBot/1.0 (+theme proposal; one-off fetch requested by the site owner)"
 
 
@@ -299,9 +301,27 @@ def palette_proposal(colors: list[str]) -> dict:
     return _proposal(colors_, [], None, source="your palette")
 
 
+def _sample_pages(page_count: int, want: int) -> list[int]:
+    """Page indices to read: spread across the report (the cover and interior pages), so the
+    palette reflects the whole document rather than just the first few pages."""
+    if page_count <= want:
+        return list(range(page_count))
+    return sorted({round(i * (page_count - 1) / (want - 1)) for i in range(want)})
+
+
+def _background_from_counts(counts: Counter[str]) -> str:
+    """The page's own background colour: the colour that covers the most area, when it reads as
+    a page background (light enough to carry dark text). A dark or missing dominant — where
+    guessing the background would risk an unreadable page — falls back to white."""
+    if not counts:
+        return "#FFFFFF"
+    top, _ = counts.most_common(1)[0]
+    return top if _sat_light(top)[1] >= 0.6 else "#FFFFFF"
+
+
 def analyze_pdf(data: bytes) -> dict:
-    """Colours from the rendered pages and fonts from the embedded font names of a
-    brand PDF (e.g. last year's annual report or a brand guide)."""
+    """Colours from the rendered pages — including the page's own background — and fonts from the
+    embedded font names of a brand PDF (e.g. last year's annual report or a brand guide)."""
     import pymupdf
 
     try:
@@ -309,9 +329,9 @@ def analyze_pdf(data: bytes) -> dict:
     except Exception as e:  # noqa: BLE001
         raise FetchError("That PDF can't be opened.") from e
     images, fonts = [], []
-    for i in range(min(4, doc.page_count)):
+    for i in _sample_pages(doc.page_count, PDF_SAMPLE_PAGES):
         page = doc[i]
-        images.append(page.get_pixmap(dpi=40).tobytes("png"))
+        images.append(page.get_pixmap(dpi=PDF_SAMPLE_DPI).tobytes("png"))
         for f in page.get_fonts():
             name = re.sub(r"^[A-Z]{6}\+", "", f[3] or "")
             name = re.sub(r"[-,](Bold|Regular|Italic|Medium|Light|Semibold|SemiBold|Black|MT|PS).*$", "", name)
@@ -321,10 +341,12 @@ def analyze_pdf(data: bytes) -> dict:
     counts: Counter[str] = Counter()
     for png in images:
         im = Image.open(io.BytesIO(png)).convert("RGB")
-        q = im.quantize(colors=10, method=Image.Quantize.MEDIANCUT)
+        im.thumbnail((700, 700))                        # enough detail for colour, fast to quantize
+        q = im.quantize(colors=12, method=Image.Quantize.MEDIANCUT)
         pal = q.getpalette() or []
         for count, idx in q.getcolors() or []:
             r, g, b = pal[idx * 3: idx * 3 + 3]
             counts[f"#{r:02X}{g:02X}{b:02X}"] += count
     ranked = [f for f, _ in Counter(fonts).most_common(4)]
-    return _proposal(palette_from_counts(counts), ranked, None, source="your PDF")
+    return _proposal(palette_from_counts(counts, background=_background_from_counts(counts)), ranked, None,
+                     source="your PDF")
