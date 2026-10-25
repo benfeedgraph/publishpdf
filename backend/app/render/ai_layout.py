@@ -38,17 +38,26 @@ def _unbullet(h: str) -> str:
     return _LEAD_BULLET.sub(r"\1", h, count=1)
 
 
-LAYOUT_VERSION = "1"
-PROMPT_TOKENS = 1250           # instructions, per page
+# Bump when the prompt or the id→HTML mapping changes in a way that should re-ask cached pages.
+LAYOUT_VERSION = "2"
+PROMPT_TOKENS = 1500           # instructions, per page
 TOKENS_PER_ELEMENT = 45        # id, box, style and up to 140 characters of text
 OUTPUT_TOKENS_PER_ELEMENT = 6
 
-PROMPT = """You are a senior web designer. You are given ONE page of a company's annual or quarterly report and
-you re-compose it as the structure of a beautiful, modern, magazine-quality web page — the kind of page a
-reader would call clean, well-presented and easy to scan, never a flat wall of text.
+PROMPT = """You are a senior web designer building the definitive web version of a company's financial report —
+pages that will represent big, listed companies to investors, so they must look genuinely professional. You are
+given ONE page of the report and you re-compose it as the structure of a clean, modern, magazine-quality web page:
+the kind of page a reader opens on their phone or laptop and finds a pleasure to read, with a clear hierarchy and
+calm whitespace — NEVER a screenshot of a PDF, a flat wall of text, or elements scattered to mirror the paper layout.
 
-You are NOT writing the page. Every word and number already exists as a page element; you only decide how those
-elements are grouped and arranged. You return element IDs, never text of your own.
+Think of the page as web content, not paper. Do not try to reproduce the PDF's exact geometry, its columns, or where
+things sat on the page. Decide instead how this content reads best on the web: a strong lead, then self-contained,
+scannable sections flowing top to bottom in one readable column, with repetition pulled into real components.
+
+Accuracy is absolute and comes first. Every word and number already exists as a page element; you only decide how
+those elements are grouped and arranged. You return element IDs only — never text, numbers or dates of your own, and
+you never drop, merge, reword, re-order within an element, or duplicate content. The figures a reader sees must be
+exactly the report's figures; your job is presentation, never authorship.
 
 Each element you are given is a text block (with position as % of the page, font size, whether it is bold, and
 its colour) or a picture. Return JSON only, in this exact shape:
@@ -84,6 +93,9 @@ Hard rules: use only the given ids; use each id at most once; preserve the page'
 the section where it belongs and nowhere else. Choose "stats" only for genuinely short, number-led highlight lines;
 keep ordinary sentences and explanations as paragraphs. Never invent, rewrite, translate, summarise or re-order the
 words inside any element — you arrange ids, you do not author text.
+
+The finished page must read as one cohesive, professional web page — accurate to the last figure, easy to read, and
+clearly designed — not as a PDF forced onto the web.
 """
 
 

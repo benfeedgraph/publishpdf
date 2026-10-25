@@ -21,7 +21,11 @@ from app.ai_usage import shown, usd_for
 from app.config import get_settings
 from app.render import ai_layout
 
-MODES = ("none", "layout", "full")
+# The two ways a page can be built. Both use AI; "layout" is the cheaper of the two.
+# ("none" — build with no AI at all — was retired: every report now gets at least AI layout,
+#  so the page reads as a real web page rather than a reflowed PDF. Legacy versions stored as
+#  "none" or NULL still render through `caps` below.)
+MODES = ("layout", "full")
 DEFAULT_MODE = "full"
 
 # The extractive "overview" landing page is offered only for long reports. It is orthogonal
@@ -38,8 +42,10 @@ def landing_option(page_count: int | None) -> dict[str, Any]:
     """What the upload screen needs to show (or hide) the landing-page opt-in."""
     return {"available": landing_available(page_count), "min_pages": LANDING_MIN_PAGES}
 
-# Upper bound used for estimates: elements on a busy page (text blocks + pictures).
-ELEMENTS_PER_PAGE = 60
+# Upper bound used for estimates: elements on a busy page (text blocks + pictures). Set high
+# enough that a design-heavy page (a product spread with many labels) still fits the budget,
+# so the AI layout reflows the whole report instead of stopping part-way through.
+ELEMENTS_PER_PAGE = 100
 # Section labelling: one request for the sections rules can't name (≈2 per page, at most 400).
 LABEL_PROMPT_TOKENS, LABEL_TOKENS_PER_SECTION, LABEL_OUTPUT_TOKENS = 300, 150, 1024
 
@@ -99,8 +105,8 @@ def options(page_count: int) -> list[dict[str, Any]]:
             "max_credits": sum(c.values()),
             "max_usd": round(sum(c.values()) * cfg.ai_credit_usd, 2),
             "parts": c,
-            "available": mode == "none" or gemini,
-            "unavailable_reason": None if mode == "none" or gemini else "AI isn't set up on this platform yet.",
+            "available": gemini,
+            "unavailable_reason": None if gemini else "AI isn't set up on this platform yet.",
             "labels_available": labels,
         })
     return out

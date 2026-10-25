@@ -462,7 +462,7 @@ button.link.is-busy:disabled { opacity: .8; }
 /* Build options (upload + rebuild): three cards, the chosen one outlined, the recommended one ribboned */
 .build-picker { border: 0; padding: 0; margin: 8px 0 0; min-width: 0; }
 .build-picker > legend { margin-bottom: 14px; padding: 0; font-weight: 700; font-size: 15px; color: var(--text); }
-.build-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.build-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
 .build-option { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 18px 18px 16px; border: 1.5px solid var(--border);
   border-radius: 18px; background: var(--surface); cursor: pointer; font-size: 13.5px; line-height: 1.45; transition: border-color .15s, box-shadow .15s; }
 .build-option:hover { border-color: #c9c1f5; }

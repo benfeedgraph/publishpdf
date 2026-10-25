@@ -100,7 +100,8 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
   const [unit, setUnit] = useState(d.reporting_unit ?? "₹ crore");
   const bo = data.build_options;
   const firstAvailable = (m: BuildMode | undefined) =>
-    bo?.options.find((o) => o.mode === m && o.available) ? m! : "none";
+    bo?.options.find((o) => o.mode === m && o.available)?.mode
+    ?? bo?.options.find((o) => o.available)?.mode ?? "full";
   const [mode, setMode] = useState<BuildMode>(firstAvailable(bo?.default));
   const [landing, setLanding] = useState(false);
   const [busy, setBusy] = useState(false);

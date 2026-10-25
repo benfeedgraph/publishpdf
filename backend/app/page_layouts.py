@@ -43,7 +43,8 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
     cfg = get_settings()
     if mode == "none":
         return {}
-    pages = sorted(site.whole_pages(schema) - {1})            # page 1 is the hero's cover
+    # Page 1 is skipped only when it is a true cover; a content-rich first page reflows too.
+    pages = sorted(site.whole_pages(schema) - ({1} if site.page1_is_cover(schema) else set()))
     if not pages:
         return {}
     try:

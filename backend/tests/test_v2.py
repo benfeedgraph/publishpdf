@@ -129,13 +129,15 @@ def test_inspect_detects_metadata_then_create_processes(client):
     add_member(t, u, Role.client_admin)
     sign_in(client, u)
     data = (CORPUS / "acme_q2fy26_results.pdf").read_bytes()
-    r = client.post(f"/api/tenants/{t.id}/reports/inspect", files={"file": ("acme.pdf", data, "application/pdf")})
-    d = r.json()["detected"]
+    ins = client.post(f"/api/tenants/{t.id}/reports/inspect", files={"file": ("acme.pdf", data, "application/pdf")}).json()
+    d = ins["detected"]
     assert d["company_name"] == "Acme Industries Limited" and d["fiscal_year"] == 2026 and d["period"] == "q2"
     assert d["currency"] == "INR" and d["reporting_unit"] == "₹ crore" and d["report_type"] == "quarterly_results"
+    layout = next(o for o in ins["build_options"]["options"] if o["mode"] == "layout")
     r = client.post(f"/api/tenants/{t.id}/reports/create", json={
-        "source_file_id": r.json()["source_file_id"], "company_name": d["company_name"], "report_type": d["report_type"],
-        "fiscal_year": d["fiscal_year"], "period": d["period"], "currency": d["currency"], "reporting_unit": d["reporting_unit"]})
+        "source_file_id": ins["source_file_id"], "company_name": d["company_name"], "report_type": d["report_type"],
+        "fiscal_year": d["fiscal_year"], "period": d["period"], "currency": d["currency"], "reporting_unit": d["reporting_unit"],
+        "build_mode": "layout", "credits_shown": layout["max_credits"]})
     assert r.status_code == 201, r.text
     drain()
     v = client.get(f"/api/tenants/{t.id}/reports/{r.json()['report_id']}/versions/{r.json()['version']['id']}").json()

@@ -371,6 +371,24 @@ def whole_pages(schema: dict) -> set[int]:
     return design_led_pages(schema) | sparse
 
 
+def page1_is_cover(schema: dict) -> bool:
+    """Page 1 is shown whole as the hero's cover ONLY when it is a true title/picture cover —
+    little text, no table — with nothing to read. A content-rich first page (a product
+    spread, an opening section) is rebuilt as a real web page like every other page, instead
+    of being pasted in as a screenshot of the PDF. One definition, used by the renderer and
+    the AI-layout step so they agree on whether page 1 reflows."""
+    words = 0
+    has_table = False
+    for sec in schema["sections"]:
+        for b in sec["blocks"]:
+            if (b.get("source") or {}).get("page") == 1:
+                if b["type"] == "paragraph":
+                    words += _words(b)
+                elif b["type"] == "table":
+                    has_table = True
+    return not (words >= REFLOW_MIN_WORDS or has_table)
+
+
 def chart_boxes(schema: dict, page: int) -> list:
     return [b["source"]["bbox"] for sec in schema["sections"] for b in sec["blocks"]
             if b["type"] == "chart" and (b.get("source") or {}).get("page") == page and b["source"].get("bbox")]
@@ -645,9 +663,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                   if n == 1 or n in vis_boxes or n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages)}
         shown_whole = whole_pages(schema)
         layouts = {n: lay for n, lay in (layouts or {}).items() if n in shown_whole}
+        # Page 1 is kept whole only when it is a true cover (a title / picture page with
+        # nothing to read). A content-rich first page reflows into a web page like the rest,
+        # instead of being pasted in as a screenshot of the PDF.
+        p1_cover = page1_is_cover(schema)
         # Pages rebuilt as web sections need the page as printed, to cut their pictures from.
-        rebuilt = {n for n in wanted if n != 1 and (n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS
-                                                                          or n in table_pages))}
+        rebuilt = {n for n in wanted if (n != 1 or not p1_cover) and (n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS
+                                                                                            or n in table_pages))}
         page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
                                                    max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
                                                    skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
@@ -663,9 +685,10 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
 
         def text_page(n: int) -> bool:
             return words.get(n, 0) >= REFLOW_MIN_WORDS or n in table_pages
-        # A picture-led first page is the cover; other picture pages (an infographic spread)
-        # are shown as designed, where they fall. Everything else is web text.
-        cover = page_list[0] if page_list and page_list[0]["n"] == 1 and not text_page(1) else None
+        # A bare picture-led first page is the cover; a content-rich first page reflows into
+        # the body like any other page (p1_cover), and other picture pages (an infographic
+        # spread) are rebuilt where they fall. Everything else is web text.
+        cover = page_list[0] if page_list and page_list[0]["n"] == 1 and p1_cover else None
         owner: dict[int, str] = {}            # page -> last section with content on it
         first: dict[int, str] = {}            # page -> first section with content on it
         for sec in sections:

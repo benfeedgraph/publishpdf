@@ -120,15 +120,16 @@ def _long_pdf_bytes(pages: int = 22) -> bytes:
     return buf.getvalue()
 
 
-def _inspect_and_create(client, tenant, data: bytes, *, landing: bool, build_mode: str = "none", **meta) -> dict:
+def _inspect_and_create(client, tenant, data: bytes, *, landing: bool, build_mode: str = "layout", **meta) -> dict:
     """The two-step upload flow: /inspect (which returns build options) then /create."""
     ins = client.post(f"/api/tenants/{tenant.id}/reports/inspect",
                       files={"file": ("long.pdf", data, "application/pdf")})
     assert ins.status_code == 200, ins.text
     body = ins.json()
+    credits = next(o["max_credits"] for o in body["build_options"]["options"] if o["mode"] == build_mode)
     r = client.post(f"/api/tenants/{tenant.id}/reports/create", json={
         "source_file_id": body["source_file_id"], **META, **meta,
-        "build_mode": build_mode, "landing": landing})
+        "build_mode": build_mode, "credits_shown": credits, "landing": landing})
     assert r.status_code == 201, r.text
     return {"inspect": body, **r.json()}
 
@@ -599,8 +600,8 @@ def test_opt_in_landing_page_for_long_reports(admin_client):
     assert 'class="web landing"' in ov.text and "web-hero" in ov.text
     assert 'data-fig="' in ov.text and "Key figures" in ov.text and "In this report" in ov.text
     assert "Read the full report" in ov.text and "1,234.56" in ov.text
-    # no AI was used (extractive only)
-    assert v["build_mode"] == "none"
+    # the landing page itself is always extractive (no AI), whatever the build mode
+    assert v["build_mode"] == "layout"
 
     # published: both pages live on the public site, each canonical to itself; sitemap lists both
     assert client.post(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/publish",

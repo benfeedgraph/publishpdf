@@ -1,6 +1,6 @@
 import { IconCheck, IconSparkle } from "./Icons";
 
-export type BuildMode = "none" | "layout" | "full";
+export type BuildMode = "layout" | "full";
 
 export interface BuildOption {
   mode: BuildMode;
@@ -45,36 +45,32 @@ export function LandingOption({ data, value, onChange }: {
 }
 
 export const BUILD_MODE_LABEL: Record<BuildMode, string> = {
-  none: "Build without AI",
   layout: "AI just for layout",
   full: "Use AI to build the page",
 };
 
 const SUMMARY: Record<BuildMode, string> = {
-  none: "Our built-in layout. Nothing to pay.",
-  layout: "The AI arranges design-heavy pages.",
-  full: "AI layout, plus AI help checking figures.",
+  layout: "AI designs every page as a real web page.",
+  full: "AI design, plus AI help checking figures.",
 };
 
 function points(o: BuildOption): string[] {
-  if (o.mode === "none") return ["Every page as web text, charts and pictures", "Design-heavy pages keep the PDF's arrangement", "All nine figure checks"];
-  if (o.mode === "layout") return ["Cards, stat tiles and galleries instead of page images", "AI never writes words or numbers", "All nine figure checks"];
+  if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them", "All nine figure checks"];
   return ["Everything in AI just for layout", "AI double-checks flagged figures before you do",
     ...(o.labels_available ? ["AI names sections our rules can't"] : [])];
 }
 
 const BEST: Record<BuildMode, string> = {
-  none: "Text-led reports and results tables",
-  layout: "Investor decks and magazine-style pages",
+  layout: "Most reports: a clean, readable web page",
   full: "Annual reports and scanned PDFs: least for you to review",
 };
 
 const ROWS: { label: string; cells: Record<BuildMode, string> }[] = [
-  { label: "Words and numbers", cells: { none: "Always from the PDF", layout: "Always from the PDF", full: "Always from the PDF" } },
-  { label: "All nine figure checks", cells: { none: "Yes", layout: "Yes", full: "Yes" } },
-  { label: "Design-heavy pages", cells: { none: "Built-in layout", layout: "Arranged by AI", full: "Arranged by AI" } },
-  { label: "Figures flagged by checks", cells: { none: "You review them", layout: "You review them", full: "AI double-checks first, then you" } },
-  { label: "Section labels", cells: { none: "Rules", layout: "Rules", full: "Rules, then AI for the rest" } },
+  { label: "Words and numbers", cells: { layout: "Always from the PDF", full: "Always from the PDF" } },
+  { label: "All nine figure checks", cells: { layout: "Yes", full: "Yes" } },
+  { label: "Every page", cells: { layout: "Rebuilt as a web page by AI", full: "Rebuilt as a web page by AI" } },
+  { label: "Figures flagged by checks", cells: { layout: "You review them", full: "AI double-checks first, then you" } },
+  { label: "Section labels", cells: { layout: "Rules", full: "Rules, then AI for the rest" } },
 ];
 
 const creditText = (o: BuildOption) => (o.max_credits === 0 ? "Free" : `Up to ${o.max_credits.toLocaleString()} credits`);
@@ -100,7 +96,7 @@ export default function BuildModePicker({ data, value, onChange, current }: {
               <span className="bo-head">
                 <span className="bo-radio" aria-hidden />
                 <span className="bo-title">{BUILD_MODE_LABEL[o.mode]}</span>
-                {o.mode !== "none" && <span className="bo-spark" aria-hidden><IconSparkle size={16} /></span>}
+                <span className="bo-spark" aria-hidden><IconSparkle size={16} /></span>
               </span>
               <span className="bo-price">
                 <span className={`bo-credits${o.max_credits ? "" : " free"}`}>{creditText(o)}</span>

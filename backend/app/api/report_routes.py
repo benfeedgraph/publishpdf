@@ -218,7 +218,7 @@ class CreateIn(BaseModel):
     period: str
     currency: str
     reporting_unit: str
-    build_mode: str = Field(default="none", pattern="^(none|layout|full)$")
+    build_mode: str = Field(default="full", pattern="^(layout|full)$")
     # Opt-in extractive landing page (only for reports with >= 20 pages; ignored otherwise).
     landing: bool = False
     # The most the chosen option could spend, as the person saw it (checked again here).
@@ -249,8 +249,6 @@ def _check_build_estimate(mode: str, page_count: int, credits_shown: int | None)
     """Nobody is held to a credit figure they didn't see: an AI option needs the estimate
     the screen showed, and it must still be the current one."""
     from app import build_modes
-    if mode == "none":
-        return
     current = build_modes.max_credits(mode, page_count)
     if credits_shown != current:
         raise HTTPException(409, f"The credit estimate for this option is now up to {current} credits. "
@@ -587,7 +585,7 @@ def rerun(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(re
 
 
 class BuildModeIn(BaseModel):
-    build_mode: str = Field(pattern="^(none|layout|full)$")
+    build_mode: str = Field(pattern="^(layout|full)$")
     landing: bool | None = None
     credits_shown: int | None = Field(default=None, ge=0)
 

@@ -56,14 +56,14 @@ def test_estimates_are_upper_bounds_from_the_page_count():
     assert build_modes.max_credits("layout", 100) < build_modes.max_credits("full", 100)
 
 
-def test_upload_offers_three_options_with_their_credits(admin_client):
+def test_upload_offers_both_ai_options_with_their_credits(admin_client):
     client, t, _ = admin_client
     ins = _inspect(client, t)
     bo = ins["build_options"]
     modes = {o["mode"]: o for o in bo["options"]}
-    assert set(modes) == {"none", "layout", "full"} and bo["default"] == "full"
-    assert modes["none"]["max_credits"] == 0 and all("models" not in o for o in bo["options"])
-    assert modes["layout"]["max_credits"] == build_modes.max_credits("layout", ins["page_count"])
+    assert set(modes) == {"layout", "full"} and bo["default"] == "full"   # the no-AI option is retired
+    assert all("models" not in o for o in bo["options"])
+    assert modes["layout"]["max_credits"] == build_modes.max_credits("layout", ins["page_count"]) > 0
     assert modes["full"]["max_credits"] >= modes["layout"]["max_credits"]
 
 
@@ -76,19 +76,15 @@ def test_an_ai_option_needs_the_estimate_that_was_shown(admin_client):
     assert r.status_code == 409
 
 
-def test_without_ai_spends_nothing_and_uses_no_cached_layout(admin_client, no_live_ai, monkeypatch):
+def test_the_no_ai_option_is_retired_but_legacy_versions_still_render(admin_client):
+    """The no-AI build option is gone from the upload screen and the API; legacy versions
+    stored as "none" (or NULL) still render with no AI at the service level."""
     client, t, _ = admin_client
-    monkeypatch.setattr(get_settings(), "ai_auto_check_max_credits", 50)
-    ins = _inspect(client, t, "acme_q2fy26_results_scanned.pdf")         # scanned: figures get flagged
-    r = _create(client, t, ins, "none")
-    assert r.status_code == 201, r.text
-    drain()
-    v = client.get(f"/api/tenants/{t.id}/reports/{r.json()['report_id']}/versions/{r.json()['version']['id']}").json()
-    assert v["build_mode"] == "none" and v["status"] in ("needs_review", "validation_issues")
-    assert no_live_ai == []
-    with db.session(system_context()) as s:
-        assert s.scalar(text("SELECT count(*) FROM ai_usage WHERE tenant_id = :t"), {"t": t.id}) == 0
-        assert not s.scalars(select(Job).where(Job.tenant_id == t.id, Job.kind == "pipeline.ai_check")).all()
+    ins = _inspect(client, t)
+    assert "none" not in {o["mode"] for o in ins["build_options"]["options"]}
+    assert _create(client, t, ins, "none").status_code == 422          # no longer accepted
+    # legacy "none" still means "no AI" wherever an old version is processed
+    assert build_modes.caps("none", 400) == {"layout": 0, "labels": 0, "check": 0}
     assert page_layouts.layouts_for(tenant_context(None, t.id, None), None, "x", {"sections": []}, b"", mode="none") == {}
 
 
@@ -115,16 +111,17 @@ def test_full_ai_runs_the_double_check_and_layout_only_does_not(admin_client, no
 def test_rebuild_with_another_option_keeps_reviews_and_checks_the_estimate(admin_client):
     client, t, _ = admin_client
     ins = _inspect(client, t)
-    r = _create(client, t, ins, "none")
+    r = _create(client, t, ins, "layout", build_modes.max_credits("layout", ins["page_count"]))
+    assert r.status_code == 201, r.text
     drain()
     base = f"/api/tenants/{t.id}/reports/{r.json()['report_id']}/versions/{r.json()['version']['id']}"
     v = client.get(base).json()
     opts = {o["mode"]: o for o in v["build_options"]["options"]}
-    assert client.post(base + "/build-mode", json={"build_mode": "layout"}).status_code == 409
-    r2 = client.post(base + "/build-mode", json={"build_mode": "layout", "credits_shown": opts["layout"]["max_credits"]})
-    assert r2.status_code == 200, r2.text and r2.json()["build_mode"] == "layout"
+    assert client.post(base + "/build-mode", json={"build_mode": "full"}).status_code == 409   # needs the shown estimate
+    r2 = client.post(base + "/build-mode", json={"build_mode": "full", "credits_shown": opts["full"]["max_credits"]})
+    assert r2.status_code == 200, r2.text and r2.json()["build_mode"] == "full"
     drain()
-    assert client.get(base).json()["build_mode"] == "layout"
+    assert client.get(base).json()["build_mode"] == "full"
 
 
 def test_credit_history_by_month_and_report(admin_client):
