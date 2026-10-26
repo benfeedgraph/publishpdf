@@ -663,16 +663,20 @@ def page_css(theme: dict) -> str:
 # ------------------------------------------------------------------ report bundle
 
 
-def multipage_sections(sections: list[dict], index_links: dict, skip_ids: set[str] = frozenset()) -> list[dict] | None:
-    """The ordered sections to render as their own web pages, or None to keep the whole report
-    on one page. We split when the PDF has a real contents/TOC (``index_links`` is non-empty: it
-    only exists where the PDF's own contents table enumerates the sections) and there are at
-    least two heading-bearing sections to divide it into. A long report is then a set of short,
-    navigable pages instead of one unreadably long one. The leading section with no heading (the
-    report's intro) and the cover title (``skip_ids``) belong on the contents home page, not on
-    their own page."""
+def multipage_sections(sections: list[dict], index_links: dict, skip_ids: set[str] = frozenset(),
+                       has_contents_page: bool = False) -> list[dict] | None:
+    """The ordered sections to render as their own web pages, or None to keep the whole report on
+    one page. We split when the PDF presents itself as a contents-led document: it has a contents
+    page — a "Contents" page (``has_contents_page``) or a contents table the parser reads
+    (``index_links``) — and at least two heading-bearing sections to divide it into. Then a long
+    report becomes a set of short, navigable pages instead of one unreadably long one. The strict
+    contents-table parse is NOT required on its own: real reports list front matter in roman
+    numerals or page ranges the parser can't read, yet still plainly have a contents page. A report
+    with sections but no contents page (a short results statement, an FAQ) stays a single page. The
+    leading section with no heading (the report's intro) and the cover title (``skip_ids``) stay on
+    the contents home page, not their own page."""
     heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
-    return heads if (index_links and len(heads) >= 2) else None
+    return heads if ((bool(index_links) or has_contents_page) and len(heads) >= 2) else None
 
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
@@ -717,7 +721,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # The PDF's own contents page is left out: "In this report" does that job on the web.
         tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
         skip = {tables[tid]["source"]["page"] for tid in index_links if tables[tid]["source"]["page"] <= 5}
-        skip |= _contents_pages(pdf_bytes)
+        contents_pages = _contents_pages(pdf_bytes)
+        skip |= contents_pages
         vis_boxes: dict[int, list] = {}
         words: dict[int, int] = {}
         table_pages: set[int] = set()
@@ -873,7 +878,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         skip_ids = {front["id"]} if front else set()
         if p1_cover and owner_of(1):
             skip_ids.add(owner_of(1))
-        split = multipage_sections(sections, index_links, skip_ids)
+        split = multipage_sections(sections, index_links, skip_ids, bool(contents_pages))
         if split:
             # One page per section, with a sidebar navigator; the home page is the contents.
             nav = [{"slug": s["slug"], "title": s.get("heading_text") or SECTION_TYPE_LABEL.get(s["type"], "Section"),
@@ -886,8 +891,10 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 page_title=title, canonical_path=base, description=desc,
                 jsonld=Markup(_jsonld(schema, base)), has_landing=False, overview_href=None).encode()
             for i, s in enumerate(split):
-                sdesc = (f"{m['company']} {m['period_label']} {type_label}: "
-                         + (story.plain_excerpt(s) or nav[i]["title"]))[:300]
+                # Keep the meta description digit-safe: plain_excerpt is digit-free, and the prefix
+                # is metadata only (a section heading can carry numbers the attribute check rejects).
+                ex = story.plain_excerpt(s)
+                sdesc = (f"{m['company']} {m['period_label']} {type_label}" + (f": {ex}" if ex else ""))[:300]
                 files[base.lstrip("/") + s["slug"] + "/index.html"] = tmpl.render(
                     **web_ctx, mode="section", nav=nav, current=s, sec_href=sec_href, start_href=None,
                     prev=(nav[i - 1] if i > 0 else home), next=(nav[i + 1] if i + 1 < len(split) else None),

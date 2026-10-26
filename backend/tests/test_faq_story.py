@@ -241,6 +241,33 @@ def test_a_long_report_with_a_contents_page_splits_into_one_page_per_section():
     assert validation.check_bundle(schema, files) == []
 
 
+def test_a_report_splits_even_when_the_contents_table_cannot_be_parsed():
+    # Real annual reports list front matter in roman numerals / page ranges, so the strict
+    # contents-table parser (index_links) finds nothing — but the report still has a Contents
+    # page and many sections, so it must still split (the ITC case).
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 300), "ENDURING VALUE", fontname="hebo", fontsize=22)
+    toc = doc.new_page()
+    toc.insert_text((72, 70), "Contents", fontname="hebo", fontsize=18)
+    rows = [("Future-Forward Enterprise", "i-xxiv"), ("Board of Directors", "01"),
+            ("Your Directors", "02"), ("Corporate Governance", "12"), ("Financial Statements", "120")]
+    for i, (lbl, pg) in enumerate(rows):
+        y = 120 + 26 * i
+        toc.insert_text((72, y), lbl, fontname="helv", fontsize=11)
+        toc.insert_text((470, y), pg, fontname="helv", fontsize=11)
+    for lbl, _ in rows[:4]:
+        p = doc.new_page()
+        p.insert_text((72, 80), lbl, fontname="hebo", fontsize=15)
+        p.insert_textbox(pymupdf.Rect(72, 110, 520, 400), BODY + " " + BODY, fontname="helv", fontsize=11)
+    pdf = doc.tobytes()
+    schema, _ = extract(pdf, {**META, "report_type": "annual_report"})
+    assert story.index_links(schema, 6) == {}                 # the TOC table is not machine-parseable
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    assert base + "board-of-directors/index.html" in files    # it still split into section pages
+    assert validation.check_bundle(schema, files) == []
+
+
 def test_a_report_without_a_contents_page_stays_a_single_page():
     # The FAQ PDF has headed sections but no contents TABLE, so it is not split.
     schema, _ = extract(_faq_pdf(), META)

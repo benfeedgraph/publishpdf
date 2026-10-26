@@ -876,6 +876,14 @@ def check_rendered_html(schema: dict, html_text: str, page_name: str) -> list[Is
     meta = schema["metadata"]
     meta_values = {k: str(v) for k, v in meta.items() if isinstance(v, (str, int))}
     allowed_meta_tokens = {t for v in meta_values.values() for t in re.split(r"\s+", v) if has_digit(t)}
+    # A split report's section pages carry the section's own heading in the <title> and breadcrumb.
+    # Those headings are verified schema content (like the metadata labels), so their number-bearing
+    # tokens (e.g. "FY26", "Q2") are allowed in attributes too — the body digit check is unchanged.
+    for s in schema.get("sections", []):
+        for t in re.split(r"\s+", s.get("heading_text", "") or ""):
+            tok = t.strip(",.;:()")
+            if has_digit(tok):
+                allowed_meta_tokens.add(tok)
     scan = _PageScan()
     scan.feed(html_text)
     figs = schema["figures"]
