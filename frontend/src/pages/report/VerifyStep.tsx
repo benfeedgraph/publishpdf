@@ -27,10 +27,12 @@ function stageProgress(stage: string | null, status: string): { frac: number; la
     Math.min(0.99, Math.max(0.01, STAGE_START[base] + STAGE_WEIGHT[base] * Math.min(1, Math.max(0, within))));
   const m = s.match(/reading page (\d+) of (\d+)/);
   if (m) return { frac: at("extract", Number(m[1]) / Number(m[2])), label: `Reading page ${m[1]} of ${m[2]}`, exact: true };
+  const l = s.match(/laying out page (\d+) of (\d+)/);
+  if (l) return { frac: at("render", 0.40 * (Number(l[1]) / Number(l[2]))), label: `Designing the pages — page ${l[1]} of ${l[2]}`, exact: true };
   const r = s.match(/building page (\d+) of (\d+)/);
-  if (r) return { frac: at("render", 0.85 * (Number(r[1]) / Number(r[2]))), label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
+  if (r) return { frac: at("render", 0.40 + 0.40 * (Number(r[1]) / Number(r[2]))), label: `Building the web page — page ${r[1]} of ${r[2]}`, exact: true };
   const u = s.match(/saving file (\d+) of (\d+)/);
-  if (u) return { frac: at("render", 0.85 + 0.15 * (Number(u[1]) / Math.max(1, Number(u[2])))), label: `Saving the web page — file ${u[1]} of ${u[2]}`, exact: true };
+  if (u) return { frac: at("render", 0.80 + 0.20 * (Number(u[1]) / Math.max(1, Number(u[2])))), label: `Saving the web page — file ${u[1]} of ${u[2]}`, exact: true };
   const v = s.match(/validate: (.+) \((\d+) of (\d+)\)/);
   if (v) return { frac: at("validate", Number(v[2]) / Number(v[3])), label: `Checking figures — ${v[1]}`, exact: true };
   const key = s.split(":")[0];
@@ -47,26 +49,27 @@ function formatTimeLeft(remaining: number): string {
   return mins >= 15 ? "A few more minutes" : `About ${mins} min left`;
 }
 
-type EtaFloor = { vid: string; secs: number; at: number };
+type EtaFloor = { vid: string; secs: number; at: number; maxFrac: number; movedAt: number };
 
-// A plain-language, NON-INCREASING "time left". The raw projection (elapsed × remaining-fraction
-// ÷ done-fraction) jumps around on a variable job — a slow stage makes it grow. So we keep a
-// floor per version that only ever ticks DOWN with real elapsed time: a fresh projection can
-// pull the estimate lower, but never push it back up. The result only decreases, which is what
-// a person expects from "time left".
+// A plain-language "time left" that stays honest when a job runs slower than projected. The raw
+// projection (elapsed × remaining-fraction ÷ done-fraction) can jump on a variable job, so we let
+// the shown value FALL freely (good news) but RISE no faster than real time passes (so a slow
+// stage nudges it up smoothly instead of spiking). Crucially, when the progress bar hasn't
+// advanced for a while — a phase that reports nothing, or a genuine stall — we stop the countdown
+// and say so, rather than letting an earlier "under a minute" tick toward a zero that never comes.
 function timeLeft(frac: number, elapsed: number | null | undefined, vid: string,
                   floor: React.MutableRefObject<EtaFloor | null>): string | null {
   if (frac >= 0.985) return "Almost done";
   if (elapsed == null || elapsed < 8 || frac < 0.05) return "Estimating time left…";
+  // Carry the floor only within one run; a new version or a clock that went backwards resets it.
+  const prev = floor.current && floor.current.vid === vid && elapsed >= floor.current.at ? floor.current : null;
+  const maxFrac = Math.max(frac, prev?.maxFrac ?? 0);
+  const movedAt = prev && frac <= prev.maxFrac + 1e-4 ? prev.movedAt : elapsed;   // when the bar last advanced
   const projection = (elapsed * (1 - frac)) / frac;
-  const prev = floor.current;
-  // Reset when this is a new version, or elapsed went backwards (a re-run restarted the clock).
-  let secs = projection;
-  if (prev && prev.vid === vid && elapsed >= prev.at) {
-    const ticked = Math.max(0, prev.secs - (elapsed - prev.at));   // old estimate, aged by real time
-    secs = Math.min(projection, ticked);                           // never above what we last showed
-  }
-  floor.current = { vid, secs, at: elapsed };
+  // fall freely; rise no faster than the clock, so the estimate never jumps upward sharply
+  const secs = prev ? Math.min(projection, prev.secs + (elapsed - prev.at)) : projection;
+  floor.current = { vid, secs, at: elapsed, maxFrac, movedAt };
+  if (elapsed - movedAt > 20) return "Still working — this is taking longer than expected";
   return formatTimeLeft(secs);
 }
 

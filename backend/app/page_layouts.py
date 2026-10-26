@@ -32,7 +32,7 @@ def cache_key(sha: str) -> str:
 
 
 def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: dict, pdf: bytes,
-                *, mode: str | None = None) -> dict[int, dict]:
+                *, mode: str | None = None, progress=None) -> dict[int, dict]:
     """{page: {"fingerprint", "sections"}} for design-led pages that have a layout.
 
     `mode` is the report's build option (app.build_modes): "none" uses no AI layout at all
@@ -85,7 +85,9 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
         transport = ai_check.transport()
         spent_exact = 0.0
         changed = False
-        for n, els, fp, W, H in todo:
+        for i, (n, els, fp, W, H) in enumerate(todo, start=1):
+            if progress:
+                progress(i, len(todo))          # the slowest render phase: one model call per page
             tin, tout = ai_layout.estimate_tokens(els)
             est = ai_usage.usd_for("gemini", tin, tout) / cfg.ai_credit_usd
             if spent_exact + est > budget:

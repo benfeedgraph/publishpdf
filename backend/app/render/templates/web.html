@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import runs, meta with context %}
-{% from "_document.html" import doc_block, doc_section with context %}
+{% from "_document.html" import doc_block, doc_section, rail, sections_menu, breadcrumb, prevnext, contents_nav with context %}
+{% set mode = mode|default('full') %}
 
 {#- A PDF page kept as designed (a cover, an infographic spread): its artwork, with its
     words as real text laid over it. Scales with its box. -#}
@@ -13,18 +14,40 @@
 </figure>
 {%- endmacro -%}
 
+{#- One section's content: its page anchors, the section itself, then its whole-page pictures
+    (an AI-laid-out page, or a page shown as designed). Used by the single page and a section page. -#}
+{%- macro section_body(s, hlevel='h2', show_heading=true) -%}
+{%- for n in anchors.get(s.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
+{%- if s.id not in quiet %}{{ doc_section(s, figures, hlevel, show_heading) }}{% endif %}
+{%- for p in pictures.get(s.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
+{%- endmacro -%}
+
+{#- The report's intro (the leading section with no heading) plus its pictures — shown at the
+    top of the single page, and on the contents home page of a split report. -#}
+{%- macro front_intro() -%}
+{%- if front %}
+{%- for n in anchors.get(front.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
+{%- if front_blocks %}
+<section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in front_blocks %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>
+{%- endif %}
+{%- for p in pictures.get(front.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
+{%- endif %}
+{%- endmacro -%}
+
 {#- The web edition: the report as a web page — its own words in the PDF's order, set as
     readable web type; charts and graphics shown inline, cut from the PDF's artwork with
-    their labels as real text. The PDF stays the official document. -#}
+    their labels as real text. A long report (with a contents page) is split into one page per
+    section with a sidebar navigator; everything stays server-rendered HTML. -#}
 {% block content %}
-<article class="web" id="top"{% if faq %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
+<article class="web" id="top"{% if faq and mode != 'section' %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
+  {%- if mode != 'section' %}
   <header class="web-hero">
     <div class="web-hero-in{% if cover %} has-cover{% endif %}">
       <div class="web-hero-text">
         <p class="web-eyebrow">{{ meta("company", m.company) }}</p>
         <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
         <p class="web-actions">
-          {%- if first_q %}<a class="btn btn-primary" href="#{{ first_q.slug }}">Start reading <span class="arr" aria-hidden="true">↓</span></a>{% endif %}
+          {%- if start_href or first_q %}<a class="btn btn-primary" href="{{ start_href or ('#' + first_q.slug) }}">{{ 'Start reading' if mode == 'full' else 'Read the report' }} <span class="arr" aria-hidden="true">{{ '↓' if mode == 'full' else '→' }}</span></a>{% endif %}
           {%- if has_landing %}<a class="btn" href="{{ overview_href }}">Overview</a>{% endif %}
           <a class="btn" href="{{ pdf_href }}">Download the PDF</a>
         </p>
@@ -32,23 +55,35 @@
       {%- if cover %}{{ designed_page(cover, 'web-cover') }}{% endif %}
     </div>
   </header>
+  {%- endif %}
 
-
+  {%- if mode == 'section' %}
+  <div class="web-shell">
+    {{ rail(nav, current.slug, base_path) }}
+    <div class="web-main">
+      {{ sections_menu(nav, current.slug, base_path) }}
+      {{ breadcrumb(company, current) }}
+      <h1 class="web-sec-title">{{ runs(current.heading, figures) or section_type_label(current.type) }}</h1>
+      {{ section_body(current, 'h2', false) }}
+      {{ prevnext(prev, next) }}
+      <p class="doc-note fine">This page is the web edition of the PDF: the same content, in the same order. Every figure is copied unchanged from the PDF, which remains the official document. <a href="{{ base_path }}">All sections</a>.</p>
+    </div>
+  </div>
+  {%- elif mode == 'home' %}
   <div class="web-body doc">
-    {%- if front %}
-    {%- for n in anchors.get(front.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
-    {%- if front_blocks %}
-    <section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in front_blocks %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>
-    {%- endif %}
-    {%- for p in pictures.get(front.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
-    {%- endif %}
+    {{ front_intro() }}
+    {{ contents_nav(nav) }}
+    <p class="doc-note fine">This is the web edition of the PDF: the same content, in the same order, split into the sections above. Every figure is copied unchanged from the PDF, which remains the official document.</p>
+  </div>
+  {%- else %}
+  <div class="web-body doc">
+    {{ front_intro() }}
     {%- for s in sections if not (front and s.id == front.id) %}
-    {%- for n in anchors.get(s.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
-    {%- if s.id not in quiet %}{{ doc_section(s, figures) }}{% endif %}
-    {%- for p in pictures.get(s.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
+    {{ section_body(s) }}
     {%- endfor %}
     <p class="doc-note fine">This page is the web edition of the PDF: the same content, in the same order. Every figure is copied unchanged from the PDF, which remains the official document.</p>
   </div>
+  {%- endif %}
 </article>
 <a class="to-top" href="#top" aria-label="Back to the top">↑</a>
 {% endblock %}

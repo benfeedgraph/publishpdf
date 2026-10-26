@@ -10,7 +10,7 @@
 <thead><tr><th scope="col">Content</th>{% for row in b.header_rows[-1:] %}{% for c in row %}<th scope="col">{{ runs(c.runs, figures) }}</th>{% endfor %}{% endfor %}{% if not b.header_rows %}<th scope="col">Page</th>{% endif %}</tr></thead>
 <tbody>
 {%- for row in b.rows %}
-<tr><th scope="row">{% if links.get(loop.index0) %}<a href="#{{ links[loop.index0] }}">{{ runs(row.label, figures) }}</a>{% else %}{{ runs(row.label, figures) }}{% endif %}</th>{% for c in row.cells %}<td>{{ runs(c.runs, figures) }}</td>{% endfor %}</tr>
+<tr><th scope="row">{% if links.get(loop.index0) %}<a href="{% if sec_href %}{{ sec_href.get(links[loop.index0], '#' + links[loop.index0]) }}{% else %}#{{ links[loop.index0] }}{% endif %}">{{ runs(row.label, figures) }}</a>{% else %}{{ runs(row.label, figures) }}{% endif %}</th>{% for c in row.cells %}<td>{{ runs(c.runs, figures) }}</td>{% endfor %}</tr>
 {%- endfor %}
 </tbody>
 </table>
@@ -79,5 +79,55 @@
   {{ doc_block(b, figures, s) }}
   {%- endfor %}
   </div></div>
+</section>
+{%- endmacro -%}
+
+{#- ---- multi-page navigation: a long report split into one page per section ---- -#}
+
+{#- The persistent left sidebar: every section page, the current one highlighted. -#}
+{%- macro rail(nav, current_slug, home_href) -%}
+<nav class="web-rail" aria-label="Report sections" data-nocheck="nav">
+  <a class="web-rail-top{% if not current_slug %} is-current{% endif %}" href="{{ home_href }}"{% if not current_slug %} aria-current="page"{% endif %}>Contents</a>
+  <ol>
+  {%- for it in nav %}
+    <li><a href="{{ it.href }}"{% if it.slug == current_slug %} class="is-current" aria-current="page"{% endif %}>{{ it.title }}</a></li>
+  {%- endfor %}
+  </ol>
+</nav>
+{%- endmacro -%}
+
+{#- The same list as a disclosure for narrow screens, where the sidebar is hidden. -#}
+{%- macro sections_menu(nav, current_slug, home_href) -%}
+<details class="sections-menu" data-nocheck="nav">
+  <summary>Sections</summary>
+  <ol>
+    <li><a href="{{ home_href }}"{% if not current_slug %} aria-current="page"{% endif %}>Contents</a></li>
+  {%- for it in nav %}
+    <li><a href="{{ it.href }}"{% if it.slug == current_slug %} aria-current="page"{% endif %}>{{ it.title }}</a></li>
+  {%- endfor %}
+  </ol>
+</details>
+{%- endmacro -%}
+
+{%- macro breadcrumb(company, current) -%}
+<p class="web-breadcrumb" data-nocheck="nav"><a href="{{ origin }}/">{{ company }}</a> <span aria-hidden="true">›</span> <span>{{ current.heading_text or section_type_label(current.type) }}</span></p>
+{%- endmacro -%}
+
+{%- macro prevnext(prev, next) -%}
+<nav class="web-prevnext" aria-label="Section" data-nocheck="nav">
+  {%- if prev %}<a class="pn-prev" href="{{ prev.href }}"><span class="pn-k">← Previous</span><span class="pn-t">{{ prev.title }}</span></a>{% else %}<span></span>{% endif %}
+  {%- if next %}<a class="pn-next" href="{{ next.href }}"><span class="pn-k">Next →</span><span class="pn-t">{{ next.title }}</span></a>{% endif %}
+</nav>
+{%- endmacro -%}
+
+{#- The home page's "In this report" navigator: a numbered list of the section pages. -#}
+{%- macro contents_nav(nav) -%}
+<section class="web-contents" aria-label="In this report" data-nocheck="nav">
+  <h2 class="web-contents-h">In this report</h2>
+  <ol class="web-contents-list">
+  {%- for it in nav %}
+    <li><a href="{{ it.href }}"><span class="wc-n" aria-hidden="true"></span><span class="wc-t">{{ it.title }}</span><span class="wc-arr" aria-hidden="true">→</span></a></li>
+  {%- endfor %}
+  </ol>
 </section>
 {%- endmacro -%}

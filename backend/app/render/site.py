@@ -437,14 +437,71 @@ REFLOW_MIN_WORDS = 40     # below this a page is mostly pictures: it is shown as
 WEB_CSS = """
 /* ---- web edition: the report as a web page ---- */
 .layout-document:has(.web){background:var(--c-background)}
-.web-hero{background:linear-gradient(180deg,var(--c-primary-soft),var(--c-background) 92%);border-bottom:1px solid var(--c-border)}
-.web-hero-in{max-width:1120px;margin:0 auto;padding:clamp(40px,7vw,96px) 24px clamp(36px,5vw,72px);display:grid;gap:clamp(28px,5vw,72px);align-items:center}
-.web-hero-in.has-cover{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr)}
-.web-eyebrow{margin:0;color:var(--c-primary);font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:.82em}
-.web-hero h1{margin:.3em 0 0;font-size:clamp(2.2em,5.2vw,3.8em);line-height:1.05}
-.web-hero h1>span:not([data-meta]){display:block;margin-top:.35em;font-weight:600;color:var(--c-muted);font-size:.46em;letter-spacing:-.01em;line-height:1.25}
-.web-actions{display:flex;gap:12px;flex-wrap:wrap;margin:32px 0 0}
-.web-cover{margin:0;justify-self:end;width:100%;max-width:420px;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 0 0 1px var(--c-border),var(--shadow-3);transform:rotate(1.2deg)}
+/* A bold, on-brand hero: a deep gradient built from the brand's own two colours (mixed toward
+   near-black so white text is always legible, whatever the palette), with a primary-coloured
+   glow and a dimensional cover. Theme-driven — no hard-coded brand colour. */
+.web-hero{position:relative;isolation:isolate;overflow:hidden;color:#fff;border-bottom:0;
+  background:
+    radial-gradient(1100px 520px at 88% -25%, color-mix(in srgb,var(--c-primary) 60%, transparent), transparent 62%),
+    linear-gradient(145deg, color-mix(in srgb,var(--c-secondary) 78%, #060814) 0%, color-mix(in srgb,var(--c-primary) 60%, #060814) 100%)}
+.web-hero::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(70% 130% at 18% 115%, color-mix(in srgb,var(--c-primary) 28%, transparent), transparent 70%)}
+.web-hero-in{position:relative;max-width:1120px;margin:0 auto;padding:clamp(52px,8vw,116px) 24px clamp(44px,6vw,88px);display:grid;gap:clamp(28px,5vw,72px);align-items:center}
+.web-hero-in.has-cover{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+.web-eyebrow{margin:0 0 20px;display:inline-flex;align-items:center;gap:12px;color:rgba(255,255,255,.9);font-weight:700;letter-spacing:.16em;text-transform:uppercase;font-size:.8em}
+.web-eyebrow::before{content:"";width:30px;height:2px;border-radius:2px;background:color-mix(in srgb,var(--c-primary) 30%, #fff)}
+.web-hero h1{margin:0;color:#fff;font-size:clamp(2.5em,5.8vw,4.3em);line-height:1.02;letter-spacing:-.022em;text-wrap:balance}
+.web-hero h1>span:not([data-meta]){display:block;margin-top:.4em;font-weight:500;color:rgba(255,255,255,.74);font-size:.4em;letter-spacing:.005em;line-height:1.3}
+.web-actions{display:flex;gap:12px;flex-wrap:wrap;margin:clamp(28px,4vw,40px) 0 0}
+.web-hero .btn{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.28);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.web-hero .btn:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.5)}
+.web-hero .btn-primary{background:#fff;color:var(--c-secondary);border-color:#fff;box-shadow:0 12px 32px -12px rgba(0,0,0,.55)}
+.web-hero .btn-primary:hover{background:#fff;filter:brightness(.95)}
+.web-hero .btn .arr{display:inline-block;transition:transform .15s}
+.web-hero .btn-primary:hover .arr{transform:translateY(2px)}
+.web-cover{margin:0;justify-self:end;width:100%;max-width:400px;border-radius:14px;overflow:hidden;background:#fff;
+  box-shadow:0 0 0 1px rgba(255,255,255,.14),0 44px 84px -26px rgba(0,0,0,.62),0 16px 32px -18px rgba(0,0,0,.5);
+  transform:perspective(1200px) rotateY(-7deg) rotate(.8deg);transition:transform .3s ease}
+.web-cover:hover{transform:perspective(1200px) rotateY(-3deg) rotate(.4deg) translateY(-3px)}
+/* ---- long report split into one page per section: sidebar + section pages ---- */
+.web-shell{max-width:1320px;margin:0 auto;padding:clamp(20px,3vw,36px) 24px 0;display:grid;grid-template-columns:248px minmax(0,1fr);gap:clamp(28px,4vw,56px);align-items:start}
+.web-rail{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 104px);overflow:auto;font-size:.92em}
+.web-rail-top{display:block;font-weight:750;color:var(--c-text);text-decoration:none;padding:6px 12px;margin-bottom:6px;border-radius:8px}
+.web-rail-top.is-current,.web-rail-top:hover{background:var(--c-primary-soft);color:var(--c-primary)}
+.web-rail ol{list-style:none;margin:0;padding:0;border-left:2px solid var(--c-border)}
+.web-rail li a{display:block;padding:7px 12px;margin-left:-2px;border-left:2px solid transparent;color:var(--c-muted);text-decoration:none;line-height:1.4}
+.web-rail li a:hover{color:var(--c-primary);border-left-color:var(--c-primary-line)}
+.web-rail li a.is-current{color:var(--c-primary);border-left-color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 6%,transparent);font-weight:650}
+.web-main{min-width:0}
+.web-breadcrumb{margin:0 0 10px;font-size:.9em;color:var(--c-muted)}
+.web-breadcrumb a{color:var(--c-muted);text-decoration:none}.web-breadcrumb a:hover{color:var(--c-primary)}
+.web-sec-title{font-size:clamp(1.7em,3.2vw,2.5em);line-height:1.08;letter-spacing:-.02em;margin:0 0 .7em;text-wrap:balance}
+.web-prevnext{display:flex;gap:16px;justify-content:space-between;margin:40px 0 8px;padding-top:24px;border-top:1px solid var(--c-border)}
+.web-prevnext a{display:flex;flex-direction:column;gap:3px;max-width:48%;padding:12px 16px;border:1px solid var(--c-border);border-radius:var(--radius);text-decoration:none;color:var(--c-text);box-shadow:var(--shadow-1);transition:border-color .15s,transform .15s}
+.web-prevnext a:hover{border-color:var(--c-primary-line);transform:translateY(-1px)}
+.web-prevnext .pn-next{margin-left:auto;text-align:right}
+.web-prevnext .pn-k{font-size:.78em;color:var(--c-muted);font-weight:600}
+.web-prevnext .pn-t{font-weight:650}
+.web-contents{max-width:900px;margin:8px auto 0;padding:0 clamp(0px,2vw,24px)}
+.web-contents-h{font-size:1.5em;margin:0 0 18px;letter-spacing:-.01em}
+.web-contents-list{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:wc}
+.web-contents-list li{counter-increment:wc}
+.web-contents-list a{display:flex;align-items:center;gap:16px;padding:16px 20px;border:1px solid var(--c-border);border-radius:var(--radius);text-decoration:none;color:var(--c-text);background:var(--c-background);box-shadow:var(--shadow-1);transition:border-color .15s,transform .15s,box-shadow .15s}
+.web-contents-list a:hover{border-color:var(--c-primary-line);transform:translateY(-1px);box-shadow:var(--shadow-2)}
+.web-contents-list .wc-n{font-family:var(--font-heading);font-weight:800;color:var(--c-primary);font-variant-numeric:tabular-nums;font-size:1.05em;min-width:1.8em}
+.web-contents-list .wc-n::before{content:counter(wc,decimal-leading-zero)}
+.web-contents-list .wc-t{font-weight:650;font-size:1.08em}
+.web-contents-list .wc-arr{margin-left:auto;color:var(--c-muted);transition:transform .15s}
+.web-contents-list a:hover .wc-arr{transform:translateX(3px);color:var(--c-primary)}
+.sections-menu{display:none;margin:0 0 20px;border:1px solid var(--c-border);border-radius:12px;background:var(--c-surface)}
+.sections-menu>summary{cursor:pointer;padding:12px 16px;font-weight:650;list-style:none}
+.sections-menu>summary::-webkit-details-marker{display:none}
+.sections-menu>summary::after{content:"▾";float:right;color:var(--c-muted)}
+.sections-menu ol{list-style:none;margin:0;padding:0 8px 10px}
+.sections-menu li a{display:block;padding:8px 10px;color:var(--c-text);text-decoration:none;border-radius:8px}
+.sections-menu li a[aria-current]{color:var(--c-primary);font-weight:650;background:var(--c-primary-soft)}
+@media (max-width:1120px){.web-shell{grid-template-columns:minmax(0,1fr);max-width:900px}.web-rail{display:none}.sections-menu{display:block}}
+@media (max-width:560px){.web-prevnext{flex-direction:column}.web-prevnext a{max-width:100%}}
 .web-body{max-width:828px;margin:0 auto;padding:clamp(8px,2vw,24px) 24px 0}
 .web .doc-sec{padding:clamp(34px,4.5vw,52px) 0}
 .web .doc-sec:first-of-type{border-top:0}
@@ -559,6 +616,7 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 @media (max-width:860px){
   .web-hero-in.has-cover{grid-template-columns:1fr}
   .web-cover{justify-self:start;max-width:280px;transform:none}
+  .web-cover:hover{transform:none}
 }
 @media (max-width:640px){
   .web-hero-in,    .web-vis{--ww:min(var(--vw),100%)}
@@ -603,6 +661,18 @@ def page_css(theme: dict) -> str:
 
 
 # ------------------------------------------------------------------ report bundle
+
+
+def multipage_sections(sections: list[dict], index_links: dict, skip_ids: set[str] = frozenset()) -> list[dict] | None:
+    """The ordered sections to render as their own web pages, or None to keep the whole report
+    on one page. We split when the PDF has a real contents/TOC (``index_links`` is non-empty: it
+    only exists where the PDF's own contents table enumerates the sections) and there are at
+    least two heading-bearing sections to divide it into. A long report is then a set of short,
+    navigable pages instead of one unreadably long one. The leading section with no heading (the
+    report's intro) and the cover title (``skip_ids``) belong on the contents home page, not on
+    their own page."""
+    heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
+    return heads if (index_links and len(heads) >= 2) else None
 
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
@@ -787,22 +857,52 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         from app import build_modes
         want_landing = bool(landing) and bool(page_count) and page_count >= build_modes.LANDING_MIN_PAGES
         overview_href = href("overview/")
-        files[base.lstrip("/") + "index.html"] = _ENV.get_template("web.html").render(
-            **{**common, "css": css_all}, page_title=title, canonical_path=base, description=desc,
-            jsonld=Markup(_jsonld(schema, base)), qparts=qparts, faq=story.is_faq(schema), front=front,
+        og = {"href": href(page_list[0]["bg"])} if page_list else None
+        # Context shared by every web page of the report (the single page, or — for a long report
+        # with a contents page — the home page and one page per section).
+        web_ctx = dict(
+            **{**common, "css": css_all}, qparts=qparts, faq=story.is_faq(schema), front=front,
             front_blocks=front_blocks, first_q=next((x for x in sections if qparts[x["id"]]), None),
-            doclayout=doclayout,
-            doc_order=story.document_order(schema, doclayout), heading_ids=story.heading_like(schema),
-            index_links=index_links, crops=crops, graphic_start=set(region_at), in_graphic=in_graphic, cover=cover,
-            quiet=quiet, ai_pages=ai_pages, pictures=pictures, anchors=anchors,
-            has_landing=want_landing, overview_href=overview_href,
-            og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
-        if want_landing:
-            files[base.lstrip("/") + "overview/index.html"] = _ENV.get_template("landing.html").render(
-                **{**common, "css": css_all}, page_title=f"Overview · {title}", canonical_path=base + "overview/",
-                description=desc, jsonld=None, qparts=qparts, parts=story.landing_parts(schema),
-                report_href=f"{ORIGIN_PLACEHOLDER}{base}", cover=cover,
-                og_cover={"href": href(page_list[0]["bg"])} if page_list else None).encode()
+            doclayout=doclayout, doc_order=story.document_order(schema, doclayout),
+            heading_ids=story.heading_like(schema), index_links=index_links, crops=crops,
+            graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
+            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og)
+        tmpl = _ENV.get_template("web.html")
+        # The intro lead and, on a true cover, the page-1 title section stay on the home page
+        # (the hero already shows the title) rather than becoming their own near-empty section page.
+        skip_ids = {front["id"]} if front else set()
+        if p1_cover and owner_of(1):
+            skip_ids.add(owner_of(1))
+        split = multipage_sections(sections, index_links, skip_ids)
+        if split:
+            # One page per section, with a sidebar navigator; the home page is the contents.
+            nav = [{"slug": s["slug"], "title": s.get("heading_text") or SECTION_TYPE_LABEL.get(s["type"], "Section"),
+                    "href": href(s["slug"] + "/"), "type": s["type"]} for s in split]
+            sec_href = {s["slug"]: href(s["slug"] + "/") for s in split}
+            home = {"slug": "", "title": "Contents", "href": href("")}
+            files[base.lstrip("/") + "index.html"] = tmpl.render(
+                **web_ctx, mode="home", nav=nav, current=None, sec_href=sec_href,
+                start_href=(nav[0]["href"] if nav else href("")), prev=None, next=None,
+                page_title=title, canonical_path=base, description=desc,
+                jsonld=Markup(_jsonld(schema, base)), has_landing=False, overview_href=None).encode()
+            for i, s in enumerate(split):
+                sdesc = (f"{m['company']} {m['period_label']} {type_label}: "
+                         + (story.plain_excerpt(s) or nav[i]["title"]))[:300]
+                files[base.lstrip("/") + s["slug"] + "/index.html"] = tmpl.render(
+                    **web_ctx, mode="section", nav=nav, current=s, sec_href=sec_href, start_href=None,
+                    prev=(nav[i - 1] if i > 0 else home), next=(nav[i + 1] if i + 1 < len(split) else None),
+                    page_title=f"{nav[i]['title']} · {title}", canonical_path=base + s["slug"] + "/",
+                    description=sdesc, jsonld=None, has_landing=False, overview_href=None).encode()
+        else:
+            files[base.lstrip("/") + "index.html"] = tmpl.render(
+                **web_ctx, mode="full", nav=None, current=None, sec_href=None, start_href=None,
+                prev=None, next=None, page_title=title, canonical_path=base, description=desc,
+                jsonld=Markup(_jsonld(schema, base)), has_landing=want_landing, overview_href=overview_href).encode()
+            if want_landing:
+                files[base.lstrip("/") + "overview/index.html"] = _ENV.get_template("landing.html").render(
+                    **{**common, "css": css_all}, page_title=f"Overview · {title}", canonical_path=base + "overview/",
+                    description=desc, jsonld=None, qparts=qparts, parts=story.landing_parts(schema),
+                    report_href=f"{ORIGIN_PLACEHOLDER}{base}", cover=cover, og_cover=og).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
         page_count = (m.get("source_pdf") or {}).get("page_count")
@@ -1010,6 +1110,8 @@ def _sitemap(reports: list[dict]) -> str:
         urls.append((r["base"], r["lastmod"]))
         if r.get("has_landing"):
             urls.append((f"{r['base']}overview/", r["lastmod"]))
+        for sp in r.get("section_pages") or []:          # a split report's per-section pages
+            urls.append((sp, r["lastmod"]))
         urls += [(f"{r['base']}report.md", r["lastmod"])]
     body = "".join(
         f"<url><loc>{ORIGIN_PLACEHOLDER}{html.escape(u)}</loc>{f'<lastmod>{lm}</lastmod>' if lm else ''}</url>"

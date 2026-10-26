@@ -593,10 +593,17 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
                 paths["/" + rel[: -len("index.html")]] = paths["/" + rel]
         paths[base + "source.pdf"] = {"key": source_key(v.source_sha256), "report_id": str(r.id),
                                       "version_id": str(v.id), "content_type": "application/pdf"}
+        prefix = base.lstrip("/")
+        # A long report is split into one page per section (<base><slug>/index.html); list those
+        # real pages so the sitemap and other consumers point at what actually exists.
+        section_pages = sorted("/" + rel[: -len("index.html")] for rel in files
+                               if rel.startswith(prefix) and rel.endswith("/index.html")
+                               and rel not in (prefix + "index.html", prefix + "overview/index.html"))
         entries.append({"base": base, "period_label": m["period_label"],
                         "type_label": site.REPORT_TYPE_LABEL[m["report_type"]],
                         "has_landing": (base.lstrip("/") + "overview/index.html") in files,
                         "sections": [sec["slug"] for sec in v.schema_json["sections"]],
+                        "section_pages": section_pages,
                         "lastmod": v.published_at.date().isoformat() if v.published_at else None,
                         "sort": (m["fiscal_year"], _period_order(m["period"]), v.published_at.isoformat() if v.published_at else ""),
                         "report_id": str(r.id)})

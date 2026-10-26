@@ -192,10 +192,19 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             storage.put(ctx, thumb_key(v_sha), make_thumb(pdf), "image/webp")
     except Exception:  # noqa: BLE001 - a missing thumbnail only shows a placeholder
         log.exception("thumbnail not stored")
-    # Design-led pages as web sections: AI layouts (cached per PDF, capped, metered).
+    # Design-led pages as web sections: AI layouts (cached per PDF, capped, metered). One model
+    # call per page — the slowest render phase — so it reports progress to keep the bar moving.
     from app import page_layouts
+    last_l = {"t": 0.0}
+
+    def on_layout(done: int, total: int) -> None:
+        import time
+        if done == total or time.monotonic() - last_l["t"] > 1.5:
+            last_l["t"] = time.monotonic()
+            _set_stage(ctx, vid, f"render: laying out page {done} of {total}")
+
     try:
-        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode)
+        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode, progress=on_layout)
     except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
         log.exception("AI layouts unavailable")
         layouts = {}

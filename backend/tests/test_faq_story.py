@@ -202,6 +202,55 @@ def test_continuous_page_drops_page_furniture_contents_and_blank_pages():
     assert validation.check_bundle(schema, files) == []
 
 
+def _multisection_pdf() -> bytes:
+    """A report with a real contents table pointing at headed sections — the shape that is
+    split into one web page per section."""
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 300), "ACME ANNUAL REPORT 2026", fontname="hebo", fontsize=22)
+    toc = doc.new_page()
+    toc.insert_text((72, 80), "Contents", fontname="hebo", fontsize=18)
+    rows = [("Chairman Statement", 3), ("Business Review", 4), ("Strategy", 5), ("Governance", 6)]
+    for i, (lbl, pg) in enumerate(rows):
+        y = 130 + 28 * i
+        toc.insert_text((72, y), lbl, fontname="helv", fontsize=12)
+        toc.insert_text((480, y), str(pg), fontname="helv", fontsize=12)
+    for lbl, _ in rows:
+        p = doc.new_page()
+        p.insert_text((72, 80), lbl, fontname="hebo", fontsize=16)
+        p.insert_textbox(pymupdf.Rect(72, 110, 520, 400), BODY + " " + BODY, fontname="helv", fontsize=11)
+    return doc.tobytes()
+
+
+def test_a_long_report_with_a_contents_page_splits_into_one_page_per_section():
+    schema, _ = extract(_multisection_pdf(), {**META, "report_type": "annual_report"})
+    assert site.multipage_sections(schema["sections"], story.index_links(schema, 6)) is not None
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=_multisection_pdf())
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    # a home contents page, plus one page per headed section (the cover title is not its own page)
+    pages = {k for k in files if k.endswith("index.html")}
+    assert base + "index.html" in pages
+    for slug in ("chairman-statement", "business-review", "strategy", "governance"):
+        assert base + slug + "/index.html" in pages
+    home = files[base + "index.html"].decode()
+    assert "In this report" in home and base.rstrip("/").split("/")[-1]  # navigator present
+    assert ">01<" not in home                                 # section numbers come from CSS, not HTML
+    sec = files[base + "business-review/index.html"].decode()
+    assert 'class="web-rail"' in sec and 'aria-current="page"' in sec   # sidebar, current highlighted
+    assert "web-prevnext" in sec and base + "strategy/" in sec          # prev/next + sibling links
+    # the no-unverified-digit invariant still holds across every page
+    assert validation.check_bundle(schema, files) == []
+
+
+def test_a_report_without_a_contents_page_stays_a_single_page():
+    # The FAQ PDF has headed sections but no contents TABLE, so it is not split.
+    schema, _ = extract(_faq_pdf(), META)
+    assert site.multipage_sections(schema["sections"], story.index_links(schema, None)) is None
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=_faq_pdf())
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    pages = [k for k in files if k.endswith("index.html")]
+    assert pages == [base + "index.html"]                     # exactly one web page
+
+
 def test_parallel_and_serial_builds_are_identical(monkeypatch):
     doc = pymupdf.open()
     for n in range(12):
