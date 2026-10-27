@@ -223,7 +223,8 @@ def _multisection_pdf() -> bytes:
 
 def test_a_long_report_with_a_contents_page_splits_into_one_page_per_section():
     schema, _ = extract(_multisection_pdf(), {**META, "report_type": "annual_report"})
-    assert site.multipage_sections(schema["sections"], story.index_links(schema, 6)) is not None
+    assert site.report_chapters(schema["sections"], _multisection_pdf(), story.index_links(schema, 6),
+                                set(), True, 6) is not None
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=_multisection_pdf())
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     # a home contents page, plus one page per headed section (the cover title is not its own page)
@@ -271,7 +272,8 @@ def test_a_report_splits_even_when_the_contents_table_cannot_be_parsed():
 def test_a_report_without_a_contents_page_stays_a_single_page():
     # The FAQ PDF has headed sections but no contents TABLE, so it is not split.
     schema, _ = extract(_faq_pdf(), META)
-    assert site.multipage_sections(schema["sections"], story.index_links(schema, None)) is None
+    assert site.report_chapters(schema["sections"], _faq_pdf(), story.index_links(schema, None),
+                                set(), False, None) is None
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=_faq_pdf())
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     pages = [k for k in files if k.endswith("index.html")]

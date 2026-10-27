@@ -109,8 +109,8 @@
 </details>
 {%- endmacro -%}
 
-{%- macro breadcrumb(company, current) -%}
-<p class="web-breadcrumb" data-nocheck="nav"><a href="{{ origin }}/">{{ company }}</a> <span aria-hidden="true">›</span> <span>{{ current.heading_text or section_type_label(current.type) }}</span></p>
+{%- macro breadcrumb(company, title) -%}
+<p class="web-breadcrumb" data-nocheck="nav"><a href="{{ origin }}/">{{ company }}</a> <span aria-hidden="true">›</span> <span>{{ title }}</span></p>
 {%- endmacro -%}
 
 {%- macro prevnext(prev, next) -%}

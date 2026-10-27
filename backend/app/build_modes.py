@@ -28,14 +28,15 @@ from app.render import ai_layout
 MODES = ("layout", "full")
 DEFAULT_MODE = "full"
 
-# The extractive "overview" landing page is offered only for long reports. It is orthogonal
-# to the build mode above: no AI, no credits — just a second page composed verbatim from the
-# content already in the schema.
+# The extractive "overview" landing page has been retired: a long report is now split into one
+# web page per section with a sidebar navigator (app.render.site.report_chapters), which serves the
+# same purpose. The opt-in is no longer offered and the page is no longer built. The flag/column and
+# the option shape are kept so existing versions and API clients don't break.
 LANDING_MIN_PAGES = 20
 
 
 def landing_available(page_count: int | None) -> bool:
-    return bool(page_count) and page_count >= LANDING_MIN_PAGES
+    return False
 
 
 def landing_option(page_count: int | None) -> dict[str, Any]:

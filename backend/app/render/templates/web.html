@@ -48,7 +48,6 @@
         <h1>{{ meta("period_label", m.period_label) }} <span>{{ report_type_label }}</span></h1>
         <p class="web-actions">
           {%- if start_href or first_q %}<a class="btn btn-primary" href="{{ start_href or ('#' + first_q.slug) }}">{{ 'Start reading' if mode == 'full' else 'Read the report' }} <span class="arr" aria-hidden="true">{{ '↓' if mode == 'full' else '→' }}</span></a>{% endif %}
-          {%- if has_landing %}<a class="btn" href="{{ overview_href }}">Overview</a>{% endif %}
           <a class="btn" href="{{ pdf_href }}">Download the PDF</a>
         </p>
       </div>
@@ -58,13 +57,16 @@
   {%- endif %}
 
   {%- if mode == 'section' %}
+  {%- set start = sections_by_id[current.start_id] %}
   <div class="web-shell">
     {{ rail(nav, current.slug, base_path) }}
     <div class="web-main">
       {{ sections_menu(nav, current.slug, base_path) }}
-      {{ breadcrumb(company, current) }}
-      <h1 class="web-sec-title">{{ runs(current.heading, figures) or section_type_label(current.type) }}</h1>
-      {{ section_body(current, 'h2', false) }}
+      {{ breadcrumb(company, current.title) }}
+      <h1 class="web-sec-title">{{ runs(start.heading, figures) or section_type_label(start.type) }}</h1>
+      {%- for sid in current.section_ids %}
+      {{ section_body(sections_by_id[sid], 'h2', sid != current.start_id) }}
+      {%- endfor %}
       {{ prevnext(prev, next) }}
       <p class="doc-note fine">This page is the web edition of the PDF: the same content, in the same order. Every figure is copied unchanged from the PDF, which remains the official document. <a href="{{ base_path }}">All sections</a>.</p>
     </div>

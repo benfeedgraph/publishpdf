@@ -571,75 +571,22 @@ def test_confirming_a_figure_reuses_the_checks_instead_of_rerunning_them(admin_c
         assert v.validated_schema_sha256 == v.schema_sha256 and v.validated_bundle_sha256 == v.bundle_sha256
 
 
-def test_opt_in_landing_page_for_long_reports(admin_client):
-    """A 20+ page report, built with the opt-in landing page, gets BOTH the full report at its
-    canonical URL and an extractive "overview" page at <base>overview/ — composed entirely
-    from the schema (no AI), with its figures covered by the rendered-page check."""
+def test_overview_landing_page_is_retired(admin_client):
+    """The opt-in extractive overview page was replaced by the per-section split: it is no longer
+    offered (available=False, even for a long report) and never built, whatever the client asks."""
     client, t, _ = admin_client
     data = _long_pdf_bytes(22)
-
-    # the option is offered for a long report...
     made = _inspect_and_create(client, t, data, landing=True, period="q2")
     assert made["inspect"]["page_count"] >= 20
-    assert made["inspect"]["build_options"]["landing"] == {"available": True, "min_pages": 20}
-    rid, vid = made["report_id"], made["version"]["id"]
-    drain()
-    v = _version(client, t, rid, vid)
-    assert v["status"] == "needs_review", v
-    assert v["validation"]["blocking"] == 0          # the landing page's figures validate too
-    assert v["landing"] is True
-    assert v["has_overview"] is True                 # the dashboard can offer the overview link
-
-    base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview"
-    # the full report is still served at the root of the bundle, and links to the overview
-    root = client.get(base + "/")
-    assert root.status_code == 200 and 'class="web"' in root.text and "overview/" in root.text
-    # the overview page: extractive summary, figures as data-fig, links to the full report
-    ov = client.get(base + "/fy2026/q2/results/overview/")
-    assert ov.status_code == 200
-    assert 'class="web landing"' in ov.text and "web-hero" in ov.text
-    assert 'data-fig="' in ov.text and "Key figures" in ov.text and "In this report" in ov.text
-    assert "Read the full report" in ov.text and "1,234.56" in ov.text
-    # the landing page itself is always extractive (no AI), whatever the build mode
-    assert v["build_mode"] == "layout"
-
-    # published: both pages live on the public site, each canonical to itself; sitemap lists both
-    assert client.post(f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/publish",
-                       json={"confirm_reviewed": True}).status_code == 200
-    from app.public import app as public_app, clear_caches
-    clear_caches()
-    pub = TestClient(public_app)
-    host = f"{t.slug}.preview.platform.example.com"
-    full = pub.get("/fy2026/q2/results/", headers={"host": host})
-    assert full.status_code == 200
-    assert f'<link rel="canonical" href="https://{host}/fy2026/q2/results/">' in full.text
-    over = pub.get("/fy2026/q2/results/overview/", headers={"host": host})
-    assert over.status_code == 200
-    assert f'<link rel="canonical" href="https://{host}/fy2026/q2/results/overview/">' in over.text
-    assert "1,234.56" in over.text and "Read the full report" in over.text
-    # overview served with JavaScript off, and without a trailing slash it redirects to add one
-    assert over.text.count("<script") == 0
-    assert pub.get("/fy2026/q2/results/overview", headers={"host": host},
-                   follow_redirects=False).status_code == 301
-    sm = pub.get("/sitemap.xml", headers={"host": host}).text
-    assert "/fy2026/q2/results/</loc>" in sm and "/fy2026/q2/results/overview/</loc>" in sm
-
-
-def test_landing_page_is_not_offered_or_built_for_short_reports(admin_client):
-    """Under 20 pages the option is hidden, and asking for it anyway produces no landing page."""
-    client, t, _ = admin_client
-    data = (CORPUS / "acme_q2fy26_results.pdf").read_bytes()         # 4 pages
-    made = _inspect_and_create(client, t, data, landing=True, period="q3")
-    assert made["inspect"]["page_count"] < 20
     assert made["inspect"]["build_options"]["landing"] == {"available": False, "min_pages": 20}
     rid, vid = made["report_id"], made["version"]["id"]
     drain()
     v = _version(client, t, rid, vid)
-    assert v["status"] == "needs_review" and v["landing"] is False    # coerced off below the threshold
-    assert v["has_overview"] is False                                  # so no overview link is offered
+    assert v["status"] == "needs_review", v
+    assert v["landing"] is False and v["has_overview"] is False
     base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/preview"
     assert client.get(base + "/").status_code == 200                   # full report still built
-    assert client.get(base + "/fy2026/q3/results/overview/").status_code == 404   # but no landing page
+    assert client.get(base + "/fy2026/q2/results/overview/").status_code == 404   # no overview page
 
 
 def test_report_list_thumbnail_is_small_cached_and_never_renders_the_pdf(admin_client, monkeypatch):

@@ -473,6 +473,21 @@ WEB_CSS = """
 .web-rail li a:hover{color:var(--c-primary);border-left-color:var(--c-primary-line)}
 .web-rail li a.is-current{color:var(--c-primary);border-left-color:var(--c-primary);background:color-mix(in srgb,var(--c-primary) 6%,transparent);font-weight:650}
 .web-main{min-width:0}
+/* A chapter page reads as a clean article: the reconstructed "designed" look is toned right down
+   — no full-width colour-block panels or oversized headings — while the theme's colours stay as
+   accents (headings, links, table headers, label bars). */
+.web-main .ai-page{--ww:100%;width:100%;margin:0;padding:0}
+.web-main .ai-panel{background:transparent;box-shadow:none;border-radius:0;padding:0;margin:18px 0}
+.web-main .ai-panel-dark,.web-main .ai-panel-dark .ai-h,.web-main .ai-panel-dark .ai-p,
+.web-main .ai-panel-dark .ai-list{color:var(--c-text)}
+.web-main .ai-panel-dark a{color:var(--c-primary)}
+.web-main .ai-h-a{font-size:1.45em;margin:1em 0 .4em}
+.web-main .ai-h-b{font-size:1.2em}.web-main .ai-h-c{font-size:1.05em}
+.web-main .ai-cards{gap:14px}
+.web-main .ai-card{box-shadow:none;background:var(--c-surface)}
+.web-main .ai-stat{background:var(--c-surface);border-left-color:var(--c-primary)}
+.web-main .doc-sec{padding:14px 0}.web-main .doc-sec:first-of-type{padding-top:0}
+.web-main .doc-q,.web-main .doc-h{font-size:1.2em;letter-spacing:-.01em}
 .web-breadcrumb{margin:0 0 10px;font-size:.9em;color:var(--c-muted)}
 .web-breadcrumb a{color:var(--c-muted);text-decoration:none}.web-breadcrumb a:hover{color:var(--c-primary)}
 .web-sec-title{font-size:clamp(1.7em,3.2vw,2.5em);line-height:1.08;letter-spacing:-.02em;margin:0 0 .7em;text-wrap:balance}
@@ -663,20 +678,110 @@ def page_css(theme: dict) -> str:
 # ------------------------------------------------------------------ report bundle
 
 
-def multipage_sections(sections: list[dict], index_links: dict, skip_ids: set[str] = frozenset(),
-                       has_contents_page: bool = False) -> list[dict] | None:
-    """The ordered sections to render as their own web pages, or None to keep the whole report on
-    one page. We split when the PDF presents itself as a contents-led document: it has a contents
-    page — a "Contents" page (``has_contents_page``) or a contents table the parser reads
-    (``index_links``) — and at least two heading-bearing sections to divide it into. Then a long
-    report becomes a set of short, navigable pages instead of one unreadably long one. The strict
-    contents-table parse is NOT required on its own: real reports list front matter in roman
-    numerals or page ranges the parser can't read, yet still plainly have a contents page. A report
-    with sections but no contents page (a short results statement, an FAQ) stays a single page. The
-    leading section with no heading (the report's intro) and the cover title (``skip_ids``) stay on
-    the contents home page, not their own page."""
+_JUNK_HEADING = re.compile(r"hyper.?link|^\s*(to\s+)?contents\b|^\s*index\s*$|click\b|refer\s+to\b"
+                           r"|relevant\s+pages|return\s+to", re.I)
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
+def _is_junk_heading(t: str) -> bool:
+    """A heading that is really a caption, an instruction or page furniture, not a section title."""
+    t = (t or "").strip()
+    words = t.split()
+    if len(t) < 2 or not words:
+        return True
+    if _JUNK_HEADING.search(t):
+        return True
+    if len(words) > 10:                                  # a sentence / caption, not a title
+        return True
+    if t[0].islower():                                   # a wrapped continuation ("to Contents Page")
+        return True
+    if t.endswith(".") and len(words) > 4:               # a full sentence
+        return True
+    return False
+
+
+def _clean_heading_chapters(heads: list[dict]) -> list[tuple[str, str]]:
+    """(section id, title) for the heading-sections that are real chapter titles: duplicates and
+    running titles (same text on several pages) collapse to one that is then dropped as furniture,
+    captions/instructions are dropped, and only distinct, title-like headings remain."""
+    pages_of: dict[str, set] = {}
+    for s in heads:
+        pages_of.setdefault(_norm_title(s.get("heading_text", "")), set()).add((s.get("source") or {}).get("page"))
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for s in heads:
+        t = (s.get("heading_text") or "").strip()
+        norm = _norm_title(t)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        if _is_junk_heading(t) or len(pages_of.get(norm, ())) > 2:   # junk, or a repeated running title
+            continue
+        out.append((s["id"], t))
+    return out
+
+
+def _outline_chapters(pdf_bytes: bytes | None, sections: list[dict], page_count: int | None) -> list[tuple[str, str]]:
+    """(section id, title) from the PDF's embedded outline/bookmarks (top level), each mapped to the
+    section that starts on or nearest after its page. Empty when the PDF has no outline."""
+    if not pdf_bytes:
+        return []
+    try:
+        import pymupdf
+        toc = pymupdf.open(stream=pdf_bytes, filetype="pdf").get_toc()
+    except Exception:  # noqa: BLE001
+        return []
+    tops = [(title, pg) for lvl, title, pg in toc if lvl == 1 and isinstance(pg, int) and pg >= 1
+            and (not page_count or pg <= page_count)]
+    if not tops:
+        return []
+    by_page = sorted(sections, key=lambda s: (s.get("source") or {}).get("page") or 10 ** 9)
+    out, used = [], set()
+    for title, pg in tops:
+        sec = next((s for s in by_page if ((s.get("source") or {}).get("page") or 10 ** 9) >= pg
+                    and s["id"] not in used and s.get("slug")), None)
+        if sec:
+            used.add(sec["id"])
+            out.append((sec["id"], title.strip()))
+    return out
+
+
+def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: dict,
+                    skip_ids: set[str] = frozenset(), has_contents_page: bool = False,
+                    page_count: int | None = None) -> list[dict] | None:
+    """Group the report's sections into chapters for a multi-page split, or None to keep one page.
+
+    Chapter STARTS come from the PDF's own structure in order of reliability — its outline, its
+    contents table (``index_links``), else cleaned headings — so the sidebar lists real chapters,
+    not every bold line. Sections between two starts (and the junk headings dropped by the cleaner)
+    fold into the preceding chapter, so no content is lost. A report with no contents page and only
+    a handful of plain sections (a results statement, an FAQ) is not split."""
     heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
-    return heads if ((bool(index_links) or has_contents_page) and len(heads) >= 2) else None
+    if len(heads) < 2:
+        return None
+    # chapter starts, most reliable source first
+    starts = _outline_chapters(pdf_bytes, sections, page_count)
+    if not starts and index_links:
+        slugs = {sl for links in index_links.values() for sl in links.values()}
+        starts = [(s["id"], (s.get("heading_text") or "").strip()) for s in heads if s["slug"] in slugs]
+    if not starts and has_contents_page:
+        starts = _clean_heading_chapters(heads)
+    if len(starts) < 2:
+        return None
+    order = {s["id"]: i for i, s in enumerate(sections)}
+    starts = sorted(starts, key=lambda it: order.get(it[0], 10 ** 9))
+    by_id = {s["id"]: s for s in sections}
+    chapters = []
+    for k, (sid, title) in enumerate(starts):
+        lo = order[sid]
+        hi = order[starts[k + 1][0]] if k + 1 < len(starts) else len(sections)
+        members = [s["id"] for s in sections if lo <= order[s["id"]] < hi]
+        chapters.append({"slug": by_id[sid]["slug"], "title": title or SECTION_TYPE_LABEL.get(by_id[sid]["type"], "Section"),
+                         "type": by_id[sid]["type"], "section_ids": members, "start_id": sid})
+    return chapters
 
 
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
@@ -856,12 +961,6 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             if front else []
         doclayout = story.document_layout(schema, {})
         css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
-        # An opt-in extractive landing page for long reports — a second page in the same
-        # bundle, served at <base>overview/. It only summarises by selecting content already
-        # in the schema (no AI, no new words or figures); the full report keeps its URL.
-        from app import build_modes
-        want_landing = bool(landing) and bool(page_count) and page_count >= build_modes.LANDING_MIN_PAGES
-        overview_href = href("overview/")
         og = {"href": href(page_list[0]["bg"])} if page_list else None
         # Context shared by every web page of the report (the single page, or — for a long report
         # with a contents page — the home page and one page per section).
@@ -873,43 +972,40 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
             ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og)
         tmpl = _ENV.get_template("web.html")
+        sections_by_id = {s["id"]: s for s in sections}
         # The intro lead and, on a true cover, the page-1 title section stay on the home page
-        # (the hero already shows the title) rather than becoming their own near-empty section page.
+        # (the hero already shows the title) rather than starting a chapter of their own.
         skip_ids = {front["id"]} if front else set()
         if p1_cover and owner_of(1):
             skip_ids.add(owner_of(1))
-        split = multipage_sections(sections, index_links, skip_ids, bool(contents_pages))
-        if split:
-            # One page per section, with a sidebar navigator; the home page is the contents.
-            nav = [{"slug": s["slug"], "title": s.get("heading_text") or SECTION_TYPE_LABEL.get(s["type"], "Section"),
-                    "href": href(s["slug"] + "/"), "type": s["type"]} for s in split]
-            sec_href = {s["slug"]: href(s["slug"] + "/") for s in split}
+        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count)
+        if chapters:
+            # One page per chapter, with a sidebar navigator; the home page is the contents.
+            nav = [{"slug": c["slug"], "title": c["title"], "href": href(c["slug"] + "/")} for c in chapters]
+            # a contents-table entry (any member section's slug) links to the chapter page holding it
+            sec_href = {sections_by_id[sid]["slug"]: href(c["slug"] + "/")
+                        for c in chapters for sid in c["section_ids"] if sid in sections_by_id}
             home = {"slug": "", "title": "Contents", "href": href("")}
+            ctx = dict(**web_ctx, sections_by_id=sections_by_id)
             files[base.lstrip("/") + "index.html"] = tmpl.render(
-                **web_ctx, mode="home", nav=nav, current=None, sec_href=sec_href,
+                **ctx, mode="home", nav=nav, current=None, sec_href=sec_href,
                 start_href=(nav[0]["href"] if nav else href("")), prev=None, next=None,
                 page_title=title, canonical_path=base, description=desc,
-                jsonld=Markup(_jsonld(schema, base)), has_landing=False, overview_href=None).encode()
-            for i, s in enumerate(split):
-                # Keep the meta description digit-safe: plain_excerpt is digit-free, and the prefix
-                # is metadata only (a section heading can carry numbers the attribute check rejects).
-                ex = story.plain_excerpt(s)
+                jsonld=Markup(_jsonld(schema, base))).encode()
+            for i, c in enumerate(chapters):
+                # digit-safe meta description: plain_excerpt is digit-free, prefix is metadata only
+                ex = story.plain_excerpt(sections_by_id[c["start_id"]])
                 sdesc = (f"{m['company']} {m['period_label']} {type_label}" + (f": {ex}" if ex else ""))[:300]
-                files[base.lstrip("/") + s["slug"] + "/index.html"] = tmpl.render(
-                    **web_ctx, mode="section", nav=nav, current=s, sec_href=sec_href, start_href=None,
-                    prev=(nav[i - 1] if i > 0 else home), next=(nav[i + 1] if i + 1 < len(split) else None),
-                    page_title=f"{nav[i]['title']} · {title}", canonical_path=base + s["slug"] + "/",
-                    description=sdesc, jsonld=None, has_landing=False, overview_href=None).encode()
+                files[base.lstrip("/") + c["slug"] + "/index.html"] = tmpl.render(
+                    **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, start_href=None,
+                    prev=(nav[i - 1] if i > 0 else home), next=(nav[i + 1] if i + 1 < len(chapters) else None),
+                    page_title=f"{c['title']} · {title}", canonical_path=base + c["slug"] + "/",
+                    description=sdesc, jsonld=None).encode()
         else:
             files[base.lstrip("/") + "index.html"] = tmpl.render(
                 **web_ctx, mode="full", nav=None, current=None, sec_href=None, start_href=None,
                 prev=None, next=None, page_title=title, canonical_path=base, description=desc,
-                jsonld=Markup(_jsonld(schema, base)), has_landing=want_landing, overview_href=overview_href).encode()
-            if want_landing:
-                files[base.lstrip("/") + "overview/index.html"] = _ENV.get_template("landing.html").render(
-                    **{**common, "css": css_all}, page_title=f"Overview · {title}", canonical_path=base + "overview/",
-                    description=desc, jsonld=None, qparts=qparts, parts=story.landing_parts(schema),
-                    report_href=f"{ORIGIN_PLACEHOLDER}{base}", cover=cover, og_cover=og).encode()
+                jsonld=Markup(_jsonld(schema, base))).encode()
     else:
         qparts = {s["id"]: story.question_parts(schema, s) for s in sections}
         page_count = (m.get("source_pdf") or {}).get("page_count")
