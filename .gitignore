@@ -1,4 +1,5 @@
 .env
+.env.production
 .data/
 __pycache__/
 *.pyc
