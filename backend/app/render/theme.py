@@ -181,6 +181,9 @@ SPACING = {"compact": "0.75", "normal": "1", "relaxed": "1.25"}
 def css_variables(theme: dict) -> str:
     c = theme["colors"]
     lines = [f"--c-{k.replace('_', '-')}: {v};" for k, v in c.items()]
+    # text set on the brand colour (label bars, buttons): whichever of white or the text colour reads
+    on = "#FFFFFF" if contrast("#FFFFFF", c["primary"]) >= contrast(c["text"], c["primary"]) else c["text"]
+    lines.append(f"--c-on-primary: {on};")
     lines.append(f"--font-heading: {font_stack(theme['typography']['heading_font'])};")
     lines.append(f"--font-body: {font_stack(theme['typography']['body_font'])};")
     lines.append(f"--base-size: {int(theme['typography']['base_size'])}px;")

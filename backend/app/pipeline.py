@@ -87,12 +87,12 @@ def _llm_for(ctx: Context, version_id: uuid.UUID | None = None) -> classify.LlmC
     if not ai_usage.can_run_automatic(ctx):
         return None
 
-    def call(prompt: str) -> str:
+    def call(prompt: str, system: str | None = None, feature: str | None = None) -> str:
         import httpx
 
         r = httpx.post("https://api.anthropic.com/v1/messages", timeout=60, headers={
             "x-api-key": cfg.anthropic_api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": cfg.llm_model, "max_tokens": 1024, "system":
+            json={"model": cfg.llm_model, "max_tokens": 1024, "system": system or
                   "You label the sections of a company's financial report so a web page can present each one "
                   "correctly (a results table, a highlights strip, a commentary block, and so on). For every "
                   "section you are given, pick the SINGLE best-fitting type from allowed_types based on its "
@@ -103,7 +103,7 @@ def _llm_for(ctx: Context, version_id: uuid.UUID | None = None) -> classify.LlmC
         r.raise_for_status()
         body = r.json()
         usage = body.get("usage") or {}
-        ai_usage.record(ctx, feature="section_labels", provider="anthropic", model=body.get("model") or cfg.llm_model,
+        ai_usage.record(ctx, feature=feature or "section_labels", provider="anthropic", model=body.get("model") or cfg.llm_model,
                         input_tokens=int(usage.get("input_tokens") or 0),
                         output_tokens=int(usage.get("output_tokens") or 0), version_id=version_id)
         return "".join(b.get("text", "") for b in body.get("content", []))

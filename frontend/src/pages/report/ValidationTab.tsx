@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, CHECK_LABEL, post, useTenantRole, type Issue, type Report, type VersionDetail } from "../../api";
+import { api, ApiError, CHECK_LABEL, post, useTenantRole, type Issue, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import PdfCrop from "../../components/PdfCrop";
 import PdfRegion from "../../components/PdfRegion";
@@ -120,11 +120,12 @@ function IssueDetail({ issue, base, version, isAdmin, onDone }: { issue: Issue; 
   const [editing, setEditing] = useState(false);
   const [flagNote, setFlagNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { setErr(null); }, [issue.id]);
+  const processing = version.status === "processing";
+  useEffect(() => { setErr(null); }, [issue.id, processing]);
   const act = useMutation({
     mutationFn: (body: { action: string; value?: string; note?: string }) => post(`${base}/issues/${issue.id}/resolve`, body),
     onSuccess: onDone,
-    onError: (e: Error) => setErr(e.message),
+    onError: (e: Error) => { setErr(e.message); if (isBusy(e)) onDone(); },
   });
   const flag = useMutation({
     mutationFn: () => post(`${base}/flags`, { fid: issue.fid, section_id: issue.section_id, note: flagNote }),
@@ -167,16 +168,17 @@ function IssueDetail({ issue, base, version, isAdmin, onDone }: { issue: Issue; 
           {editing && issue.fid ? (
             <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.mutate({ action: "edit", value, note }); }}>
               <input aria-label="Corrected value exactly as printed" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-              <Button className="primary" busy={act.isPending} busyLabel="Saving the value">Save value</Button>
+              <Button className="primary" busy={act.isPending} disabled={processing} busyLabel="Saving the value">Save value</Button>
               <button type="button" className="link" onClick={() => setEditing(false)}>Cancel</button>
             </form>
           ) : (
             <div className="btn-row">
-              <Button className="primary" busy={act.isPending && act.variables?.action === "confirm"} disabled={act.isPending} busyLabel="Confirming" onClick={() => act.mutate({ action: "confirm", note })}>Confirm correct</Button>
-              {issue.fid && <button className="secondary" disabled={act.isPending} onClick={() => setEditing(true)}>Edit value</button>}
-              {issue.fid && <Button className="secondary" busy={act.isPending && act.variables?.action === "not_a_figure"} disabled={act.isPending} busyLabel="Saving" onClick={() => act.mutate({ action: "not_a_figure", note })}>Mark as not a figure</Button>}
+              <Button className="primary" busy={act.isPending && act.variables?.action === "confirm"} disabled={act.isPending || processing} busyLabel="Confirming" onClick={() => act.mutate({ action: "confirm", note })}>Confirm correct</Button>
+              {issue.fid && <button className="secondary" disabled={act.isPending || processing} onClick={() => setEditing(true)}>Edit value</button>}
+              {issue.fid && <Button className="secondary" busy={act.isPending && act.variables?.action === "not_a_figure"} disabled={act.isPending || processing} busyLabel="Saving" onClick={() => act.mutate({ action: "not_a_figure", note })}>Mark as not a figure</Button>}
             </div>
           )}
+          {processing && <p className="muted small">Re-checking your last change — these unlock automatically when it finishes.</p>}
           <p className="muted small">Every action is logged with your name, the time and the old and new value, and the checks run again.</p>
         </div>
       )}
@@ -192,6 +194,11 @@ function IssueDetail({ issue, base, version, isAdmin, onDone }: { issue: Issue; 
 
 const GRID_BATCH = 60;
 
+// The server refuses decisions while the version is re-checking (409). The page's copy of the
+// version can be a moment behind, so fetch it again: the page then shows "Re-checking" and
+// polls until the decision can be made.
+const isBusy = (e: Error) => e instanceof ApiError && e.status === 409 && /processing/i.test(e.message);
+
 /** Every flagged value on screen at once, each as a crop of the PDF next to what was read.
  * The reviewer scans the sheet, unticks anything that looks wrong, and confirms the rest
  * in one step — logged per figure, re-checked once. */
@@ -199,12 +206,14 @@ function ReviewGrid({ items, base, version, canDecide, onDone }: { items: Issue[
   const shown = items.slice(0, GRID_BATCH);
   const [off, setOff] = useState<Set<string>>(new Set());
   const [err, setErr] = useState<string | null>(null);
+  const processing = version.status === "processing";
+  useEffect(() => { setErr(null); }, [processing]);
   const picked = shown.filter((i) => !off.has(i.id));
   const toggle = (id: string) => setOff((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const bulk = useMutation({
     mutationFn: (action: "confirm" | "not_a_figure") => post(`${base}/issues/resolve-bulk`, { issue_ids: picked.map((i) => i.id), action }),
     onSuccess: () => { setOff(new Set()); onDone(); },
-    onError: (e: Error) => setErr(e.message),
+    onError: (e: Error) => { setErr(e.message); if (isBusy(e)) onDone(); },
   });
   const pageOf = (n: number) => version.pages.find((p) => p.page === n);
   const run = (action: "confirm" | "not_a_figure") => {
@@ -219,11 +228,12 @@ function ReviewGrid({ items, base, version, canDecide, onDone }: { items: Issue[
         <span className="btn-row">
           <button className="link" onClick={() => setOff(new Set())}>Select all</button>
           <button className="link" onClick={() => setOff(new Set(shown.map((i) => i.id)))}>Select none</button>
-          {canDecide && <Button className="secondary" disabled={!picked.length || bulk.isPending} busy={bulk.isPending && bulk.variables === "not_a_figure"} busyLabel="Saving" onClick={() => run("not_a_figure")}>Not figures</Button>}
-          {canDecide && <Button className="primary" disabled={!picked.length || bulk.isPending} busy={bulk.isPending && bulk.variables === "confirm"} busyLabel="Saving" onClick={() => run("confirm")}>{`Confirm ${picked.length} correct`}</Button>}
+          {canDecide && <Button className="secondary" disabled={!picked.length || bulk.isPending || processing} busy={bulk.isPending && bulk.variables === "not_a_figure"} busyLabel="Saving" onClick={() => run("not_a_figure")}>Not figures</Button>}
+          {canDecide && <Button className="primary" disabled={!picked.length || bulk.isPending || processing} busy={bulk.isPending && bulk.variables === "confirm"} busyLabel="Saving" onClick={() => run("confirm")}>{`Confirm ${picked.length} correct`}</Button>}
         </span>
       </div>
       {err && <p className="error" role="alert">{err}</p>}
+      {canDecide && processing && <p className="muted small">Re-checking your last change — the buttons unlock automatically when it finishes.</p>}
       <p className="muted small">Compare each highlighted spot with the value under it. Untick anything that doesn't match and open it in “One at a time” to correct it.</p>
       <ul className="review-grid" aria-label="Values to review">
         {shown.map((i) => {

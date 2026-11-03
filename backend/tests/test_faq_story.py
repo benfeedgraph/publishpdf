@@ -280,6 +280,81 @@ def test_a_report_without_a_contents_page_stays_a_single_page():
     assert pages == [base + "index.html"]                     # exactly one web page
 
 
+def _long_pdf_without_contents(chapters: list[str], pages_each: int = 3) -> bytes:
+    """A long report with no bookmarks and no contents page: chapter titles open pages, with
+    sub-headings inside, and a running header drawn on every page."""
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 300), "ACME ANNUAL REPORT 2026", fontname="hebo", fontsize=22)
+    for title in chapters:
+        for k in range(pages_each):
+            p = doc.new_page()
+            p.draw_rect(pymupdf.Rect(0, 40, 140, 46), color=(0.1, 0.2, 0.4), fill=(0.1, 0.2, 0.4))
+            # a chapter title, then sub-headings set smaller on the chapter's later pages
+            p.insert_text((72, 110), title if k == 0 else f"{title} detail {'abc'[k]}", fontname="hebo",
+                          fontsize=18 if k == 0 else 13)
+            p.insert_textbox(pymupdf.Rect(72, 140, 520, 400), BODY + " " + BODY, fontname="helv", fontsize=11)
+    return doc.tobytes()
+
+
+def test_a_long_report_without_contents_splits_on_the_ai_picked_chapters():
+    pdf = _long_pdf_without_contents(["Chairman Statement", "Business Review", "Strategy", "Governance"])
+    asked = []
+
+    def llm(prompt: str, system: str | None = None, feature: str | None = None) -> str:
+        if feature != "chapters":
+            return "{}"
+        asked.append(prompt)
+        assert not re.search(r"\d", __import__("json").loads(prompt)["sections"][0]["heading"])
+        ids = [s["id"] for s in __import__("json").loads(prompt)["sections"]
+               if s["heading"] in ("Business Review", "Strategy")]
+        return __import__("json").dumps({"chapters": ids + ["s999"]})     # an unknown id is dropped
+
+    schema, _ = extract(pdf, {**META, "report_type": "annual_report"}, llm=llm)
+    assert asked and len(schema["chapters"]) == 2
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    pages = {k for k in files if k.endswith("index.html")}
+    assert pages == {base + "index.html", base + "business-review/index.html", base + "strategy/index.html"}
+    # the AI only chose where chapters start: the sidebar shows the PDF's own heading text
+    assert ">Business Review<" in files[base + "strategy/index.html"].decode()
+    assert validation.check_bundle(schema, files) == []
+
+
+def test_a_long_report_without_contents_or_ai_still_gets_a_sidebar():
+    pdf = _long_pdf_without_contents(["Chairman Statement", "Business Review", "Strategy", "Governance"])
+    schema, _ = extract(pdf, {**META, "report_type": "annual_report"})
+    assert "chapters" not in schema
+    files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
+    base = site.report_base_path(schema["metadata"]).lstrip("/")
+    sec = files[base + "business-review/index.html"].decode()
+    assert 'class="web-rail"' in sec
+    # chapters are the largest headings; the smaller sub-headings fold into their chapter
+    assert base + "strategy/index.html" in files
+    assert not any("detail" in k for k in files if k.endswith("index.html"))
+
+
+def test_ai_chapter_reply_accepts_only_known_ids():
+    from app.extraction import classify
+    ids = ["s1", "s2", "s3"]
+    assert classify.parse_chapter_starts('{"chapters": ["s3", "s1", "s1", "x"]}', ids) == ["s1", "s3"]
+    assert classify.parse_chapter_starts('```json\n{"chapters": ["s1", "s2"]}\n```', ids) == ["s1", "s2"]
+    assert classify.parse_chapter_starts('{"chapters": ["s1"]}', ids) == []          # one is no split
+    assert classify.parse_chapter_starts('{"chapters": [{"id": "s1", "title": "New"}]}', ids) == []
+    assert classify.parse_chapter_starts("nope", ids) == []
+
+
+def test_web_sections_use_the_selected_design_not_the_pdf_colours():
+    from app.render import ai_layout
+    from app.render.elements import Element
+    els = [Element("t1", "text", (40, 40, 300, 60), html="Our Brands", size=14, color="#aa2621",
+                   meta={"bg": "#aa2621", "face": "fp7"}),
+           Element("t2", "text", (40, 80, 300, 100), html="Body copy", size=10, color="#212020")]
+    html_ = ai_layout.render([{"type": "heading", "level": 2, "ids": ["t1"]},
+                              {"type": "paragraph", "ids": ["t2"]}], els, crop_url=lambda e: "", W=600, H=800)
+    assert "#aa2621" not in html_ and "#212020" not in html_ and "fp7" not in html_
+    assert 'class="ai-h ai-h-b ai-lbl"' in html_
+
+
 def test_parallel_and_serial_builds_are_identical(monkeypatch):
     doc = pymupdf.open()
     for n in range(12):

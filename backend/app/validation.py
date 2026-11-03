@@ -227,7 +227,7 @@ def reextraction_reads(figs: list[dict], doc: pymupdf.Document, workers: int) ->
             h = y1 - y0
             vpad = 0.4 * h if loose else min(1.2, 0.12 * h)
             clip = pymupdf.Rect(x0 - 3, y0 - vpad, x1 + 3, y1 + vpad) & page.rect
-            im = ocr.render(page, dpi, clip)
+            im = ocr.dark_on_light(ocr.render(page, dpi, clip))
             # Only the figure's own glyphs: a neighbour's edge inside the side padding
             # ("480 001" -> "1001") is painted out. The exact-match rule is unchanged.
             k = dpi / 72

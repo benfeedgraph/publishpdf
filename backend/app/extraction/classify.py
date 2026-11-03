@@ -74,7 +74,7 @@ def parse_llm_classification(response_text: str, known_ids: set[str]) -> dict[st
     return out
 
 
-LlmCall = Callable[[str], str]
+LlmCall = Callable[..., str]      # llm(prompt, system=None, feature=None) -> response text
 
 
 def classify_sections(sections: list[dict], llm: LlmCall | None = None) -> dict[str, str]:
@@ -90,3 +90,60 @@ def classify_sections(sections: list[dict], llm: LlmCall | None = None) -> dict[
                 suggestions = {}
             result.update(suggestions)
     return result
+
+
+# ------------------------------------------------------------------ chapters
+
+# Same hard rule as labelling: the model is shown ids, digit-masked headings and pages, and may
+# only answer with ids it was given. Chapter titles are always the PDF's own heading text.
+CHAPTER_SYSTEM = (
+    "You split a long company report into the chapters a reader would see in a website's sidebar. "
+    "You are given every section in reading order: its id, its heading and the PDF page it starts on. "
+    "Pick the sections that START a chapter — the report's main parts (for example a letter to "
+    "shareholders, a business overview, a management discussion, the financial statements, notes). "
+    "Sub-headings, captions, running titles, quotes and repeated labels never start a chapter. Aim for "
+    "between 4 and 15 chapters for the whole report, in reading order. Reply with JSON only, exactly "
+    "{\"chapters\": [\"<id>\", ...]} using only the ids provided — no titles, no commentary."
+)
+CHAPTER_MIN_PAGES = 12        # shorter reports read fine as one page
+CHAPTER_MAX_SECTIONS = 600    # keeps the request small on very long reports
+
+
+def build_chapter_request(sections: list[dict]) -> str:
+    items = [{"id": s["id"], "heading": mask_digits(s.get("heading_text", ""))[:120],
+              "page": (s.get("source") or {}).get("page")}
+             for s in sections if (s.get("heading_text") or "").strip()][:CHAPTER_MAX_SECTIONS]
+    return json.dumps({"sections": items})
+
+
+def parse_chapter_starts(response_text: str, known_ids: list[str]) -> list[str]:
+    """Accept ONLY {"chapters": [<known id>, ...]}; kept in the report's reading order,
+    duplicates and unknown ids dropped. Fewer than two starts is no split."""
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    ids = data.get("chapters") if isinstance(data, dict) else None
+    if not isinstance(ids, list):
+        return []
+    picked = {i for i in ids if isinstance(i, str)}
+    out = [i for i in known_ids if i in picked]
+    return out if len(out) >= 2 else []
+
+
+def pick_chapters(sections: list[dict], llm: LlmCall | None) -> list[str]:
+    """Ids of the sections that start a chapter, chosen by the LLM; [] when it isn't enabled
+    or gives nothing usable (the renderer then falls back to the report's own headings)."""
+    if llm is None:
+        return []
+    headed = [s for s in sections if (s.get("heading_text") or "").strip()]
+    if len(headed) < 3:
+        return []
+    try:
+        reply = llm(build_chapter_request(headed), system=CHAPTER_SYSTEM, feature="chapters")
+    except Exception:  # noqa: BLE001 - LLM is optional; never block the pipeline on it
+        return []
+    return parse_chapter_starts(reply, [s["id"] for s in headed])

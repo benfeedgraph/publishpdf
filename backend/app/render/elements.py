@@ -22,6 +22,11 @@ from app.render import pages as pages_mod
 # specks are dropped before merging, so a row of packs merges into one picture.
 MIN_PICTURE_SHARE = 0.002
 SPECK_SHARE = 0.0005
+# An image or drawing repeated in the same margin band on several pages is page furniture (a
+# running "Report and Accounts" banner, a logo strip), not content: it isn't shown on the web page.
+FURNITURE_BAND = 0.14          # top/bottom share of the page height
+FURNITURE_MIN_PAGES = 3
+_FURNITURE: dict[tuple[int, int], tuple[set[str], dict[int, list[tuple]]]] = {}
 COLUMN_GAP_EM = 3.0            # a gap this wide (in font sizes) between spans = separate columns
 _DIGIT = re.compile(r"\d")
 
@@ -49,6 +54,65 @@ def is_bullet(e: "Element") -> bool:
 BULLET = re.compile(r"^\s*(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
 
 
+def _furniture(doc: pymupdf.Document) -> tuple[set[str], dict[int, list[tuple]]]:
+    """Page furniture, computed once per open document: digests of images, and (per page) the
+    boxes of vector drawings, that sit in the top or bottom margin band at the same place on at
+    least FURNITURE_MIN_PAGES pages."""
+    key = (id(doc), doc.page_count)
+    if key in _FURNITURE:
+        return _FURNITURE[key]
+    images: dict[str, set[int]] = {}
+    drawings: dict[tuple, set[int]] = {}
+    rects: dict[tuple, tuple] = {}
+    for page in doc:
+        H = page.rect.height
+
+        def in_band(y0: float, y1: float) -> bool:
+            return y1 <= H * FURNITURE_BAND or y0 >= H * (1 - FURNITURE_BAND)
+
+        for info in page.get_image_info(hashes=True):
+            if info.get("digest") and in_band(info["bbox"][1], info["bbox"][3]):
+                images.setdefault(info["digest"].hex(), set()).add(page.number)
+        for r, fill in vector_paths(page):
+            if in_band(r.y0, r.y1):
+                # same shape at the same x, top or bottom band; the y may shift a few points
+                sig = (round(r.x0), round(r.x1), round(r.height), r.y0 < H / 2, str(fill))
+                drawings.setdefault(sig, set()).add(page.number)
+                rects[(sig, page.number)] = (r.x0, r.y0, r.x1, r.y1)
+    per_page: dict[int, list[tuple]] = {}
+    for sig, pgs in drawings.items():
+        if len(pgs) >= FURNITURE_MIN_PAGES:
+            for n in pgs:
+                per_page.setdefault(n, []).append(rects[(sig, n)])
+    if len(_FURNITURE) > 32:
+        _FURNITURE.clear()
+    _FURNITURE[key] = ({d for d, pgs in images.items() if len(pgs) >= FURNITURE_MIN_PAGES}, per_page)
+    return _FURNITURE[key]
+
+
+def _without_furniture(bb: tuple, furniture: list[tuple], text_blocks: list[dict]) -> tuple | None:
+    """A detected graphic region minus the running header/footer drawn inside it: None when
+    the region is (mostly) furniture, or when what's left is just a strip of text and bars."""
+    hits = [f for f in furniture if _overlap(f, bb) > 0]
+    if not hits:
+        return bb
+    x0, y0, x1, y1 = bb
+    top = [f for f in hits if f[3] <= (y0 + y1) / 2]
+    bottom = [f for f in hits if f[1] >= (y0 + y1) / 2]
+    if top:
+        y0 = max(y0, max(f[3] for f in top))
+    if bottom:
+        y1 = min(y1, min(f[1] for f in bottom))
+    if y1 - y0 < 0.5 * (bb[3] - bb[1]) or y1 - y0 < 40:
+        return None
+    rest = (x0, y0, x1, y1)
+    # what's left under a running header that still holds words is the page's title band
+    # (a label bar, a heading), which is set as text: not a picture
+    if any(_overlap(t["bbox"], rest) > 0 for t in text_blocks):
+        return None
+    return rest
+
+
 def _hex(c: int) -> str:
     return f"#{c:06x}"
 
@@ -69,7 +133,10 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     W, H = page.rect.width, page.rect.height
     # pictures: raster images, plus vector graphics the extractor recognised as charts
     boxes = []
-    for info in page.get_image_info():
+    furniture, drawn_furniture = _furniture(page.parent)
+    for info in page.get_image_info(hashes=True):
+        if info.get("digest") and info["digest"].hex() in furniture:
+            continue
         x0, y0, x1, y1 = info["bbox"]
         x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
         if (x1 - x0) * (y1 - y0) >= SPECK_SHARE * W * H:
@@ -77,6 +144,9 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_MEDIABOX_CLIP)
     text_blocks = _split_columns([b for b in raw["blocks"] if b.get("type") == 0])
     for bb in chart_boxes or []:
+        bb = _without_furniture(tuple(bb), drawn_furniture.get(page.number, []), text_blocks)
+        if bb is None:
+            continue
         # a "chart" region that holds several text blocks is a panel, not a picture
         inner = sum(1 for t in text_blocks if _inside(t["bbox"], bb))
         if inner <= 2:

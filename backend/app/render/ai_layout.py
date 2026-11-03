@@ -24,24 +24,6 @@ from app.render.elements import Element, is_bullet
 _LEAD_BULLET = re.compile(r"^(\s*)(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
 
 
-def _light(colour: str) -> bool:
-    """Too pale to read on a white page (white text from a coloured panel)."""
-    try:
-        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    except (ValueError, IndexError):
-        return True
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.8
-
-
-def _panel_dark(colour: str) -> bool:
-    """A panel dark enough that text on it should go white."""
-    try:
-        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
-    except (ValueError, IndexError):
-        return False
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
-
-
 def _unbullet(h: str) -> str:
     """A list item without its printed bullet (the list draws one)."""
     return _LEAD_BULLET.sub(r"\1", h, count=1)
@@ -305,20 +287,15 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
                 f'<img src="{html_mod.escape(crop_url(e))}" alt="" loading="lazy" decoding="async"></span>')
 
     def look(ids: list[str], heading: bool = False) -> tuple[str, str]:
-        """(extra classes, inline style) that carry the PDF's own design: its typeface, a
-        heading's colour and relative size, a label bar's colour."""
+        """(extra classes, inline style) that keep the PDF's structure — which lines sit on a
+        label bar, a heading's relative size — while the colours and typefaces come from the
+        workspace's selected design (theme CSS variables), never from the PDF."""
         e = by_id[ids[0]] if ids else None
         if e is None or e.kind != "text":
             return "", ""
         cls, style = [], []
-        if e.meta.get("face"):
-            cls.append(e.meta["face"])
         if e.meta.get("bg"):
             cls.append("ai-lbl")
-            style.append(f"--lbl:{e.meta['bg']}")
-            style.append(f"color:{e.color if _light(e.color) else '#fff'}")
-        elif heading and not _light(e.color):
-            style.append(f"color:{e.color}")
         if heading:
             style.append(f"font-size:{max(1.0, min(2.4, e.size / body * 0.62)):.2f}em")
         return " ".join(cls), ";".join(style)
@@ -329,10 +306,7 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
         return f' class="{c}"' + (f' style="{style}"' if style else "")
 
     def bullets_style(ids: list[str]) -> str:
-        colour = next((by_id[i].meta.get("bullet") for i in ids if isinstance(by_id[i].meta.get("bullet"), str)), None)
-        face = next((by_id[i].meta.get("face") for i in ids if by_id[i].meta.get("face")), "")
-        cls = f"ai-list {face}".strip()
-        return f' class="{cls}"' + (f' style="--bul:{colour}"' if colour else "")
+        return ' class="ai-list"'          # bullet colour and face come from the theme
 
     def items(ids: list[str]) -> str:
         """Blocks one after another: each its own paragraph; bullet points as a list."""
@@ -365,13 +339,11 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
                 parts.append(f"<ul{bullets_style(flat)}{cols}>" + "".join(f"<li>{_unbullet(text(it))}</li>" for it in sec["items"]) + "</ul>")
             elif t == "chips":
                 bgs = {by_id[it[0]].meta.get("bg") for it in sec["items"]}
-                faces = {by_id[it[0]].meta.get("face") for it in sec["items"]} - {None}
-                face = f" {faces.pop()}" if len(faces) == 1 else ""
                 if len(bgs) == 1 and None not in bgs:      # one coloured bar, as printed
-                    parts.append(f'<ul class="ai-chips ai-bar{face}" style="--lbl:{bgs.pop()}">'
+                    parts.append('<ul class="ai-chips ai-bar">'
                                  + "".join(f"<li>{text(it)}</li>" for it in sec["items"]) + "</ul>")
                 else:
-                    parts.append(f'<ul class="ai-chips{face}">' + "".join(
+                    parts.append('<ul class="ai-chips">' + "".join(
                         f'<li{attrs("", it)}>{text(it)}</li>' for it in sec["items"]) + "</ul>")
             elif t == "cards":
                 cards = []
@@ -417,8 +389,9 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
                 counts[p] = counts.get(p, 0) + 1
         return max(counts, key=counts.get) if counts else None
 
-    # Paint a coloured card/section behind the runs of sections that share one panel, so the
-    # page keeps the PDF's colour blocking instead of flattening every block onto white.
+    # Group the runs of sections that share one panel in the PDF into a card, so the page keeps
+    # the PDF's blocking instead of flattening everything onto white. The card is drawn in the
+    # theme's surface colour, not the PDF's.
     pids = [panel_of(s) for s in sections]
     grouped: list[str] = []
     i = 0
@@ -431,8 +404,7 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
         j = i
         while j < len(parts) and pids[j] == pid:
             j += 1
-        cls = "ai-panel ai-panel-dark" if _panel_dark(pid[1]) else "ai-panel"
-        grouped.append(f'<div class="{cls}" style="--panel:{pid[1]}">' + "".join(parts[i:j]) + "</div>")
+        grouped.append('<div class="ai-panel">' + "".join(parts[i:j]) + "</div>")
         i = j
     return '<section class="ai-page">' + "".join(grouped) + "</section>"
 

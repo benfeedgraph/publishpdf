@@ -478,9 +478,6 @@ WEB_CSS = """
    accents (headings, links, table headers, label bars). */
 .web-main .ai-page{--ww:100%;width:100%;margin:0;padding:0}
 .web-main .ai-panel{background:transparent;box-shadow:none;border-radius:0;padding:0;margin:18px 0}
-.web-main .ai-panel-dark,.web-main .ai-panel-dark .ai-h,.web-main .ai-panel-dark .ai-p,
-.web-main .ai-panel-dark .ai-list{color:var(--c-text)}
-.web-main .ai-panel-dark a{color:var(--c-primary)}
 .web-main .ai-h-a{font-size:1.45em;margin:1em 0 .4em}
 .web-main .ai-h-b{font-size:1.2em}.web-main .ai-h-c{font-size:1.05em}
 .web-main .ai-cards{gap:14px}
@@ -541,33 +538,26 @@ WEB_CSS = """
 .part .pl{position:absolute;left:calc(var(--x)*1%);top:calc(var(--y)*1%);width:calc(var(--lw)*1%);height:calc(var(--lh)*1%);border-radius:2px}
 .part .pl:hover,.part .pl:focus-visible{background:color-mix(in srgb,var(--c-primary) 12%,transparent)}
 .web .doc-note{margin:40px auto 0;padding-top:28px;border-top:1px solid var(--c-border)}
-/* Design-led pages rebuilt as web sections, keeping the PDF's own design: its typefaces,
-   heading colours, coloured label bars and bullets, and its column arrangement. */
+/* Design-led pages rebuilt as web sections: the PDF's structure (label bars, columns, cards)
+   drawn in the selected design's colours and typefaces. */
 .ai-page{--ww:min(1040px,calc(100vw - 48px));width:var(--ww);margin-left:calc((100% - var(--ww)) / 2);padding:clamp(12px,2vw,20px) 0}
 .ai-page>:first-child{margin-top:clamp(20px,3vw,36px)}
-/* a coloured card/section carried over from the PDF: the run of blocks that sat on one fill is
-   painted with that fill, so the page keeps the report's colour blocking instead of going white */
-.ai-panel{background:var(--panel);border-radius:var(--radius);padding:clamp(18px,3vw,32px);
+/* a card/section carried over from the PDF: the run of blocks that sat on one fill is grouped
+   on the theme's surface colour, so the page keeps the report's blocking instead of going flat */
+.ai-panel{background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--radius);padding:clamp(18px,3vw,32px);
   margin:24px 0;box-shadow:var(--shadow-1)}
 .ai-panel>:first-child{margin-top:0}.ai-panel>:last-child{margin-bottom:0}
-.ai-panel-dark,.ai-panel-dark .ai-h,.ai-panel-dark .ai-p,.ai-panel-dark .ai-list{color:#fff}
-.ai-panel-dark .ai-list li::marker{color:rgba(255,255,255,.75)}
-.ai-panel-dark a{color:#fff;text-decoration-thickness:1px}
-/* boxes keep their own light background, so their text stays dark even on a dark panel */
-.ai-panel-dark .ai-card,.ai-panel-dark .ai-stat{color:var(--c-text)}
-.ai-panel-dark .ai-card .ai-h,.ai-panel-dark .ai-card-t,.ai-panel-dark .ai-card .ai-p,
-.ai-panel-dark .ai-card li{color:var(--c-text)}
-.ai-h{color:var(--c-text);text-wrap:balance;line-height:1.2;letter-spacing:-.01em}
+.ai-h{font-family:var(--font-heading);color:var(--c-text);text-wrap:balance;line-height:1.2;letter-spacing:-.01em}
 .ai-h-a{font-size:clamp(1.6em,3vw,2.2em);margin:.2em 0 .5em}
 .ai-h-b{font-size:1.4em;margin:1.2em 0 .5em}
 .ai-h-c{font-size:1.1em;margin:1.1em 0 .45em}
-.ai-lbl{display:block;width:fit-content;max-width:100%;background:var(--lbl);color:#fff;padding:.32em 1.6em .32em .7em;
+.ai-lbl{display:block;width:fit-content;max-width:100%;background:var(--c-primary);color:var(--c-on-primary);padding:.32em 1.6em .32em .7em;
   border-radius:0 999px 999px 0;line-height:1.25;letter-spacing:0}
 h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-p{font-size:1em;line-height:1.7;margin:0 0 1em}
 .ai-list{margin:0 0 1.2em;padding-left:1.15em;line-height:1.6}
 .ai-list li{margin:.28em 0;padding-left:.2em}
-.ai-list li::marker{color:var(--bul,var(--c-primary));content:"● ";font-size:.8em}
+.ai-list li::marker{color:var(--c-primary);content:"● ";font-size:.8em}
 .ai-list[data-cols]{columns:2;column-gap:40px}.ai-list[data-cols] li{break-inside:avoid}
 /* Parallel blocks tile into a dense grid that fills the width (auto-fit collapses empty
    tracks, so a part-full last row stretches instead of leaving blank cells). */
@@ -577,7 +567,7 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
   box-shadow:var(--shadow-1)}
 .ai-card>:last-child{margin-bottom:0}
 .ai-card>.ai-pic{margin:0 0 10px}
-.ai-card-t{margin:0 0 .6em;font-size:1.02em;color:var(--c-text)}
+.ai-card-t{margin:0 0 .6em;font-size:1.02em;color:var(--c-text)}.ai-card-t.ai-lbl{color:var(--c-on-primary)}
 .ai-card .ai-p,.ai-card li{font-size:.95em;line-height:1.55}.ai-card .ai-p{margin:0 0 .7em}
 .ai-card .ai-h{font-size:1em;margin:.8em 0 .4em}
 .ai-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:14px 0 26px}
@@ -596,9 +586,9 @@ h2.ai-lbl,h3.ai-lbl{width:100%;padding:.4em .8em;border-radius:0 18px 0 0}
 .ai-chips{list-style:none;display:flex;flex-wrap:wrap;gap:10px;padding:0;margin:14px 0 24px}
 .ai-chips li{padding:8px 16px;border-radius:999px;background:var(--c-primary-soft);color:var(--c-primary);font-weight:650;
   font-size:.95em;border:1px solid var(--c-primary-line)}
-.ai-chips li.ai-lbl{background:var(--lbl);border:0}
-.ai-bar{gap:0;background:var(--lbl);border-radius:0 22px 0 0;padding:6px 10px;justify-content:space-around}
-.ai-bar li{background:none;border:0;color:#fff;padding:6px 14px;border-radius:0}
+.ai-chips li.ai-lbl{background:var(--c-primary);color:var(--c-on-primary);border:0}
+.ai-bar{gap:0;background:var(--c-primary);border-radius:0 22px 0 0;padding:6px 10px;justify-content:space-around}
+.ai-bar li{background:none;border:0;color:var(--c-on-primary);padding:6px 14px;border-radius:0}
 .ai-bar li+li{border-left:1px solid rgba(255,255,255,.55)}
 .ai-media{display:grid;grid-template-columns:fit-content(50%) minmax(0,1fr);gap:clamp(20px,3vw,36px);align-items:center;margin:22px 0 30px}
 .ai-media-right{grid-template-columns:minmax(0,1fr) fit-content(50%)}
@@ -680,6 +670,8 @@ def page_css(theme: dict) -> str:
 
 _JUNK_HEADING = re.compile(r"hyper.?link|^\s*(to\s+)?contents\b|^\s*index\s*$|click\b|refer\s+to\b"
                            r"|relevant\s+pages|return\s+to", re.I)
+# a heading cut off mid-phrase ("Report on") is a wrapped line, not a title
+_DANGLING = re.compile(r"\b(on|of|and|the|to|for|in|with|by|at|from|a|an|&)\s*$", re.I)
 
 
 def _norm_title(t: str) -> str:
@@ -699,6 +691,8 @@ def _is_junk_heading(t: str) -> bool:
     if t[0].islower():                                   # a wrapped continuation ("to Contents Page")
         return True
     if t.endswith(".") and len(words) > 4:               # a full sentence
+        return True
+    if _DANGLING.search(t):                              # cut off mid-phrase
         return True
     return False
 
@@ -722,6 +716,36 @@ def _clean_heading_chapters(heads: list[dict]) -> list[tuple[str, str]]:
             continue
         out.append((s["id"], t))
     return out
+
+
+def _largest_headings(starts: list[tuple[str, str]], pdf_bytes: bytes | None,
+                      by_id: dict[str, dict]) -> list[tuple[str, str]]:
+    """Chapter titles are set larger than the sub-headings inside a chapter: keep the headings
+    within a point of the largest size, when that still leaves at least two chapters."""
+    if not pdf_bytes or len(starts) < 3:
+        return starts
+    import pymupdf
+    size: dict[str, float] = {}
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:  # noqa: BLE001
+        return starts
+    try:
+        for sid, _t in starts:
+            src = by_id[sid].get("source") or {}
+            if not src.get("page") or not src.get("bbox") or src["page"] > doc.page_count:
+                continue
+            spans = [sp for b in doc[src["page"] - 1].get_text("dict", clip=pymupdf.Rect(src["bbox"]))["blocks"]
+                     for ln in b.get("lines", []) for sp in ln["spans"] if sp["text"].strip()]
+            if spans:
+                size[sid] = max(sp["size"] for sp in spans)
+    finally:
+        doc.close()
+    if len(size) < len(starts) / 2:
+        return starts
+    top = max(size.values())
+    big = [it for it in starts if size.get(it[0], 0) >= top - 1.0]
+    return big if len(big) >= 2 else starts
 
 
 def _outline_chapters(pdf_bytes: bytes | None, sections: list[dict], page_count: int | None) -> list[tuple[str, str]]:
@@ -749,17 +773,23 @@ def _outline_chapters(pdf_bytes: bytes | None, sections: list[dict], page_count:
     return out
 
 
+CHAPTER_MIN_PAGES = 12      # a report this long is split into chapters even with no contents page
+MAX_HEADING_CHAPTERS = 25   # more heading-chapters than this: only those that open a page
+
+
 def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: dict,
                     skip_ids: set[str] = frozenset(), has_contents_page: bool = False,
-                    page_count: int | None = None) -> list[dict] | None:
+                    page_count: int | None = None, ai_starts: list[str] | None = None) -> list[dict] | None:
     """Group the report's sections into chapters for a multi-page split, or None to keep one page.
 
     Chapter STARTS come from the PDF's own structure in order of reliability — its outline, its
-    contents table (``index_links``), else cleaned headings — so the sidebar lists real chapters,
-    not every bold line. Sections between two starts (and the junk headings dropped by the cleaner)
+    contents table (``index_links``), the chapter starts the AI picked at extraction (``ai_starts``,
+    section ids only — titles are always the PDF's heading text), else cleaned headings — so the
+    sidebar lists real chapters, not every bold line. Sections between two starts (and the junk headings dropped by the cleaner)
     fold into the preceding chapter, so no content is lost. A report with no contents page and only
     a handful of plain sections (a results statement, an FAQ) is not split."""
     heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
+    by_id_all = {s["id"]: s for s in sections}
     if len(heads) < 2:
         return None
     # chapter starts, most reliable source first
@@ -767,8 +797,29 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     if not starts and index_links:
         slugs = {sl for links in index_links.values() for sl in links.values()}
         starts = [(s["id"], (s.get("heading_text") or "").strip()) for s in heads if s["slug"] in slugs]
-    if not starts and has_contents_page:
+    if not starts and ai_starts:
+        head_ids = {s["id"] for s in heads}
+        starts = [(sid, (by_id_all[sid].get("heading_text") or "").strip()) for sid in ai_starts
+                  if sid in head_ids and sid in by_id_all]
+    if not starts and (has_contents_page or (page_count or 0) >= CHAPTER_MIN_PAGES):
         starts = _clean_heading_chapters(heads)
+        # chapters open pages: of several on one page (a list of directors, a run of
+        # sub-headings) only the first starts a chapter; the rest fold into it
+        page_of = {s["id"]: (s.get("source") or {}).get("page") or 0 for s in heads}
+        seen_pages: set[int] = set()
+        one_per_page = []
+        for it in starts:
+            if page_of[it[0]] not in seen_pages:
+                seen_pages.add(page_of[it[0]])
+                one_per_page.append(it)
+        starts = _largest_headings(one_per_page, pdf_bytes, by_id_all)
+        if len(starts) > MAX_HEADING_CHAPTERS:
+            # still too many to be chapters: keep the headings that open a new page
+            first_on_page: dict[int, str] = {}
+            for s in heads:
+                first_on_page.setdefault(page_of[s["id"]], s["id"])
+            opening = set(first_on_page.values())
+            starts = [it for it in starts if it[0] in opening]
     if len(starts) < 2:
         return None
     order = {s["id"]: i for i, s in enumerate(sections)}
@@ -978,7 +1029,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         skip_ids = {front["id"]} if front else set()
         if p1_cover and owner_of(1):
             skip_ids.add(owner_of(1))
-        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count)
+        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count,
+                                   ai_starts=schema.get("chapters"))
         if chapters:
             # One page per chapter, with a sidebar navigator; the home page is the contents.
             nav = [{"slug": c["slug"], "title": c["title"], "href": href(c["slug"] + "/")} for c in chapters]

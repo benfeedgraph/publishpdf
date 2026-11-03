@@ -64,6 +64,20 @@ def render(page: pymupdf.Page, dpi: int, clip: pymupdf.Rect | None = None) -> Im
     return Image.frombytes("L", (pix.width, pix.height), pix.samples)
 
 
+def dark_on_light(img: Image.Image) -> Image.Image:
+    """Tesseract reads dark text on a light background. A figure printed light on a dark
+    or coloured band (white '12' on teal) is read wrongly or not at all — often losing a
+    thin '1' — so invert crops whose text is lighter than their background. The background
+    is the crop's edge; the text is whichever side of it has more strongly differing pixels."""
+    a = np.asarray(img, dtype=np.int16)
+    if a.size == 0 or min(a.shape) < 3:
+        return img
+    edge = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    bg = int(np.median(edge))
+    lighter, darker = int((a > bg + 50).sum()), int((a < bg - 50).sum())
+    return ImageOps.invert(img) if lighter > darker else img
+
+
 def _binary(img: Image.Image) -> np.ndarray:
     a = np.asarray(img, dtype=np.uint8)
     return a < 128
@@ -98,6 +112,9 @@ def preprocess(img: Image.Image) -> tuple[Image.Image, float]:
 # Characters OCR invents from specks at word edges; never part of a printed figure.
 _EDGE_NOISE = "\"'`“”‘’~_|:;"
 _NOISE_ONLY = set(".,:;_~`'\"‘’“”|^*")
+# A lone character or two that Tesseract itself barely believes is texture in a photo or
+# illustration (a flower read as '2' at 18%), not printed text.
+SPECK_MAX_CONF = 0.3
 
 
 def _clean(text: str) -> str:
@@ -138,7 +155,8 @@ def run_prepared(prep: Prepared) -> list[OcrWord]:
             continue
         conf = max(0.0, float(row["conf"])) / 100
         text = _clean(text)
-        if not text or set(text) <= _NOISE_ONLY or (len(text) == 1 and not text.isalnum() and conf < 0.5):
+        if not text or set(text) <= _NOISE_ONLY or (len(text) == 1 and not text.isalnum() and conf < 0.5) \
+                or (len(text) <= 2 and conf < SPECK_MAX_CONF):
             continue
         x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
         pts = [unrotate(x, y), unrotate(x + w, y), unrotate(x, y + h), unrotate(x + w, y + h)]
@@ -210,4 +228,4 @@ def ocr_crop(page: pymupdf.Page, bbox: tuple[float, float, float, float], pad: f
     """Read a single figure from the rendered page image."""
     x0, y0, x1, y1 = bbox
     clip = pymupdf.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad) & page.rect
-    return ocr_image(render(page, CROP_DPI, clip))
+    return ocr_image(dark_on_light(render(page, CROP_DPI, clip)))

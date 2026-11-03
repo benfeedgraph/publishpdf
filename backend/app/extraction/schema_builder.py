@@ -359,6 +359,12 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
         s["slug"] = _slug(s["heading_text"]) or s["type"].replace("_", "-")
         s.pop("sample_text", None)
     _dedupe_slugs(sections)
+    # A long report with no bookmarks of its own: the AI picks where its chapters start, so the
+    # web edition can still be split into one page per chapter with a sidebar.
+    chapters: list[str] = []
+    if doc.page_count >= classify.CHAPTER_MIN_PAGES and \
+            sum(1 for lvl, *_ in doc.get_toc() if lvl == 1) < 2:
+        chapters = classify.pick_chapters(sections, llm)
 
     now = datetime.now(timezone.utc).isoformat()
     schema = {
@@ -386,6 +392,8 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
         "figures": b.figures,
         "units_mentioned": sorted({u for t in b.section_units for u in all_units_mentioned(t)}),
     }
+    if chapters:
+        schema["chapters"] = chapters
     artifact = {
         "pipeline_version": PIPELINE_VERSION, "source_sha256": sha,
         "pages": [{"page": p.number, "method": p.method, "width": p.width, "height": p.height,

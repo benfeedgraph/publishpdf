@@ -26,7 +26,7 @@ from app.tenancy import Context
 log = logging.getLogger(__name__)
 
 FEATURES = {"ai_check": "AI double-check of flagged figures", "section_labels": "AI section labelling",
-            "page_layout": "AI layout of design pages"}
+            "page_layout": "AI layout of design pages", "chapters": "AI chapter detection for the sidebar"}
 
 
 class LimitReached(Exception):
