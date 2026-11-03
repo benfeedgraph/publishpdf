@@ -3,19 +3,19 @@
   "rewrites": [
     {
       "source": "/api/:path*/",
-      "destination": "https://publishpdf.vercel.app/api/:path*/"
+      "destination": "https://api.publishpdf.ai/api/:path*/"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://publishpdf.vercel.app/api/:path*"
+      "destination": "https://api.publishpdf.ai/api/:path*"
     },
     {
       "source": "/sites/:path*/",
-      "destination": "https://publishpdf.vercel.app/sites/:path*/"
+      "destination": "https://api.publishpdf.ai/sites/:path*/"
     },
     {
       "source": "/sites/:path*",
-      "destination": "https://publishpdf.vercel.app/sites/:path*"
+      "destination": "https://api.publishpdf.ai/sites/:path*"
     },
     {
       "source": "/(.*)",
