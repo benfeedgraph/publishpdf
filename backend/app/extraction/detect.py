@@ -60,14 +60,51 @@ def _top_line(page: pymupdf.Page) -> str | None:
     return None
 
 
-def detect_metadata(pdf_bytes: bytes, max_pages: int = 6) -> dict:
+_FILENAME_NOISE = re.compile(
+    r"\b(?:annual|integrated|quarterly|investor|earnings|financial|results?|reports?|presentation|accounts|"
+    r"statements?|press|release|final|draft|web|print|version|v\d+|q[1-4]|h[12]|9m|fy\s?\d{2,4}|"
+    r"(?:19|20)\d{2}(?:\s?[-–]\s?\d{2,4})?|\d+)\b", re.I)
+
+
+def company_from_filename(filename: str | None) -> str | None:
+    """'ITC_Annual_Report_2025.pdf' -> 'ITC'. A last resort so the field is never blank."""
+    if not filename:
+        return None
+    stem = re.sub(r"\.pdf$", "", filename.strip(), flags=re.I)
+    stem = re.sub(r"[_\-.+]+", " ", stem)
+    stem = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", stem)              # "AcmeIndustries" -> "Acme Industries"
+    stem = _FILENAME_NOISE.sub(" ", stem)
+    stem = re.sub(r"\s{2,}", " ", stem).strip(" ,&")
+    if len(stem) < 2 or sum(ch.isalpha() for ch in stem) < 2:
+        return None
+    return " ".join(w if w.isupper() else w[:1].upper() + w[1:] for w in stem.split())[:120]
+
+
+def _company_from_pdf_info(doc: pymupdf.Document) -> str | None:
+    """The PDF's own Author/Title fields, when they hold a company name rather than a tool's."""
+    info = doc.metadata or {}
+    for key in ("author", "title", "subject"):
+        val = (info.get(key) or "").strip()
+        if not val or re.search(r"microsoft|word|adobe|indesign|acrobat|untitled|^user$|\.(?:docx?|indd|pdf)\b", val, re.I):
+            continue
+        m = _COMPANY.search(val)
+        if m:
+            return re.sub(r"\s+", " ", m.group(1)).strip(" ,.-'")
+    return None
+
+
+def detect_metadata(pdf_bytes: bytes, max_pages: int = 6, filename: str | None = None) -> dict:
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     pages = [doc[i] for i in range(min(max_pages, doc.page_count))]
     text = "\n".join(p.get_text() for p in pages)
     first = pages[0] if pages else None
-    if len(text.strip()) < 40 and first is not None:          # scanned: read page 1 with OCR
-        from app.extraction import ocr
-        text = " ".join(w.text for w in ocr.ocr_page(first))
+    if first is not None and (len(text.strip()) < 40 or len(first.get_text().strip()) < 10):
+        # scanned (or an image-only cover): read page 1 with OCR — best-effort, OCR may be absent
+        try:
+            from app.extraction import ocr
+            text = " ".join(w.text for w in ocr.ocr_page(first)) + " " + text
+        except Exception:  # noqa: BLE001 - suggestions only
+            pass
     text = re.sub(r"[ \t]*\n[ \t]*", " ", text)                    # line breaks inside names
     text = re.sub(r"\s{2,}", " ", text)
     out: dict = {"page_count": doc.page_count, "confidence": {}}
@@ -91,6 +128,12 @@ def detect_metadata(pdf_bytes: bytes, max_pages: int = 6) -> dict:
         spans = [s for s in spans if not any(ch.isdigit() for ch in s[1])]
         if spans:
             out["company_name"] = max(spans)[1][:120]
+            out["confidence"]["company_name"] = "low"
+    if not (out.get("company_name") or "").strip():
+        out.pop("company_name", None)
+        guess = _company_from_pdf_info(doc) or company_from_filename(filename)
+        if guess:
+            out["company_name"] = guess
             out["confidence"]["company_name"] = "low"
 
     # --- report type

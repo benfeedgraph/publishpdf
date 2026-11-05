@@ -22,6 +22,7 @@ class Word:
     size: float = 0.0          # font size (text layer) or glyph height (OCR)
     bold: bool = False
     src: tuple[float, float, float, float] | None = None   # original-page bbox if bbox was deskewed
+    font: str = ""             # font name (text layer only); icon fonts are never figures
 
     @property
     def source_bbox(self) -> tuple[float, float, float, float]:
@@ -51,6 +52,8 @@ class PageData:
     image_regions: list[tuple[float, float, float, float]] = field(default_factory=list)
     chart_regions: list[tuple[float, float, float, float]] = field(default_factory=list)
     hidden_numbers: int = 0          # digit-bearing words too small to see (excluded)
+    # small pictures (logos, icons): OCR read off them is never trusted as a figure
+    logo_regions: list[tuple[float, float, float, float]] = field(default_factory=list)
 
 
 class PdfError(Exception):
@@ -94,7 +97,7 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
             if abs(line["dir"][1]) > 0.1:        # skip rotated text (watermarks, axis labels)
                 continue
             cur: list[tuple[str, tuple]] = []
-            cur_size, cur_bold = 0.0, False
+            cur_size, cur_bold, cur_font = 0.0, False, ""
 
             def flush() -> None:
                 nonlocal cur
@@ -104,7 +107,7 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                     ys0 = min(b[1] for _, b in cur)
                     xs1 = max(b[2] for _, b in cur)
                     ys1 = max(b[3] for _, b in cur)
-                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold)
+                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold, font=cur_font)
                     if cur_size < MIN_VISIBLE_PT:
                         if hidden is not None:
                             hidden.append(w)
@@ -122,7 +125,7 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                     if c.isspace():
                         flush()
                         continue
-                    cur_size, cur_bold = span["size"], bold
+                    cur_size, cur_bold, cur_font = span["size"], bold, span["font"]
                     cur.append((c, tuple(ch["bbox"])))
             flush()
     return words, total, bad
@@ -136,6 +139,27 @@ def _image_regions(page: pymupdf.Page) -> list[tuple[float, float, float, float]
             if r.width * r.height > 0.03 * area:
                 out.append((r.x0, r.y0, r.x1, r.y1))
     return out
+
+
+def _logo_regions(page: pymupdf.Page) -> list[tuple[float, float, float, float]]:
+    """Small placed images (logos, icons, badges): under 3% of the page and narrow in both
+    directions. A page cut into many image strips (some scanners do this) has none."""
+    area = page.rect.width * page.rect.height
+    out = []
+    try:
+        imgs = page.get_images(full=True)
+    except Exception:  # noqa: BLE001
+        return []
+    for img in imgs:
+        try:
+            rects = page.get_image_rects(img[0])
+        except Exception:  # noqa: BLE001
+            continue
+        for r in rects:
+            if 0.0002 * area < r.width * r.height <= 0.03 * area and r.width < 0.3 * page.rect.width \
+                    and r.height < 0.2 * page.rect.height:
+                out.append((r.x0, r.y0, r.x1, r.y1))
+    return out if len(out) <= 20 else []
 
 
 def vector_paths(page: pymupdf.Page) -> list[tuple[pymupdf.Rect, tuple | None]]:
@@ -241,5 +265,6 @@ def read_pages(doc: pymupdf.Document, numbers: list[int] | None = None, *, worke
         for n, (fut, reason) in pending.items():
             page = doc[n]
             words = [Word(w.text, w.bbox, w.conf, w.bbox[3] - w.bbox[1], src=w.src) for w in fut.result()]
-            results[n] = PageData(n + 1, page.rect.width, page.rect.height, "ocr", words, reason, [], [])
+            results[n] = PageData(n + 1, page.rect.width, page.rect.height, "ocr", words, reason, [], [],
+                                  logo_regions=_logo_regions(page))
     return [results[n] for n in numbers]

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { post, upload } from "../api";
 import { IconCheckCircle, IconClose, IconDesign, IconDocument, IconGlobe } from "./Icons";
@@ -39,21 +39,45 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
   hideApply?: boolean;
   onDraftChange?: (draft: DesignDraft) => void;
 }) {
-  const [source, setSource] = useState<Source>("current");
-  const [url, setUrl] = useState("");
-  const [palette, setPalette] = useState<string[]>(["#1F4FD1", "#0F766E", "#FFFFFF", "#111827"]);
+  // An unsaved design survives leaving the step (or the page) and coming back: it's kept for
+  // this browser tab until it's applied — or until the saved design it started from changes.
+  const draftKey = `ppdf-design-draft:${tenantId}:${reportId ?? "workspace"}`;
+  const baseline = JSON.stringify(current);
+  const restored = useMemo(() => readDraft(draftKey, baseline), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [source, setSource] = useState<Source>(restored?.source ?? "current");
+  const [url, setUrl] = useState(restored?.url ?? "");
+  const [palette, setPalette] = useState<string[]>(restored?.palette ?? ["#1F4FD1", "#0F766E", "#FFFFFF", "#111827"]);
   const [files, setFiles] = useState<FileList | null>(null);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
-  const [theme, setTheme] = useState<ThemeT>(current);
-  const [makeDefault, setMakeDefault] = useState(!reportId);
+  const [proposal, setProposal] = useState<Proposal | null>(restored?.proposal ?? null);
+  const [theme, setTheme] = useState<ThemeT>(restored?.theme ?? current);
+  const [makeDefault, setMakeDefault] = useState(restored?.makeDefault ?? !reportId);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { if (source === "current") { setTheme(current); setProposal(null); } }, [source, current]);
-  const mode = source === "website" ? "match_website" : source === "current" ? "custom" : source === "palette" ? "custom" : "reference";
+  // The saved design changed underneath (just applied, or saved in another tab): follow it,
+  // unless there are unsaved edits here — those are never thrown away by a refresh.
+  const prevBaseline = useRef(baseline);
   useEffect(() => {
-    onDraftChange?.({ theme, makeDefault, mode, dirty: JSON.stringify(theme) !== JSON.stringify(current) });
-  }, [theme, makeDefault, mode, current]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (prevBaseline.current === baseline) return;
+    const untouched = JSON.stringify(theme) === prevBaseline.current;
+    prevBaseline.current = baseline;
+    if (untouched) setTheme(current);
+  }, [baseline]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (k: Source) => {
+    setSource(k);
+    setErr(null);
+    if (k === "current") { setTheme(current); setProposal(null); }
+  };
+  const mode = source === "website" ? "match_website" : source === "current" ? "custom" : source === "palette" ? "custom" : "reference";
+  const themeChanged = JSON.stringify(theme) !== baseline;
+  // Ticking "save for future reports" is itself a change to save, even with the same look.
+  const dirty = themeChanged || (!!reportId && makeDefault);
+  useEffect(() => {
+    onDraftChange?.({ theme, makeDefault, mode, dirty });
+  }, [theme, makeDefault, mode, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    writeDraft(draftKey, dirty ? { baseline, source, url, palette, proposal, theme, makeDefault } : null);
+  }, [draftKey, baseline, dirty, source, url, palette, proposal, theme, makeDefault]);
 
   async function propose() {
     setErr(null);
@@ -68,7 +92,9 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
         p = await upload<Proposal>(`/api/tenants/${tenantId}/theme/analyze-references`, f);
       }
       setProposal(p);
-      setTheme({ ...p.theme, logo: current.logo });
+      // A proposal brings colours and fonts; the logo, header and footer choices (e.g.
+      // "Powered by PublishPDF") stay as they were set here.
+      setTheme((t) => ({ ...p.theme, logo: current.logo, header: t.header ?? p.theme.header, footer: t.footer ?? p.theme.footer }));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -83,7 +109,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
         <div className="design-sources" role="radiogroup" aria-label="Where should the design come from?">
           {SOURCES.map(([k, title, desc, icon]) => (
             <button key={k} type="button" role="radio" aria-checked={source === k}
-              className={`source-card ${source === k ? "active" : ""} ${k === "current" ? "is-default" : ""}`} onClick={() => setSource(k)}>
+              className={`source-card ${source === k ? "active" : ""} ${k === "current" ? "is-default" : ""}`} onClick={() => pick(k)}>
               <span className="source-top">
                 <span className="source-icon" aria-hidden>{icon}</span>
                 {k === "current" && <span className="badge info">Default</span>}
@@ -105,7 +131,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
           {source === "website" && (
             <form className="inline-form" onSubmit={(e) => { e.preventDefault(); propose(); }}>
               <input required placeholder="https://www.yourcompany.com" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Website address" />
-              <Button className="primary" busy={loading} busyLabel="Reading the website">Get design</Button>
+              <Button className="primary" type="submit" busy={loading} busyLabel="Reading the website">Get design</Button>
             </form>
           )}
           {source === "palette" && (
@@ -170,6 +196,12 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
           <label className="check"><input type="checkbox" checked={!!theme.footer?.show_powered_by} onChange={(e) => set((t) => { t.footer = { ...t.footer, show_powered_by: e.target.checked }; })} /> Show “Powered by PublishPDF” in the page footer</label>
           <p className="hint">Text contrast is always kept readable: colours that are too light are darkened automatically on the page.</p>
           {reportId && <label className="check"><input type="checkbox" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} /> Also save as the design for future reports</label>}
+          {reportId && makeDefault && <p className="hint" style={{ marginTop: 0 }}>Saved to Brand &amp; design when you apply it — new reports start with this look.</p>}
+          {hideApply && dirty && (
+            <p className="callout info small" role="status" style={{ marginBottom: 0 }}>
+              Not applied yet. Use <strong>Apply design &amp; review</strong> at the bottom to use it. It's kept here if you step away.
+            </p>
+          )}
           {!hideApply && (
             <Button className="primary lg" busy={busy} busyLabel="Applying the design" onClick={() => onApply(theme, { makeDefault, mode })}>
               {applyLabel}
@@ -185,6 +217,7 @@ export default function DesignPicker({ tenantId, reportId, current, onApply, app
 function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId?: string; theme: ThemeT }) {
   const [html, setHtml] = useState("");
   const [pending, setPending] = useState(true);
+  const [failed, setFailed] = useState<string | null>(null);
   const timer = useRef<number>();
   const seq = useRef(0);   // only the latest request may update the preview
   useEffect(() => {
@@ -197,7 +230,18 @@ function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId
           method: "POST", headers: { "Content-Type": "application/json", "X-PPDF-CSRF": "1" },
           body: JSON.stringify({ theme, report_id: reportId }),
         });
-        if (res.ok && n === seq.current) setHtml(await res.text());
+        if (n !== seq.current) return;
+        if (res.ok) {
+          // The preview's base is about:srcdoc (so its links can't load the dashboard inside
+          // the frame); its images and fonts need this site's address spelled out.
+          setHtml((await res.text()).split("__PPDF_APP_ORIGIN__").join(window.location.origin));
+          setFailed(null);
+        } else {
+          const body = await res.json().catch(() => ({} as { detail?: unknown }));
+          setFailed(typeof body.detail === "string" ? body.detail : "The preview couldn't be drawn. Your design is unaffected — try again.");
+        }
+      } catch {
+        if (n === seq.current) setFailed("The preview couldn't be loaded. Check your connection and try again.");
       } finally {
         if (n === seq.current) setPending(false);
       }
@@ -207,7 +251,29 @@ function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId
   return (
     <div className="card live-preview" style={{ padding: 12 }}>
       <div className="toolbar" style={{ marginBottom: 8 }}><strong>Live preview</strong><span className="muted small">Your report in this design</span>{pending && <Spinner label="Updating the preview" />}</div>
+      {failed && <p className="error small" role="alert">{failed}</p>}
       <iframe title="Design preview" srcDoc={html} sandbox="allow-same-origin" />
     </div>
   );
+}
+
+interface StoredDraft { baseline: string; source: Source; url: string; palette: string[]; proposal: Proposal | null; theme: ThemeT; makeDefault: boolean }
+
+function readDraft(key: string, baseline: string): StoredDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as StoredDraft;
+    // Only resume a draft made from the design that's saved now.
+    return d && d.baseline === baseline && d.theme?.colors && d.theme?.typography && d.theme?.header ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(key: string, d: StoredDraft | null) {
+  try {
+    if (d) window.sessionStorage.setItem(key, JSON.stringify(d));
+    else window.sessionStorage.removeItem(key);
+  } catch { /* storage full or blocked: the draft just isn't kept */ }
 }

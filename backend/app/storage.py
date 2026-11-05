@@ -116,6 +116,12 @@ class S3Backend:
     def delete(self, full_key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=full_key)
 
+    def presigned_get(self, full_key: str, *, content_type: str, disposition: str, expires: int = 900) -> str:
+        """A short-lived link the browser can fetch this object from directly."""
+        return self.client.generate_presigned_url(
+            "get_object", Params={"Bucket": self.bucket, "Key": full_key, "ResponseContentType": content_type,
+                                  "ResponseContentDisposition": disposition}, ExpiresIn=expires)
+
     def presigned_put(self, full_key: str, content_type: str, expires: int = 900) -> str:
         """A URL the browser can PUT exactly this object to, for `expires` seconds. (R2 has
         no POST policies, so the size limit is checked after the upload instead.)"""
@@ -318,6 +324,22 @@ def exists(ctx: Context, key: str) -> bool:
 
 def delete(ctx: Context, key: str) -> None:
     _backend().delete(scoped_key(ctx, key))
+
+
+def direct_download_url(ctx: Context, key: str, *, filename: str = "report.pdf",
+                        content_type: str = "application/pdf", inline: bool = True) -> str | None:
+    """A signed link straight to storage for a large file (S3 / Cloudflare R2), so a
+    multi-megabyte PDF doesn't go through the API and the hosting proxy's response size
+    limit. None: no direct link here; serve the bytes instead."""
+    backend = _backend()
+    if not isinstance(backend, S3Backend):
+        return None
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]+', "_", filename)[:150] or "report.pdf"
+    disposition = f'{"inline" if inline else "attachment"}; filename="{safe}"'
+    try:
+        return backend.presigned_get(scoped_key(ctx, key), content_type=content_type, disposition=disposition)
+    except Exception:  # noqa: BLE001 - fall back to serving through the API
+        return None
 
 
 def direct_upload(ctx: Context, key: str, max_bytes: int) -> dict | None:

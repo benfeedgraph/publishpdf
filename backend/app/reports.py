@@ -195,7 +195,12 @@ def store_source(s: Session, ctx: Context, data: bytes, filename: str) -> Source
                          page_count=doc.page_count, uploaded_by=ctx.user_id)
         s.add(src)
         s.flush()
-    elif not storage.exists(ctx, source_key(sha)):
+        return src
+    # The same bytes uploaded again, perhaps under another name: show (and file the report
+    # under) the name the person just chose, not the one from the first upload.
+    if filename and filename != src.original_filename:
+        src.original_filename = filename[:200]
+    if not storage.exists(ctx, source_key(sha)):
         # The row says we already have this PDF, but the object is gone — a lifecycle
         # expiry, a storage backend/bucket switch, or a manual cleanup can orphan a row
         # whose blob no longer exists. Without this, every re-upload of that PDF would
@@ -296,7 +301,10 @@ def _settings_fingerprint(v: ReportVersion) -> str:
 def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False) -> None:
     key = stage_key(v, stage) + (f":rerun:{uuid.uuid4().hex[:8]}" if force else "")
     v.status, v.stage, v.error_plain = "processing", stage, None
-    job = jobs.enqueue(s, ctx, f"pipeline.{stage}", {"version_id": str(v.id)}, idempotency_key=key)
+    payload = {"version_id": str(v.id)}
+    if stage == "render" and v.schema_sha256:
+        payload["schema_sha256"] = v.schema_sha256      # a newer edit makes this job a no-op
+    job = jobs.enqueue(s, ctx, f"pipeline.{stage}", payload, idempotency_key=key)
     if job.version_id is None:
         job.version_id = v.id
     if job.status in ("succeeded", "failed", "cancelled"):
@@ -322,7 +330,11 @@ def open_blocking(s: Session, vid: uuid.UUID) -> int:
 def _require_draft(v: ReportVersion) -> None:
     if v.published_at is not None:
         raise ReportError("This version is published and can't be changed. Create a new draft to make changes.", 409)
-    if v.status == "processing":
+    # Decisions may keep coming while the page is rebuilt after an earlier one: the newest
+    # decision supersedes the in-flight rebuild (render/validate skip stale inputs), so a
+    # reviewer never waits minutes between clicks. Only a fresh read of the PDF (extract)
+    # would overwrite the decisions, so that one still has to finish first.
+    if v.status == "processing" and not (v.schema_json and (v.stage or "").split(":")[0] in ("render", "validate")):
         raise ReportError("This version is still processing. Try again in a moment.", 409)
 
 

@@ -126,7 +126,11 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
       setBusy(false);
     }
   }
-  const Tag = ({ k }: { k: string }) => (found(k) ? <span className="detected"><IconCheck size={12} /> detected</span> : null);
+  const conf = (d.confidence ?? {}) as Record<string, string>;
+  // A guess (from the file name, or the biggest words on the cover) is offered, but flagged.
+  const Tag = ({ k }: { k: string }) => (!found(k) ? null : conf[k] === "low"
+    ? <span className="detected guess">best guess — please check</span>
+    : <span className="detected"><IconCheck size={12} /> detected</span>);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-h" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -134,12 +138,13 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
         <div className="modal-head">
           <div>
             <h2 id="confirm-h">Confirm report details</h2>
-            <p className="muted small" style={{ margin: 0 }}>{data.filename} · {data.page_count} pages · {(data.size_bytes / 1024 / 1024).toFixed(1)} MB. We filled these in from the PDF — check them before we start.</p>
+            <p className="muted small" style={{ margin: 0 }}>{data.filename} · {data.page_count} pages · {formatSize(data.size_bytes)}. We filled these in from the PDF — check them before we start.</p>
           </div>
           <button type="button" className="link" onClick={onClose} aria-label="Close"><IconClose /></button>
         </div>
         <div className="form-grid">
-          <label className="field span2"><span className="label">Company <Tag k="company_name" /></span><input required value={company} onChange={(e) => setCompany(e.target.value)} /></label>
+          <label className="field span2"><span className="label">Company <Tag k="company_name" /></span><input required value={company} placeholder="Company name, as printed on the report" onChange={(e) => setCompany(e.target.value)} />
+            {!company && <span className="hint">We couldn't find the company name in this PDF — please type it.</span>}</label>
           <label className="field"><span className="label">Report type <Tag k="report_type" /></span>
             <select value={type} onChange={(e) => setType(e.target.value as ReportType)}>{Object.entries(REPORT_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="field"><span className="label">Fiscal year (year it ends) <Tag k="fiscal_year" /></span><input required inputMode="numeric" pattern="[0-9]{4}" value={fy} onChange={(e) => setFy(e.target.value)} /></label>
@@ -175,4 +180,12 @@ function putWithProgress(url: string, file: File, headers: Record<string, string
     xhr.onerror = () => reject(new Error("The upload couldn't reach storage. If this keeps happening, the storage bucket's CORS settings need this site's address."));
     xhr.send(file);
   });
+}
+
+/** File size as the computer's own file browser shows it (decimal MB, like Finder and
+ *  Windows Explorer's "size" in most locales), so "4.9 MB" on disk reads 4.9 MB here too. */
+export function formatSize(bytes: number): string {
+  if (bytes < 1000) return `${bytes} bytes`;
+  if (bytes < 1000 * 1000) return `${Math.round(bytes / 1000)} KB`;
+  return `${(bytes / 1000 / 1000).toFixed(1)} MB`;
 }

@@ -50,13 +50,14 @@ export const BUILD_MODE_LABEL: Record<BuildMode, string> = {
 };
 
 const SUMMARY: Record<BuildMode, string> = {
-  layout: "AI designs every page as a real web page.",
+  layout: "AI designs every page as a real web page. You review any figures the checks flag.",
   full: "AI design, plus AI help checking figures.",
 };
 
 function points(o: BuildOption): string[] {
-  if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them", "All nine figure checks (every number verified against the PDF)"];
-  return [`Everything in “${BUILD_MODE_LABEL.layout}”, and:`, "AI double-checks flagged figures before you do",
+  if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them",
+    "All nine figure checks run on every number — anything they flag waits for you to review"];
+  return [`Everything in “${BUILD_MODE_LABEL.layout}”, and:`, "AI double-checks flagged figures first, so fewer are left for you",
     ...(o.labels_available ? ["AI names sections our rules can't"] : [])];
 }
 
@@ -67,9 +68,9 @@ const BEST: Record<BuildMode, string> = {
 
 const ROWS: { label: string; cells: Record<BuildMode, string> }[] = [
   { label: "Words and numbers", cells: { layout: "Always from the PDF", full: "Always from the PDF" } },
-  { label: "All nine figure checks", cells: { layout: "Yes", full: "Yes" } },
+  { label: "All nine figure checks", cells: { layout: "Yes — flagged figures come to you", full: "Yes — AI re-reads flagged figures first" } },
   { label: "Every page", cells: { layout: "Rebuilt as a web page by AI", full: "Rebuilt as a web page by AI" } },
-  { label: "Figures flagged by checks", cells: { layout: "You review them", full: "AI double-checks first, then you" } },
+  { label: "Figures flagged by checks", cells: { layout: "You review every one", full: "AI double-checks first; you review what's left" } },
   { label: "Section labels", cells: { layout: "Rules", full: "Rules, then AI for the rest" } },
 ];
 

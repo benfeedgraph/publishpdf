@@ -15,7 +15,7 @@ from typing import Any
 
 import pymupdf
 
-from app.extraction import classify, layout
+from app.extraction import classify, layout, noise
 from app.extraction.dates import ParsedDate, Period, parse_period
 from app.extraction.numbers import ParsedNumber, has_digit
 from app.extraction.pdf import PageData, Word
@@ -281,6 +281,10 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
     from app.extraction.pdf import read_pages
     pages = read_pages(doc, progress=progress)
     exclude = layout.header_footer_words(pages)
+    # Page numbers, axis ticks, OCR read off logos/icons: never figures.
+    noise_reasons = noise.noise_words(pages, exclude)
+    for n, reasons in noise_reasons.items():
+        exclude[n] = exclude[n] | set(reasons)
 
     sizes = [w.size for p in pages if p.method == "text_layer" for w in p.words if w.size]
     body_size = statistics.median(sizes) if sizes else 0.0
@@ -310,9 +314,18 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
             "page": p.number, "width": _r(p.width), "height": _r(p.height), "method": p.method,
             "method_reason": p.text_layer_reason,
             "ocr_mean_confidence": round(statistics.mean(w.conf for w in p.words), 3) if p.method == "ocr" and p.words else None,
-            "excluded_header_footer": [{"text": w.text, "bbox": _bbox(w.bbox)} for w in excluded_words],
+            "excluded_header_footer": [_excluded(w, noise_reasons[p.number].get(id(w))) for w in excluded_words],
         })
         for el in els:
+            # OCR of a logo or texture read as a 'heading' ('gtaaliyy', 'MM ENA'), or a short
+            # low-confidence scrap of the same: drop it rather than open a section with it.
+            # Anything carrying a digit is kept (as a paragraph): its figures go through the
+            # usual checks, and digit junk was already dropped word by word.
+            if p.method == "ocr" and isinstance(el, layout.TextEl) and _ocr_garbage_text(el):
+                if not any(has_digit(w.text) for w in el.words):
+                    page_info[-1]["excluded_header_footer"].extend(_excluded(w, "ocr_garbage_text") for w in el.words)
+                    continue
+                el = layout.TextEl("paragraph", el.lines, el.size)
             if isinstance(el, layout.TextEl) and el.kind == "heading":
                 sid = f"s{len(sections) + 1}"
                 runs = b.runs(tokenize(el.words), p.number, section_id=sid, role="heading")
@@ -403,6 +416,22 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
                    "chart_regions": [_bbox(r) for r in p.chart_regions]} for p in pages],
     }
     return schema, artifact
+
+
+def _excluded(w: Word, reason: str | None) -> dict:
+    e = {"text": w.text, "bbox": _bbox(w.bbox)}
+    if reason:
+        e["reason"] = reason
+    return e
+
+
+def _ocr_garbage_text(el: layout.TextEl) -> bool:
+    """An OCR heading that doesn't read as words, or a short paragraph (<= 4 words) that
+    doesn't read as words and was read with low confidence."""
+    if el.kind == "heading":
+        return not noise.plausible_ocr_heading(el.words)
+    ws = el.words
+    return len(ws) <= 4 and statistics.mean(w.conf for w in ws) < 0.6 and not noise.plausible_ocr_heading(ws)
 
 
 def _sample(s: dict) -> str:

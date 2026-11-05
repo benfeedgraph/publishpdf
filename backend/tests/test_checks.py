@@ -60,8 +60,11 @@ def test_seeded_wrong_digit_is_caught_by_traceability_and_reextraction():
     f = fig_by_raw(schema, "1,180.40")
     f["raw"], f["value"] = "1,186.40", "1186.40"            # one digit wrong
     issues = checks(schema, data, artifact)
-    by_check = {i.check for i in issues if i.fid == f["id"] and i.severity == "blocking"}
-    assert {"traceability", "re_extraction"} <= by_check
+    mine = [i for i in issues if i.fid == f["id"] and i.severity == "blocking"
+            and i.check in ("traceability", "re_extraction", "low_confidence")]
+    # Both checks catch it; the reviewer sees it once, noting the other check agreed.
+    assert len(mine) == 1 and mine[0].check == "re_extraction"
+    assert "source trace" in mine[0].message
 
 
 def test_seeded_sign_flip_is_caught():

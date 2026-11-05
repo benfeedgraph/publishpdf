@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from collections import OrderedDict
@@ -45,6 +46,8 @@ from app.reports import (
     versions_for,
 )
 from app.tenancy import Context
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}/reports", tags=["reports"])
 
@@ -191,9 +194,12 @@ async def inspect(file: UploadFile | None = File(None), incoming: str | None = F
             except storage.StorageError:
                 pass
     try:
-        detected = detect_metadata(data)
+        detected = detect_metadata(data, filename=name)
     except Exception:  # noqa: BLE001 - suggestions are best-effort
-        detected = {}
+        log.exception("metadata detection failed")
+        from app.extraction.detect import company_from_filename
+        guess = company_from_filename(name)
+        detected = {"company_name": guess, "confidence": {"company_name": "low"}} if guess else {}
     return {**out, "detected": detected, "build_options": _build_options(ctx, out["page_count"])}
 
 
@@ -308,7 +314,12 @@ def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context =
                            .order_by(ReportVersion.version_no.desc())).first()
         target = None
         if latest is not None and latest.schema_json:
-            if latest.published_at is None and latest.status != "processing":
+            # A draft still being re-checked after review decisions is rebuilt too: the new
+            # render supersedes the running one, so the design is never silently dropped.
+            # (Only a fresh read of the PDF has to finish first — it re-renders on its own
+            # and picks up the new design then.)
+            extracting = latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued")
+            if latest.published_at is None and not extracting:
                 enqueue_stage(s, ctx, latest, "render", force=True)
                 target = latest
             elif latest.published_at is not None:
@@ -394,10 +405,24 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
     return out
 
 
+_RUN_STAGES = ("pipeline.extract", "pipeline.render", "pipeline.validate")
+
+
 def _processing_elapsed(version_jobs: list[Job]) -> int | None:
-    """Seconds since the first pipeline step began running (None until one has started —
-    while it only sits queued, there is no processing time to estimate from)."""
-    starts = [j.started_at for j in version_jobs if j.kind.startswith("pipeline.") and j.started_at]
+    """Seconds since the CURRENT run's first step began (None until one has started — while
+    it only sits queued, there is no processing time to estimate from). A run is the chain
+    of stages each queued as the previous one finished; a reviewer's decision or a new design
+    starts a new chain, so a re-check isn't timed from the original upload hours earlier."""
+    chain = [j for j in version_jobs if j.kind in _RUN_STAGES]
+    chain.sort(key=lambda j: j.created_at)
+    start = len(chain) - 1
+    while start > 0:
+        prev, cur = chain[start - 1], chain[start]
+        ended = prev.finished_at
+        if ended is None or abs((cur.created_at - ended).total_seconds()) > 15:
+            break
+        start -= 1
+    starts = [j.started_at for j in chain[max(0, start):] if j.started_at]
     if not starts:
         return None
     return max(0, int((datetime.now(timezone.utc) - min(starts)).total_seconds()))
@@ -436,8 +461,25 @@ def get_source(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depen
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         sha = v.source_sha256
-    return Response(storage.get(ctx, source_key(sha)), media_type="application/pdf",
-                    headers={"Content-Disposition": "inline", "Cache-Control": "private, max-age=300"})
+        src = s.get(SourceFile, v.source_file_id) if v.source_file_id else None
+    return _pdf_response(ctx, sha, src.original_filename if src else "report.pdf")
+
+
+def _pdf_response(ctx: Context, sha: str, filename: str) -> Response:
+    """The original PDF: a redirect to a short-lived storage link when the store can sign
+    one (a large PDF through the API would hit the host's response-size limit), else the
+    bytes themselves."""
+    from fastapi.responses import RedirectResponse
+    url = storage.direct_download_url(ctx, source_key(sha), filename=filename or "report.pdf")
+    if url:
+        return RedirectResponse(url, status_code=302, headers={"Cache-Control": "private, no-store"})
+    try:
+        data = storage.get(ctx, source_key(sha))
+    except storage.StorageError as e:
+        raise HTTPException(404, "The original PDF isn't available.") from e
+    safe = re.sub(r'[^A-Za-z0-9 ._()-]+', "_", filename or "report.pdf")[:150]
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{safe}"', "Cache-Control": "private, max-age=300"})
 
 
 _PNG_CACHE: OrderedDict[tuple[str, int, float], bytes] = OrderedDict()
@@ -683,6 +725,16 @@ def resolve_issue(report_id: uuid.UUID, version_id: uuid.UUID, issue_id: uuid.UU
             raise _err(e) from e
         i.status, i.resolution, i.resolved_by = "resolved", body.action, ctx.user_id
         i.resolved_at = func.now()
+        if i.fid and i.check_name != "reviewer_flag":
+            # The same figure flagged by other checks in this run is the same decision (the
+            # re-check would resolve them from the review anyway): don't leave them open meanwhile.
+            for other in s.scalars(select(ValidationIssue).where(
+                    ValidationIssue.version_id == v.id, ValidationIssue.run_no == i.run_no,
+                    ValidationIssue.fid == i.fid, ValidationIssue.status == "open",
+                    ValidationIssue.id != i.id,
+                    ValidationIssue.check_name.not_in(("rendered_page", "schema", "reviewer_flag")))):
+                other.status, other.resolution, other.resolved_by = "resolved", body.action, ctx.user_id
+                other.resolved_at = func.now()
         if i.check_name == "reviewer_flag":
             # flags are carried across runs; mark every copy resolved
             for other in s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == v.id,
@@ -856,12 +908,14 @@ def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context
         if not v.bundle_key:
             raise HTTPException(409, "The page hasn't been generated yet.")
         bundle, sha = v.bundle_key, v.source_sha256
+        src = s.get(SourceFile, v.source_file_id) if v.source_file_id else None
+        pdf_name = src.original_filename if src else "report.pdf"
         files = json.loads(storage.get(ctx, bundle + "_files.json"))
         base = min((f for f in files if f.endswith("/index.html")), key=len, default=files[0])   # the landing page
     root = f"/api/tenants/{ctx.tenant_id}/reports/{report_id}/versions/{version_id}/preview"
     rel = path.strip("/")
     if rel.endswith("source.pdf"):
-        return Response(storage.get(ctx, source_key(sha)), media_type="application/pdf")
+        return _pdf_response(ctx, sha, pdf_name)
     candidates = [rel, rel + "/index.html"] if rel else [base]
     if rel.startswith(("latest", "archive")) or rel == "":
         candidates = [base]
@@ -874,6 +928,8 @@ def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context
         html = data.decode()
         html = html.replace("<head>", '<head><meta name="robots" content="noindex">', 1)
         html = html.replace("</body>", PREVIEW_SYNC + "</body>", 1)
+        # The PDF opens in its own tab: inside the preview frame it would replace the page.
+        html = re.sub(r'(<a\b[^>]*href="[^"]*source\.pdf")', r'\1 target="_blank" rel="noopener"', html)
         return Response(html, media_type="text/html", headers={"X-Robots-Tag": "noindex",
                                                                 "Content-Security-Policy": "frame-ancestors 'self'",
                                                                 "X-Frame-Options": "SAMEORIGIN"})

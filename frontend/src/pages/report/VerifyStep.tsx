@@ -57,7 +57,7 @@ type EtaFloor = { vid: string; secs: number; at: number; maxFrac: number; movedA
 // stage nudges it up smoothly instead of spiking). Crucially, when the progress bar hasn't
 // advanced for a while — a phase that reports nothing, or a genuine stall — we stop the countdown
 // and say so, rather than letting an earlier "under a minute" tick toward a zero that never comes.
-function timeLeft(frac: number, elapsed: number | null | undefined, vid: string,
+function timeLeft(frac: number, exact: boolean, elapsed: number | null | undefined, vid: string,
                   floor: React.MutableRefObject<EtaFloor | null>): string | null {
   if (frac >= 0.985) return "Almost done";
   if (elapsed == null || elapsed < 8 || frac < 0.05) return "Estimating time left…";
@@ -69,7 +69,9 @@ function timeLeft(frac: number, elapsed: number | null | undefined, vid: string,
   // fall freely; rise no faster than the clock, so the estimate never jumps upward sharply
   const secs = prev ? Math.min(projection, prev.secs + (elapsed - prev.at)) : projection;
   floor.current = { vid, secs, at: elapsed, maxFrac, movedAt };
-  if (elapsed - movedAt > 20) return "Still working — this is taking longer than expected";
+  // Only a real X-of-Y count that has stopped moving for a good while is "slow"; a stage that
+  // doesn't report counts (or a short re-check) just keeps its estimate.
+  if (exact && elapsed - movedAt > 90) return "Still working — this is taking longer than expected";
   return formatTimeLeft(secs);
 }
 
@@ -90,7 +92,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   // Time remaining: only once a worker is actually processing (not while queued/stalled). The
   // floor keeps the estimate from jumping back up when a stage runs slower than expected.
   const etaFloor = useRef<EtaFloor | null>(null);
-  const eta = processing && !queue?.waiting && !noWorker ? timeLeft(p.frac, version.elapsed_seconds, version.id, etaFloor) : null;
+  const eta = processing && !queue?.waiting && !noWorker ? timeLeft(p.frac, p.exact, version.elapsed_seconds, version.id, etaFloor) : null;
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
@@ -147,25 +149,27 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
 
       {s && (
         <>
-          <div className="stat-row">
-            <div className="stat"><span className="stat-n">{s.figures_checked.toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
-            <div className="stat"><span className="stat-n ok-text">{s.passed.toLocaleString()}</span><span className="stat-l">passed every check</span></div>
-            <div className="stat"><span className={`stat-n ${s.blocking ? "error" : ""}`}>{s.blocking}</span><span className="stat-l">need your attention</span></div>
+          {/* While a re-check runs these are the previous run's numbers: say so rather than
+              show a count that disagrees with the list below. */}
+          <div className={`stat-row ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
+            <div className="stat"><span className="stat-n">{(s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
+            <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
+            <div className="stat"><span className={`stat-n ${!processing && open ? "error" : ""}`}>{processing ? "…" : open}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
             <div className="stat" title="Things we noticed that don't stop publishing. You don't need to do anything about them.">
-              <span className="stat-n muted">{s.warnings}</span><span className="stat-l">notes · no action needed</span>
+              <span className="stat-n muted">{processing ? "…" : s.warnings}</span><span className="stat-l">notes · no action needed</span>
             </div>
           </div>
 
-          {!processing && s.blocking > 0 && (
+          {!processing && open > 0 && (
             <div className="callout bad next-step" role="status">
               <div>
-                <strong>Your turn: {s.blocking} item{s.blocking === 1 ? "" : "s"} need{s.blocking === 1 ? "s" : ""} a decision before this can be published.</strong>{" "}
+                <strong>Your turn: {open} item{open === 1 ? "" : "s"} need{open === 1 ? "s" : ""} a decision before this can be published.</strong>{" "}
                 Each one shows the exact spot in the PDF next to what we read. Confirm it, correct it, or mark it as not a figure.
               </div>
-              <Button className="primary" onClick={toReview}>Review {s.blocking} item{s.blocking === 1 ? "" : "s"} ↓</Button>
+              <Button className="primary" onClick={toReview}>Review {open} item{open === 1 ? "" : "s"} ↓</Button>
             </div>
           )}
-          {!processing && s.blocking === 0 && (
+          {!processing && open === 0 && s.blocking === 0 && (
             <div className="callout ok next-step" role="status">
               <div><strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look.</div>
               <Button className="primary" onClick={onContinue}>Next: Design →</Button>
@@ -179,10 +183,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
                 {(["3+", "2", "1", "0"] as const).map((k) => cons[k] ? <span key={k} className={`c${k[0]}`} style={{ width: `${(cons[k] / consTotal) * 100}%` }} title={`${cons[k]} numbers`} /> : null)}
               </div>
               <div className="legend">
-                <span><i className="c3" />3 or more agents: {cons["3+"].toLocaleString()}</span>
-                <span><i className="c2" />2 agents: {cons["2"].toLocaleString()}</span>
-                <span><i className="c1" />1 agent: {cons["1"].toLocaleString()}</span>
-                <span><i className="c0" />not confirmed: {cons["0"].toLocaleString()}</span>
+                <span><i className="c3" />3 or more agents: {(cons["3+"] ?? 0).toLocaleString()}</span>
+                <span><i className="c2" />2 agents: {(cons["2"] ?? 0).toLocaleString()}</span>
+                <span><i className="c1" />1 agent: {(cons["1"] ?? 0).toLocaleString()}</span>
+                <span><i className="c0" />not confirmed: {(cons["0"] ?? 0).toLocaleString()}</span>
               </div>
             </div>
           )}
@@ -220,7 +224,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
         </>
       )}
 
-      {s && !processing && isAdmin && version.published_at === null && <AiCheckCard tenantId={tenantId} reportId={report.id} versionId={version.id} />}
+      {s && !processing && isAdmin && version.published_at === null && <AiCheckCard tenantId={tenantId} reportId={report.id} versionId={version.id} flagged={open} />}
       {s && (s.blocking > 0 || s.warnings > 0) && (
         <div id="review-items" style={{ scrollMarginTop: 16 }}>
           <h2>{s.blocking > 0 ? "Items to review" : "Notes"}</h2>
@@ -244,7 +248,7 @@ interface AiAllowance { limit: number | null; used: number; remaining: number | 
 interface AiState { available: boolean; auto_cap_credits?: number; estimate: AiEstimate; allowance?: AiAllowance; last: { status: string; result: (AiEstimate & { confirmed: number; disagreed: number }) | null; error: string | null; at: string | null } | null }
 
 /** Opt-in AI double-check of the flagged figures, with the cost shown before it runs. */
-function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; reportId: string; versionId: string }) {
+function AiCheckCard({ tenantId, reportId, versionId, flagged }: { tenantId: string; reportId: string; versionId: string; flagged: number }) {
   const qc = useQueryClient();
   const url = `/api/tenants/${tenantId}/reports/${reportId}/versions/${versionId}/ai-check`;
   const q = useQuery({
@@ -253,10 +257,11 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
     refetchInterval: (d) => (d.state.data?.last && ["queued", "running"].includes(d.state.data.last.status) ? 2500 : false),
   });
   const [err, setErr] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const start = useMutation({
     mutationFn: (credits: number) => post(url, { credits_shown: credits }),
-    onSuccess: () => { setErr(null); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
-    onError: (e: Error) => { setErr(e.message); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
+    onSuccess: () => { setErr(null); setAsking(false); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
+    onError: (e: Error) => { setErr(e.message); setAsking(false); qc.invalidateQueries({ queryKey: ["ai-check", versionId] }); },
   });
   if (!q.data) return null;
   const { available, estimate: e, last, allowance: a } = q.data;
@@ -270,7 +275,7 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
       <p className="muted small">The AI reads a small crop of the PDF for each flagged figure. It can only confirm the value we extracted — it never types a number. A match turns the item into a warning; a mismatch stays for you to decide.</p>
       {e.items > 0 && (
         <div className="ai-estimate">
-          <div className="stat"><span className="stat-n">{e.items}</span><span className="stat-l">flagged figures to check</span></div>
+          <div className="stat"><span className="stat-n">{e.items}</span><span className="stat-l">{flagged > e.items ? `of the ${flagged} flagged items can be AI-checked` : "flagged figures to check"}</span></div>
           <div className="stat"><span className="stat-n">{e.credits}</span><span className="stat-l">credits, estimated</span></div>
           <div className="stat"><span className="stat-n muted">${e.usd.toFixed(4)}</span><span className="stat-l">{(e.input_tokens + e.output_tokens).toLocaleString()} tokens · {e.model}</span></div>
         </div>
@@ -285,11 +290,22 @@ function AiCheckCard({ tenantId, reportId, versionId }: { tenantId: string; repo
       {available && e.items > 0 && !running && overLimit && (
         <p className="callout warn small">This check needs {e.credits} credits, but your workspace has {a?.remaining} of its monthly AI credits left. Ask your PublishPDF contact to raise the limit.</p>
       )}
-      {available && e.items > 0 && !running && !overLimit && (
-        <Button className="primary" busy={start.isPending} busyLabel="Starting the AI double-check"
-          onClick={() => { if (window.confirm(`Run the AI double-check on ${e.items} figures for about ${e.credits} credits ($${e.usd.toFixed(4)})?`)) start.mutate(e.credits); }}>
+      {e.items > 0 && flagged > e.items && (
+        <p className="muted small">The rest aren't a single value read from the PDF (a total that doesn't add up, a table's unit, a colleague's flag) or were already AI-checked at this value, so they stay with you.</p>
+      )}
+      {available && e.items > 0 && !running && !overLimit && !asking && (
+        <Button className="primary" busy={start.isPending} busyLabel="Starting the AI double-check" onClick={() => setAsking(true)}>
           Run AI double-check · ≈ {e.credits} credits
         </Button>
+      )}
+      {available && asking && !running && (
+        <div className="callout info row" role="alertdialog" aria-label="Confirm AI double-check" style={{ gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span>Run the AI double-check on <strong>{e.items}</strong> figure{e.items === 1 ? "" : "s"} for about <strong>{e.credits}</strong> credits (${e.usd.toFixed(4)})?</span>
+          <span className="btn-row">
+            <button type="button" className="secondary" onClick={() => setAsking(false)}>Cancel</button>
+            <Button className="primary" busy={start.isPending} busyLabel="Starting the AI double-check" onClick={() => start.mutate(e.credits)}>Yes, run it</Button>
+          </span>
+        </div>
       )}
       {running && <p className="callout info small row" style={{ gap: 8 }}><Spinner label="AI double-check running" /> AI double-check running — this updates automatically.</p>}
       {err && <p className="error" role="alert">{err}</p>}

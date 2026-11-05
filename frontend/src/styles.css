@@ -255,6 +255,7 @@ button.secondary.danger:hover:not(:disabled) { background: #F3DEDE; border-color
 .modal { background: var(--surface); border-radius: 10px; width: 100%; max-width: 620px; max-height: calc(100vh - 40px); overflow: auto; border: 1px solid rgba(255, 255, 255, .08); box-shadow: 0 24px 48px rgba(20, 21, 31, .28); padding: 20px; }
 .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .detected { font-size: .72rem; color: var(--ok); font-weight: 650; }
+.detected.guess { color: var(--warn, #b45309); }
 
 /* ---- stepper ---- */
 .stepper { display: flex; gap: 2px; margin: 0 0 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; overflow-x: auto; }
@@ -322,8 +323,12 @@ button.secondary.danger:hover:not(:disabled) { background: #F3DEDE; border-color
 dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 8px 0; }
 dl.kv dt { color: var(--muted); font-size: .82rem; } dl.kv dd { margin: 0; }
 code.big { font-size: 1.2rem; font-weight: 700; }
-.pdf-region { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--pp-slate); }
-.pdf-page { position: relative; margin: 0 auto; }
+.pdf-region-wrap { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
+.pdf-region-wrap .pdf-region { align-self: stretch; }
+.pdf-region { position: relative; overflow-y: auto; overflow-x: hidden; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--pp-slate); }
+.pdf-page { position: relative; margin: 0 auto; max-width: none; }
+.pdf-region.zoomed { overflow-x: auto; }
+.issue-detail, .side-by-side > div { min-width: 0; }
 .pdf-page img { display: block; width: 100%; height: auto; background: #fff; }
 .pdf-hl { position: absolute; border: 2px solid var(--hl); background: rgba(225, 29, 72, .12); border-radius: 3px; pointer-events: none; box-shadow: 0 0 0 4px rgba(225, 29, 72, .15); }
 
@@ -400,8 +405,8 @@ ol.steps li.done { background: var(--ok-bg); color: var(--ok); border-color: #C5
 /* bulk review — segmented control is defined with the other controls */
 .review-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .review-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-.review-tile { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px; display: flex; flex-direction: column; gap: 8px; opacity: .55; transition: opacity .15s, border-color .15s; }
-.review-tile.on { opacity: 1; border-color: var(--accent-200, var(--border)); }
+.review-tile { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px; display: flex; flex-direction: column; gap: 8px; transition: border-color .15s, box-shadow .15s; }
+.review-tile.on { border-color: var(--accent, var(--border)); box-shadow: 0 0 0 2px var(--accent-200, rgba(59,55,200,.25)); }
 .review-tile label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .review-read code.big { font-size: 1.05rem; }
 /* No border: with border-box sizing it would sit inside the aspect-ratio box while the
@@ -525,3 +530,6 @@ button.link.is-busy:disabled { opacity: .8; }
 .mb-bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #6D4DF2, #A77BF8); min-width: 2px; }
 .mb-n { font-weight: 650; text-align: right; }
 @media (max-width: 640px) { .month-bars button { grid-template-columns: 1fr auto; } .mb-bar, .mb-usd { grid-column: 1 / -1; } }
+
+/* Stats from the previous run while a re-check is under way */
+.stat-row.is-stale .stat-n { opacity: .45; }

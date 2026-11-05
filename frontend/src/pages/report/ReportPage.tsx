@@ -61,7 +61,14 @@ export default function ReportPage() {
   const go = (s: Step) => { const n = new URLSearchParams(params); n.set("step", s); if (versionId) n.set("v", versionId); n.delete("tab"); setParams(n); window.scrollTo(0, 0); };
 
   if (report.isPending) return <><div className="sk sk-title" /><div className="sk sk-line" /><div className="sk sk-block" /></>;
-  if (report.isError) return <p className="error">{report.error.message}</p>;
+  // A failed background refresh keeps the page as it was (the next poll retries); only a
+  // report that never loaded shows the error.
+  if (!report.data) return (
+    <div className="card" role="alert">
+      <p className="error" style={{ marginTop: 0 }}>{report.error?.message ?? "This report couldn't be loaded."}</p>
+      <Button className="secondary" busy={report.isFetching} busyLabel="Trying again" onClick={() => report.refetch()}>Try again</Button>
+    </div>
+  );
   const r = report.data;
   const verifyDone = !!v && !["processing", "failed", "validation_issues"].includes(v.status);
   const at = STEP_ORDER.indexOf(step);
@@ -122,7 +129,11 @@ export default function ReportPage() {
         <p className="small"><span className="eyebrow">Step {at + 1} of {STEP_ORDER.length}</span> <strong>{STEP_TITLE[step]}</strong> — <span className="muted">{STEP_HELP[step]}</span></p>
       </div>
 
-      {!v && <Loading label="Loading this version" />}
+      {(report.isError || version.isError) && (
+        <p className="callout warn small" role="status">Lost touch with the server for a moment — retrying automatically. Nothing you've done is lost.</p>
+      )}
+      {!v && version.isError && <p className="error">{version.error.message}</p>}
+      {!v && !version.isError && <Loading label="Loading this version" />}
       {v && step === "verify" && <VerifyStep tenantId={tenantId!} report={r} version={v} onContinue={() => go("design")} />}
       {v && step === "design" && <DesignStep tenantId={tenantId!} report={r} isAdmin={isAdmin} back={back} onDone={() => go("review")} />}
       {v && step === "review" && <ReviewStep tenantId={tenantId!} report={r} version={v} back={back} onContinue={() => go("publish")} />}

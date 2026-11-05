@@ -1095,6 +1095,7 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files))
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None))
+    issues = merge_figure_duplicates(issues)
     summary = summarize(schema, issues)
     has_text_layer = any(p["method"] == "text_layer" for p in artifact["pages"])
     summary["agents"] = _agent_summary(schema, issues, verified, ran={
@@ -1145,6 +1146,36 @@ def checked_content_sha(schema: dict) -> str:
     figs = {k: {fk: fv for fk, fv in f.items() if fk not in REVIEW_ONLY_KEYS} for k, f in schema["figures"].items()}
     core = {**{k: v for k, v in schema.items() if k not in ("figures", "acknowledged")}, "figures": figs}
     return hashlib.sha256(json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()
+
+
+# Checks that each say "this one value may be misread". When several flag the same figure
+# it is one decision for a person, so it's shown (and counted) once.
+_SAME_VALUE_CHECKS = ("re_extraction", "low_confidence", "traceability")
+_SAME_VALUE_LABEL = {"re_extraction": "independent re-reading", "low_confidence": "low reading confidence",
+                     "traceability": "source trace"}
+
+
+def merge_figure_duplicates(issues: list[Issue]) -> list[Issue]:
+    """Fold open issues about the same figure from the value-reading checks into one, keeping
+    the most informative (blocking first, then re-read > low confidence > trace) and noting
+    which other checks agreed it needs a look."""
+    groups: dict[tuple[str, str], list[Issue]] = {}
+    for i in issues:
+        if i.fid and i.check in _SAME_VALUE_CHECKS and i.status == "open":
+            groups.setdefault(("fig", i.fid), []).append(i)
+    drop: set[int] = set()
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda i: (i.severity != "blocking", _SAME_VALUE_CHECKS.index(i.check)))
+        keep, rest = group[0], group[1:]
+        also = sorted({_SAME_VALUE_LABEL[r.check] for r in rest if r.check != keep.check})
+        if also:
+            keep.message = f"{keep.message} Also flagged by: {', '.join(also)}."
+        keep.expected = keep.expected or next((r.expected for r in rest if r.expected), None)
+        keep.actual = keep.actual or next((r.actual for r in rest if r.actual), None)
+        drop.update(id(r) for r in rest)
+    return [i for i in issues if id(i) not in drop]
 
 
 def apply_reviews(issues: list[Issue], schema: dict) -> None:

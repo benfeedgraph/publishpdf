@@ -165,6 +165,10 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         v = _version(s, payload)
         if v.published_at is not None:
             return {"skipped": "published"}
+        if payload.get("schema_sha256") and payload["schema_sha256"] != v.schema_sha256:
+            # A reviewer decided something else since this was queued; that newer job builds the page.
+            return {"skipped": "superseded by a newer edit"}
+        rendered_sha = v.schema_sha256
         report = s.get(Report, v.report_id)
         from app.reports import build_mode_of, landing_of
         build_mode = build_mode_of(s, v.id)
@@ -211,6 +215,11 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
                                progress=on_page, layouts=layouts, landing=landing)
     prefix = bundle_prefix(vid)
+    with db.session(ctx) as s:
+        cur = s.get(ReportVersion, vid)
+        if cur is not None and cur.schema_sha256 != rendered_sha:
+            # An edit arrived while this ran: its own render (queued) supersedes this one.
+            return {"skipped": "superseded by a newer edit"}
     # A re-render (a confirmed figure, a new theme) changes few files: upload only those.
     # _hashes.json records what is stored; anything missing from it is uploaded.
     hashes = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
@@ -235,6 +244,8 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None
+        if v.schema_sha256 != rendered_sha:
+            return {"skipped": "superseded by a newer edit"}
         v.bundle_key, v.bundle_sha256 = prefix, bsha
         v.theme_snapshot = {"theme": theme, "contrast_adjustments": adjustments, "disclaimer": disclaimer}
         if _review_only_change(s, ctx, v, bsha):

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me } from "./api";
 import { cachedMe, forgetMe, rememberMe } from "./session";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Shell from "./components/Shell";
 import AdminIssues from "./pages/AdminIssues";
 import AdminJobs from "./pages/AdminJobs";
@@ -78,6 +79,7 @@ function Authenticated() {
   const first = data.tenants[0];
   return (
     <Shell me={data}>
+      <ErrorBoundary resetKey={location.pathname}>
       <Routes>
         <Route
           index
@@ -112,6 +114,7 @@ function Authenticated() {
         )}
         <Route path="*" element={<p className="muted">Page not found.</p>} />
       </Routes>
+      </ErrorBoundary>
     </Shell>
   );
 }

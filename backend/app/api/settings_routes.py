@@ -266,6 +266,9 @@ def get_logo(ctx: Context = Depends(require("report.view"))):
 
 
 PREVIEW_PAGES = 3
+# The dashboard swaps this for its own origin: the preview document's base is about:srcdoc
+# (so its links can't navigate the frame), and only absolute URLs load from there.
+APP_ORIGIN = "__PPDF_APP_ORIGIN__"
 
 
 @router.post("/theme/preview")
@@ -285,6 +288,11 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
         v = s.scalars(q.order_by(ReportVersion.created_at.desc())).first()
         schema = v.schema_json if v else _sample_schema(s.get(Tenant, ctx.tenant_id).name)
         sha = v.source_sha256 if v else None
+        # The report's stored page artwork and fonts are the same in every design: link to
+        # them instead of inlining megabytes of base64 (which the hosting proxy can refuse).
+        stored_base = (f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/reports/{v.report_id}/versions/{v.id}/preview/"
+                       if v is not None and v.bundle_key else None)
+        bundle_key = v.bundle_key if v is not None else None
         st = settings_for(s, ctx)
         disclaimer = effective_disclaimer(st)
     pdf = None
@@ -296,16 +304,31 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             pdf = None
     # The first few pages are enough to judge a design, and keep the preview instant.
     files = site.render_report(schema, theme=used, disclaimer=disclaimer, pdf_bytes=pdf, max_pages=PREVIEW_PAGES,
-                               logo_src=f"/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None)
+                               logo_src=f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     html = files[base + "index.html"].decode()
-    # One self-contained response: page artwork and fonts travel inline.
     import base64
+    stored: set[str] = set()
+    if stored_base and bundle_key:
+        try:
+            stored = set(json.loads(storage.get(ctx, bundle_key + "_files.json")))
+        except Exception:  # noqa: BLE001 - inline everything instead
+            stored = set()
     for name, data in files.items():
         if name.endswith((".webp", ".woff2")):
-            uri = f"data:{site.content_type(name)};base64,{base64.b64encode(data).decode()}"
-            html = html.replace(f"{site.ORIGIN_PLACEHOLDER}/{name}", uri)
-    html = html.replace(site.ORIGIN_PLACEHOLDER, "#")
+            target = f"{site.ORIGIN_PLACEHOLDER}/{name}"
+            if name in stored and data:
+                html = html.replace(target, stored_base + name)
+            else:
+                uri = f"data:{site.content_type(name)};base64,{base64.b64encode(data).decode()}"
+                html = html.replace(target, uri)
+    # A design preview has nowhere to go: its links (Latest results, Archive, Download PDF,
+    # the machine-readable files) would load the dashboard inside the preview frame. Keep
+    # them visible but inert; in-page anchors still scroll.
+    html = re.sub(r'href="' + re.escape(site.ORIGIN_PLACEHOLDER) + r'[^"]*"',
+                  'href="#" aria-disabled="true" data-preview-inert="1" title="Links are off in the design preview"', html)
+    html = html.replace(site.ORIGIN_PLACEHOLDER, "")
+    html = html.replace("</head>", "<base href=\"about:srcdoc\"><style>a[data-preview-inert]{cursor:default}</style></head>", 1)
     return HTMLResponse(html, headers={"X-Frame-Options": "SAMEORIGIN", "X-Robots-Tag": "noindex"})
 
 
