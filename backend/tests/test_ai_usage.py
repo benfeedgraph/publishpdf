@@ -310,6 +310,38 @@ def test_ai_lays_out_design_pages_with_ids_only_cached_and_capped(monkeypatch):
     storage.delete(ctx, page_layouts.cache_key("sha-test-1"))
 
 
+def test_a_page_the_ai_could_not_lay_out_is_not_retried_on_every_rebuild(monkeypatch):
+    """Each review decision re-renders the page; a page whose layout call failed must not
+    make every one of those re-renders wait on the model again."""
+    from app import page_layouts, storage
+    from app.extraction.schema_builder import extract
+    from tests.test_faq_story import META
+
+    pdf = _spread_pdf()
+    schema, _ = extract(pdf, META)
+    t, ctx = _ctx()
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "gemini_api_key", "test-key-not-real")
+    monkeypatch.setattr(cfg, "ai_layout_max_credits", 5)
+    page_layouts._REJECTED_UNTIL[0] = 0.0
+    calls = []
+
+    def failing(body):
+        calls.append(1)
+        raise TimeoutError("model took too long")
+    ai_check._OVERRIDE.append(failing)
+    try:
+        assert page_layouts.layouts_for(ctx, None, "sha-fail-1", schema, pdf) == {} and len(calls) == 1
+        assert page_layouts.layouts_for(ctx, None, "sha-fail-1", schema, pdf) == {} and len(calls) == 1
+        # once the retry window has passed, it is tried again
+        monkeypatch.setattr(page_layouts, "FAILED_RETRY_SECONDS", -1)
+        page_layouts.layouts_for(ctx, None, "sha-fail-1", schema, pdf)
+        assert len(calls) == 2
+    finally:
+        ai_check._OVERRIDE.remove(failing)
+        storage.delete(ctx, page_layouts.cache_key("sha-fail-1"))
+
+
 def test_a_rejected_key_stops_layout_calls(monkeypatch):
     from app import page_layouts
     from app.extraction.schema_builder import extract

@@ -25,6 +25,15 @@ log = logging.getLogger(__name__)
 
 _REJECTED_UNTIL = [0.0]          # monotonic time: a rejected key pauses calls in this process
 REJECT_PAUSE_SECONDS = 3600
+# A page the model couldn't lay out (an error, a timeout, an unusable answer) is remembered, so
+# the re-renders that follow every review decision don't wait on — and pay for — the same
+# failing call again. It is retried once this long has passed.
+FAILED_RETRY_SECONDS = 6 * 3600
+
+
+def _recently_failed(hit: dict | None, fp: str) -> bool:
+    return bool(hit and hit.get("fingerprint") == fp and hit.get("failed_at")
+                and time.time() - float(hit["failed_at"]) < FAILED_RETRY_SECONDS)
 
 
 def cache_key(sha: str) -> str:
@@ -64,8 +73,10 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
                 continue
             fp = ai_layout.fingerprint(els)
             hit = cache.get(str(n))
-            if hit and hit.get("fingerprint") == fp:
+            if hit and hit.get("fingerprint") == fp and hit.get("sections"):
                 out[n] = hit
+            elif _recently_failed(hit, fp):
+                continue                    # keeps its designed look; no new call yet
             else:
                 todo.append((n, els, fp, page.rect.width, page.rect.height))
     finally:
@@ -101,6 +112,8 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
                 break
             except Exception:  # noqa: BLE001 - a failed call leaves the page as designed
                 log.exception("AI layout call failed for page %s", n)
+                cache[str(n)] = {"fingerprint": fp, "failed_at": time.time()}
+                changed = True
                 break
             usage = resp.get("usageMetadata") or {}
             used_in, used_out = int(usage.get("promptTokenCount") or 0), int(usage.get("candidatesTokenCount") or 0)
@@ -109,6 +122,8 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
             spent_exact += ai_usage.usd_for("gemini", used_in, used_out) / cfg.ai_credit_usd
             layout = ai_layout.parse(resp)
             if layout is None:
+                cache[str(n)] = {"fingerprint": fp, "failed_at": time.time()}
+                changed = True
                 continue
             entry = {"fingerprint": fp, "sections": layout["sections"]}
             cache[str(n)] = entry

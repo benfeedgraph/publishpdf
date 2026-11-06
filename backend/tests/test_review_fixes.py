@@ -69,3 +69,14 @@ def test_company_guess_from_filename():
     assert company_from_filename("Acme-Industries-Q2-FY26-Results.pdf") == "Acme Industries"
     assert company_from_filename("annual-report-2024-25.pdf") is None
     assert company_from_filename(None) is None
+
+
+def test_bookmark_numbers_stay_out_of_page_titles():
+    """A PDF whose bookmarks are named "001", "002" must not put those unverified numbers in
+    the section pages' <title> (the page check blocks them and they can't be waived)."""
+    from app.render.site import _verified_title
+    heading = {"heading_text": "ITC: Building a Future-Forward Enterprise"}
+    assert _verified_title("001", heading) == "ITC: Building a Future-Forward Enterprise"
+    assert _verified_title("002 Other", {"heading_text": "x"}) == "Other"
+    assert _verified_title("Results FY26", {"heading_text": "Results FY26"}) == "Results FY26"
+    assert _verified_title("002", {}) == ""          # falls back to the section-type label

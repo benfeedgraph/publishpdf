@@ -748,6 +748,21 @@ def _largest_headings(starts: list[tuple[str, str]], pdf_bytes: bytes | None,
     return big if len(big) >= 2 else starts
 
 
+def _verified_title(title: str, section: dict) -> str:
+    """A chapter title may come from the PDF's bookmarks, which aren't verified report text — and a
+    page's <title> may only carry verified numbers. Keep the bookmark's words but drop any
+    number-bearing word that isn't in the section's own (extracted, checked) heading; if nothing
+    meaningful is left (a bookmark named "001"), use the heading itself."""
+    heading = (section.get("heading_text") or "").strip()
+    allowed = {t.strip(",.;:()") for t in heading.split()}
+    kept = [t for t in (title or "").split()
+            if not any(c.isdigit() for c in t) or t.strip(",.;:()") in allowed]
+    cleaned = re.sub(r"^[\s\-–—:·|.,]+|[\s\-–—:·|.,]+$", "", " ".join(kept))
+    if not any(c.isalpha() for c in cleaned):
+        return heading
+    return cleaned
+
+
 def _outline_chapters(pdf_bytes: bytes | None, sections: list[dict], page_count: int | None) -> list[tuple[str, str]]:
     """(section id, title) from the PDF's embedded outline/bookmarks (top level), each mapped to the
     section that starts on or nearest after its page. Empty when the PDF has no outline."""
@@ -827,6 +842,7 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     by_id = {s["id"]: s for s in sections}
     chapters = []
     for k, (sid, title) in enumerate(starts):
+        title = _verified_title(title, by_id[sid])
         lo = order[sid]
         hi = order[starts[k + 1][0]] if k + 1 < len(starts) else len(sections)
         members = [s["id"] for s in sections if lo <= order[s["id"]] < hi]
