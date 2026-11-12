@@ -748,6 +748,36 @@ def _largest_headings(starts: list[tuple[str, str]], pdf_bytes: bytes | None,
     return big if len(big) >= 2 else starts
 
 
+def _drop_empty_chapters(chapters: list[dict], sections_by_id: dict, pictures: dict, quiet: set,
+                         in_graphic: set, graphic_start: set, crops: dict, doc_order: dict) -> list[dict]:
+    """Chapters whose page would show nothing (a cover already shown elsewhere, a contents page
+    the web edition leaves out) are dropped; their sections fold into the next chapter (or the
+    previous one, for the last) so their page anchors still resolve."""
+    def shows(sid: str, is_start: bool) -> bool:
+        sec = sections_by_id.get(sid)
+        if sec is None:
+            return False
+        if pictures.get(sid):
+            return True
+        if sid in quiet:
+            return False
+        if not is_start and sec.get("heading"):
+            return True
+        return any((b["id"] in graphic_start and crops.get(b["id"])) or b["id"] not in in_graphic
+                   for b in doc_order.get(sid, sec.get("blocks") or []))
+
+    kept, carry = [], []
+    for c in chapters:
+        if any(shows(sid, sid == c["start_id"]) for sid in c["section_ids"]):
+            kept.append({**c, "section_ids": carry + c["section_ids"]})
+            carry = []
+        else:
+            carry += c["section_ids"]
+    if carry and kept:
+        kept[-1]["section_ids"] += carry
+    return kept
+
+
 def _verified_title(title: str, section: dict) -> str:
     """A chapter title may come from the PDF's bookmarks, which aren't verified report text — and a
     page's <title> may only carry verified numbers. Keep the bookmark's words but drop any
@@ -1048,27 +1078,35 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count,
                                    ai_starts=schema.get("chapters"))
         if chapters:
-            # One page per chapter, with a sidebar navigator; the home page is the contents.
-            nav = [{"slug": c["slug"], "title": c["title"], "href": href(c["slug"] + "/")} for c in chapters]
+            chapters = _drop_empty_chapters(chapters, sections_by_id, pictures, quiet, in_graphic,
+                                            set(region_at), crops, web_ctx["doc_order"])
+        if chapters:
+            # One page per chapter, with a sidebar navigator. The report opens on its first
+            # chapter (no separate contents page): the sidebar is the contents. The intro (the
+            # lead with no heading) heads that first page.
+            first_c = chapters[0]
+            if front and front["id"] not in first_c["section_ids"]:
+                first_c["section_ids"] = [front["id"]] + first_c["section_ids"]
+            c_href = {c["slug"]: href(c["slug"] + "/") for c in chapters}
+            c_href[first_c["slug"]] = href("")
+            nav = [{"slug": c["slug"], "title": c["title"], "href": c_href[c["slug"]]} for c in chapters]
             # a contents-table entry (any member section's slug) links to the chapter page holding it
-            sec_href = {sections_by_id[sid]["slug"]: href(c["slug"] + "/")
+            sec_href = {sections_by_id[sid]["slug"]: c_href[c["slug"]]
                         for c in chapters for sid in c["section_ids"] if sid in sections_by_id}
-            home = {"slug": "", "title": "Contents", "href": href("")}
             ctx = dict(**web_ctx, sections_by_id=sections_by_id)
-            files[base.lstrip("/") + "index.html"] = tmpl.render(
-                **ctx, mode="home", nav=nav, current=None, sec_href=sec_href,
-                start_href=(nav[0]["href"] if nav else href("")), prev=None, next=None,
-                page_title=title, canonical_path=base, description=desc,
-                jsonld=Markup(_jsonld(schema, base))).encode()
             for i, c in enumerate(chapters):
                 # digit-safe meta description: plain_excerpt is digit-free, prefix is metadata only
                 ex = story.plain_excerpt(sections_by_id[c["start_id"]])
                 sdesc = (f"{m['company']} {m['period_label']} {type_label}" + (f": {ex}" if ex else ""))[:300]
-                files[base.lstrip("/") + c["slug"] + "/index.html"] = tmpl.render(
+                is_first = i == 0
+                path = "index.html" if is_first else c["slug"] + "/index.html"
+                files[base.lstrip("/") + path] = tmpl.render(
                     **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, start_href=None,
-                    prev=(nav[i - 1] if i > 0 else home), next=(nav[i + 1] if i + 1 < len(chapters) else None),
-                    page_title=f"{c['title']} · {title}", canonical_path=base + c["slug"] + "/",
-                    description=sdesc, jsonld=None).encode()
+                    prev=(nav[i - 1] if i > 0 else None), next=(nav[i + 1] if i + 1 < len(chapters) else None),
+                    page_title=(title if is_first else f"{c['title']} · {title}"),
+                    canonical_path=(base if is_first else base + c["slug"] + "/"),
+                    description=(desc if is_first else sdesc),
+                    jsonld=(Markup(_jsonld(schema, base)) if is_first else None)).encode()
         else:
             files[base.lstrip("/") + "index.html"] = tmpl.render(
                 **web_ctx, mode="full", nav=None, current=None, sec_href=None, start_href=None,

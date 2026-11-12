@@ -87,7 +87,7 @@
 {#- The persistent left sidebar: every section page, the current one highlighted. -#}
 {%- macro rail(nav, current_slug, home_href) -%}
 <nav class="web-rail" aria-label="Report sections" data-nocheck="nav">
-  <a class="web-rail-top{% if not current_slug %} is-current{% endif %}" href="{{ home_href }}"{% if not current_slug %} aria-current="page"{% endif %}>Contents</a>
+  <p class="web-rail-top">Contents</p>
   <ol>
   {%- for it in nav %}
     <li><a href="{{ it.href }}"{% if it.slug == current_slug %} class="is-current" aria-current="page"{% endif %}>{{ it.title }}</a></li>
@@ -101,7 +101,6 @@
 <details class="sections-menu" data-nocheck="nav">
   <summary>Sections</summary>
   <ol>
-    <li><a href="{{ home_href }}"{% if not current_slug %} aria-current="page"{% endif %}>Contents</a></li>
   {%- for it in nav %}
     <li><a href="{{ it.href }}"{% if it.slug == current_slug %} aria-current="page"{% endif %}>{{ it.title }}</a></li>
   {%- endfor %}

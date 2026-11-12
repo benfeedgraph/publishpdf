@@ -80,3 +80,16 @@ def test_bookmark_numbers_stay_out_of_page_titles():
     assert _verified_title("002 Other", {"heading_text": "x"}) == "Other"
     assert _verified_title("Results FY26", {"heading_text": "Results FY26"}) == "Results FY26"
     assert _verified_title("002", {}) == ""          # falls back to the section-type label
+
+
+def test_a_chapter_with_nothing_to_show_gets_no_page():
+    """A bookmark on the cover gave the ITC report an empty "Overview" page; such a chapter
+    is dropped and its sections fold into the next one."""
+    from app.render.site import _drop_empty_chapters
+    secs = {"cover": {"id": "cover", "blocks": [{"id": "b1"}]},
+            "s2": {"id": "s2", "heading": [{"t": "Strategy"}], "blocks": [{"id": "b2"}]}}
+    chapters = [{"slug": "other", "start_id": "cover", "section_ids": ["cover"]},
+                {"slug": "strategy", "start_id": "s2", "section_ids": ["s2"]}]
+    kept = _drop_empty_chapters(chapters, secs, pictures={}, quiet={"cover"}, in_graphic={"b1"},
+                                graphic_start=set(), crops={}, doc_order={})
+    assert [c["slug"] for c in kept] == ["strategy"] and kept[0]["section_ids"] == ["cover", "s2"]

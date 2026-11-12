@@ -227,14 +227,15 @@ def test_a_long_report_with_a_contents_page_splits_into_one_page_per_section():
                                 set(), True, 6) is not None
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=_multisection_pdf())
     base = site.report_base_path(schema["metadata"]).lstrip("/")
-    # a home contents page, plus one page per headed section (the cover title is not its own page)
+    # the report opens on its first section (no separate contents page); one page per other section
     pages = {k for k in files if k.endswith("index.html")}
-    assert base + "index.html" in pages
-    for slug in ("chairman-statement", "business-review", "strategy", "governance"):
+    assert base + "index.html" in pages and base + "chairman-statement/index.html" not in pages
+    for slug in ("business-review", "strategy", "governance"):
         assert base + slug + "/index.html" in pages
     home = files[base + "index.html"].decode()
-    assert "In this report" in home and base.rstrip("/").split("/")[-1]  # navigator present
-    assert ">01<" not in home                                 # section numbers come from CSS, not HTML
+    assert "In this report" not in home and 'class="web-hero"' not in home
+    assert 'class="web-rail"' in home and "Chairman Statement" in home
+    assert 'href="/' + base + 'business-review/"' in home or base + "business-review/" in home   # sidebar links on
     sec = files[base + "business-review/index.html"].decode()
     assert 'class="web-rail"' in sec and 'aria-current="page"' in sec   # sidebar, current highlighted
     assert "web-prevnext" in sec and base + "strategy/" in sec          # prev/next + sibling links
@@ -314,7 +315,8 @@ def test_a_long_report_without_contents_splits_on_the_ai_picked_chapters():
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     pages = {k for k in files if k.endswith("index.html")}
-    assert pages == {base + "index.html", base + "business-review/index.html", base + "strategy/index.html"}
+    # the report opens on its first chapter: that one is the root page
+    assert pages == {base + "index.html", base + "strategy/index.html"}
     # the AI only chose where chapters start: the sidebar shows the PDF's own heading text
     assert ">Business Review<" in files[base + "strategy/index.html"].decode()
     assert validation.check_bundle(schema, files) == []
@@ -326,8 +328,8 @@ def test_a_long_report_without_contents_or_ai_still_gets_a_sidebar():
     assert "chapters" not in schema
     files = site.render_report(schema, theme=theming.validate({}), disclaimer="d", pdf_bytes=pdf)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
-    sec = files[base + "business-review/index.html"].decode()
-    assert 'class="web-rail"' in sec
+    sec = files[base + "index.html"].decode()             # opens on the first chapter
+    assert 'class="web-rail"' in sec and ">Business Review<" in sec
     # chapters are the largest headings; the smaller sub-headings fold into their chapter
     assert base + "strategy/index.html" in files
     assert not any("detail" in k for k in files if k.endswith("index.html"))
