@@ -238,6 +238,33 @@ def _classify(page: pymupdf.Page):
     return words, method, reason, image_regions, hidden_numbers
 
 
+def page_kinds(doc: pymupdf.Document) -> tuple[bool, bool]:
+    """(any page is read from its text layer, any page is read with OCR), quickly, for the
+    upload screen.
+
+    The same tests as _classify — fewer than 20 characters plus a picture is a scanned page,
+    more than 2% unreadable characters is an unusable text layer — on PyMuPDF's plain text
+    instead of per-character data: around 10 ms a page rather than 100+. It stops as soon as
+    it has seen one page of each kind."""
+    text = scanned = False
+    for page in doc:
+        chars = page.get_text("text").replace("\n", "")
+        if len(chars) >= 20:
+            if sum(1 for c in chars if _bad_char(c)) / len(chars) > 0.02:
+                scanned = True       # unusable text layer: the page is read with OCR
+            else:
+                text = True
+        else:
+            area = page.rect.width * page.rect.height
+            if any((b[2] - b[0]) * (b[3] - b[1]) > 0.03 * area for b in (i["bbox"] for i in page.get_image_info())):
+                scanned = True
+            else:
+                text = True          # a near-empty page with no picture is read from its text layer
+        if text and scanned:
+            break
+    return text, scanned
+
+
 def read_page(page: pymupdf.Page) -> PageData:
     return read_pages(page.parent, [page.number])[0]
 

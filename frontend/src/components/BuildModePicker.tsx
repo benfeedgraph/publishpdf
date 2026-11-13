@@ -19,6 +19,17 @@ export interface BuildOptions {
   credit_usd: number;
   /** The extractive "overview" landing page, offered only for long reports. */
   landing?: { available: boolean; min_pages: number };
+  /** How many of the nine checks can run on one figure of this PDF (null: not known). */
+  checks?: { total: number; max_per_figure: number; scanned: "none" | "some" | "all" } | null;
+}
+
+/** The figure-checks claim, true for every figure of this PDF: the second PDF parser needs a
+ *  text layer, so a scanned PDF gets at most 8 of the 9 checks. */
+function checksText(c: BuildOptions["checks"]): string {
+  if (!c) return "Up to 9 checks run on each figure, where they apply (8 on scanned pages)";
+  if (c.scanned === "all") return `Up to ${c.max_per_figure} checks run on each figure (a scanned PDF has no text layer for the second PDF parser)`;
+  if (c.scanned === "some") return `Up to ${c.max_per_figure} checks run on each figure, where they apply (${c.max_per_figure - 1} on this PDF's scanned pages)`;
+  return `Up to ${c.max_per_figure} checks run on each figure, where they apply`;
 }
 
 /** Opt-in extractive "overview" landing page for long reports. No AI, no credits: a second
@@ -54,9 +65,9 @@ const SUMMARY: Record<BuildMode, string> = {
   full: "AI design, plus AI help checking figures.",
 };
 
-function points(o: BuildOption): string[] {
+function points(o: BuildOption, checks: BuildOptions["checks"]): string[] {
   if (o.mode === "layout") return ["Every page rebuilt as a web page: headings, cards, stat tiles, galleries", "AI never writes words or numbers — only arranges them",
-    "All nine figure checks run on every number — anything they flag waits for you to review"];
+    `${checksText(checks)} — anything they flag waits for you to review`];
   return [`Everything in “${BUILD_MODE_LABEL.layout}”, and:`, "AI double-checks flagged figures first, so fewer are left for you",
     ...(o.labels_available ? ["AI names sections our rules can't"] : [])];
 }
@@ -66,9 +77,9 @@ const BEST: Record<BuildMode, string> = {
   full: "Annual reports and scanned PDFs: least for you to review",
 };
 
-const ROWS: { label: string; cells: Record<BuildMode, string> }[] = [
+const rows = (checks: BuildOptions["checks"]): { label: string; cells: Record<BuildMode, string> }[] => [
   { label: "Words and numbers", cells: { layout: "Always from the PDF", full: "Always from the PDF" } },
-  { label: "All nine figure checks", cells: { layout: "Yes — flagged figures come to you", full: "Yes — AI re-reads flagged figures first" } },
+  { label: `Up to ${checks?.max_per_figure ?? 9} checks per figure`, cells: { layout: "Yes — flagged figures come to you", full: "Yes — AI re-reads flagged figures first" } },
   { label: "Every page", cells: { layout: "Rebuilt as a web page by AI", full: "Rebuilt as a web page by AI" } },
   { label: "Figures flagged by checks", cells: { layout: "You review every one", full: "AI double-checks first; you review what's left" } },
   { label: "Section labels", cells: { layout: "Rules", full: "Rules, then AI for the rest" } },
@@ -106,7 +117,7 @@ export default function BuildModePicker({ data, value, onChange, current }: {
               </span>
               <span className="bo-summary">{SUMMARY[o.mode]}</span>
               <ul className="bo-points">
-                {points(o).map((p) => <li key={p}><IconCheck size={14} />{p}</li>)}
+                {points(o, data.checks).map((p) => <li key={p}><IconCheck size={14} />{p}</li>)}
               </ul>
               <span className="bo-best">Best for: {BEST[o.mode]}</span>
               {o.mode === "full" && o.max_credits > 0 && (
@@ -135,7 +146,7 @@ export default function BuildModePicker({ data, value, onChange, current }: {
           <table>
             <thead><tr><th />{data.options.map((o) => <th key={o.mode}>{BUILD_MODE_LABEL[o.mode]}</th>)}</tr></thead>
             <tbody>
-              {ROWS.map((r) => (
+              {rows(data.checks).map((r) => (
                 <tr key={r.label}><th scope="row">{r.label}</th>{data.options.map((o) => <td key={o.mode}>{r.cells[o.mode]}</td>)}</tr>
               ))}
               <tr><th scope="row">Most credits for this PDF</th>{data.options.map((o) => <td key={o.mode}><strong>{creditText(o)}</strong></td>)}</tr>

@@ -173,3 +173,25 @@ def test_a_reviewer_cannot_request_a_plan(client):
     sign_in(client, rv)
     assert client.post(f"/api/tenants/{t.id}/plan/request", json={"plan": "pro"}).status_code == 403
     _ = uuid
+
+
+@pytest.mark.parametrize("name,period,checks", [
+    ("acme_q2fy26_results.pdf", "q2", {"total": 9, "max_per_figure": 9, "scanned": "none"}),
+    ("acme_q2fy26_results_scanned.pdf", "h1", {"total": 9, "max_per_figure": 8, "scanned": "all"}),
+])
+def test_upload_says_how_many_checks_apply_and_step_1_agrees(admin_client, name, period, checks):
+    """The upload card's "up to N checks" comes from the PDF itself (a scanned PDF has no text
+    layer for the second parser), and Step 1 then runs exactly that many, with every
+    extracted figure in the agent bar."""
+    client, t, _ = admin_client
+    ins = _inspect(client, t, name)
+    assert ins["build_options"]["checks"] == checks
+    r = _create(client, t, ins, "layout", build_modes.max_credits("layout", ins["page_count"]), period=period)
+    assert r.status_code == 201, r.text
+    drain()
+    v = client.get(f"/api/tenants/{t.id}/reports/{r.json()['report_id']}/versions/{r.json()['version']['id']}").json()
+    s = v["validation"]
+    shown = [a for a in s["agents"] if a["key"] != "schema"]
+    assert len(shown) == checks["total"] and sum(a["ran"] for a in shown) == checks["max_per_figure"]
+    assert sum(s["consensus"].values()) == s["figures_checked"]
+    assert v["build_options"]["checks"] == checks                   # "Build it another way" says the same
