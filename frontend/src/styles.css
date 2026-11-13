@@ -255,7 +255,6 @@ button.secondary.danger:hover:not(:disabled) { background: #F3DEDE; border-color
 .modal { background: var(--surface); border-radius: 10px; width: 100%; max-width: 620px; max-height: calc(100vh - 40px); overflow: auto; border: 1px solid rgba(255, 255, 255, .08); box-shadow: 0 24px 48px rgba(20, 21, 31, .28); padding: 20px; }
 .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .detected { font-size: .72rem; color: var(--ok); font-weight: 650; }
-.detected.guess { color: var(--warn, #b45309); }
 
 /* ---- stepper ---- */
 .stepper { display: flex; gap: 2px; margin: 0 0 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; overflow-x: auto; }
