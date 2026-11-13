@@ -533,3 +533,4 @@ button.link.is-busy:disabled { opacity: .8; }
 
 /* Stats from the previous run while a re-check is under way */
 .stat-row.is-stale .stat-n { opacity: .45; }
+.card.is-stale .consensus { opacity: .45; }
