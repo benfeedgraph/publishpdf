@@ -149,10 +149,11 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
 
       {s && (
         <>
-          {/* While a re-check runs these are the previous run's numbers: say so rather than
-              show a count that disagrees with the list below. */}
+          {/* While a re-check runs, every number here (the stats, the agent bar and the agent
+              cards) is from the previous run. All of them wait for the new run together, so
+              none of them disagrees with the others or with the list below. */}
           <div className={`stat-row ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
-            <div className="stat"><span className="stat-n">{(s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
+            <div className="stat"><span className="stat-n">{processing ? "…" : (s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
             <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
             <div className="stat"><span className={`stat-n ${!processing && open ? "error" : ""}`}>{processing ? "…" : open}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
             <div className="stat" title="Things we noticed that don't stop publishing. You don't need to do anything about them.">
@@ -177,27 +178,28 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           )}
 
           {cons && consTotal > 0 && (
-            <div className="card">
+            <div className={`card ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
               <h2>How many independent agents confirmed each number</h2>
               <div className="consensus" role="img" aria-label="Share of numbers confirmed by three or more, two, one, or no agents">
                 {(["3+", "2", "1", "0"] as const).map((k) => cons[k] ? <span key={k} className={`c${k[0]}`} style={{ width: `${(cons[k] / consTotal) * 100}%` }} title={`${cons[k]} numbers`} /> : null)}
               </div>
               <div className="legend">
-                <span><i className="c3" />3 or more agents: {(cons["3+"] ?? 0).toLocaleString()}</span>
-                <span><i className="c2" />2 agents: {(cons["2"] ?? 0).toLocaleString()}</span>
-                <span><i className="c1" />1 agent: {(cons["1"] ?? 0).toLocaleString()}</span>
-                <span><i className="c0" />not confirmed: {(cons["0"] ?? 0).toLocaleString()}</span>
+                <span><i className="c3" />3 or more agents: {processing ? "…" : (cons["3+"] ?? 0).toLocaleString()}</span>
+                <span><i className="c2" />2 agents: {processing ? "…" : (cons["2"] ?? 0).toLocaleString()}</span>
+                <span><i className="c1" />1 agent: {processing ? "…" : (cons["1"] ?? 0).toLocaleString()}</span>
+                <span><i className="c0" />not confirmed: {processing ? "…" : (cons["0"] ?? 0).toLocaleString()}</span>
               </div>
             </div>
           )}
 
           {s.agents && (
-            <div className="card">
+            <div className={`card ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
               <h2>Validation agents</h2>
               <p className="muted small">Each agent checks the extracted data a different way. A number is published only when nothing blocks it.</p>
               <div className="agents">
                 {s.agents.filter((a) => a.key !== "schema").map((a) => {
-                  const state = !a.ran ? "idle" : a.blocking ? "bad" : a.warnings ? "warn" : "ok";
+                  // mid re-check an agent's last result says nothing about the new run
+                  const state = !a.ran || processing ? "idle" : a.blocking ? "bad" : a.warnings ? "warn" : "ok";
                   return (
                     <div key={a.key} className={`agent ${state}`}>
                       <span className="agent-dot" aria-hidden>{state === "ok" ? <IconCheck size={14} /> : state === "bad" ? <IconAlert size={16} /> : state === "warn" ? "•" : "–"}</span>
@@ -205,7 +207,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
                         <div className="agent-name">{a.name}</div>
                         <div className="agent-desc">{a.description}</div>
                         <div className="agent-res">
-                          {!a.ran ? <span className="muted">{a.key === "second_parser" ? "Not applicable (scanned pages have no text layer)" : "Not run"}</span> : (
+                          {!a.ran ? <span className="muted">{a.key === "second_parser" ? "Not applicable (scanned pages have no text layer)" : "Not run"}</span> : processing ? <span className="muted">…</span> : (
                             [a.confirmed > 0 && <span key="c" className="ok-text">{a.confirmed.toLocaleString()} confirmed</span>,
                              a.blocking > 0 && <span key="b" className="error">{a.blocking} blocking</span>,
                              a.warnings > 0 && <span key="w" className="muted">{a.warnings} warning{a.warnings > 1 ? "s" : ""}</span>]

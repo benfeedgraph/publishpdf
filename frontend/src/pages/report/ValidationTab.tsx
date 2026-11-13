@@ -20,14 +20,30 @@ interface IssuesResp {
 export const decisionsLocked = (v: VersionDetail) =>
   v.status === "processing" && !/^(render|validate)/.test(v.stage ?? "");
 
+/** The review list for one state of a version. The version query fetches it before it
+ *  shows a new state (see ReportPage), so the numbers and the list always change together. */
+export const issuesQuery = (tenantId: string, reportId: string, v: Pick<VersionDetail, "id" | "status" | "schema_sha256">) => ({
+  queryKey: ["issues", v.id, v.status, v.schema_sha256],
+  queryFn: () => api<IssuesResp>(`/api/tenants/${tenantId}/reports/${reportId}/versions/${v.id}/issues`),
+});
+
 /** One figure can be flagged by several checks ("Needs a person" and "Independent re-reading"
  *  for the same misread value). It's one decision, so it's shown once. */
 export interface IssueGroup { key: string; lead: Issue; all: Issue[] }
 export function groupByFigure(items: Issue[]): IssueGroup[] {
   const out: IssueGroup[] = [];
   const byFid = new Map<string, IssueGroup>();
+  const seen = new Map<string, number>();
   for (const i of items) {
-    const k = i.fid && i.status === "open" ? `fig:${i.fid}` : `issue:${i.id}`;
+    // Every re-check stores its findings under new ids. An item with no figure (a table's
+    // unit, say) is keyed by what and where it is, so a tick on it survives the re-check.
+    let k = i.fid && i.status === "open" ? `fig:${i.fid}` : i.fid ? `issue:${i.id}`
+      : `at:${i.status}:${i.check}:${i.page ?? ""}:${i.bbox?.join(",") ?? ""}:${i.message}`;
+    if (k.startsWith("at:")) {
+      const n = (seen.get(k) ?? 0) + 1;
+      seen.set(k, n);
+      if (n > 1) k += `#${n}`;
+    }
     const g = byFid.get(k);
     if (g) {
       g.all.push(i);
@@ -70,16 +86,20 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const base = `/api/tenants/${tenantId}/reports/${report.id}/versions/${version.id}`;
-  // Open on what blocks publishing; warnings are one filter away.
-  const [severity, setSeverity] = useState(version.open_blocking > 0 ? "blocking" : "");
+  const processing = version.status === "processing";
+  // Open on what blocks publishing; warnings are one filter away. Until the reviewer picks a
+  // severity, that default follows the last finished run (not a re-check that's under way),
+  // so once nothing blocks any more the notes show instead of an empty "Blocking" filter.
+  const [severityPick, setSeverity] = useState<string | null>(null);
+  const severity = severityPick ?? ((processing ? version.validation?.blocking ?? 0 : version.open_blocking) > 0 ? "blocking" : "");
   const [status, setStatus] = useState("open");
   const [page, setPage] = useState("");
   const [section, setSection] = useState("");
   const [check, setCheck] = useState("");
-  const processing = version.status === "processing";
+  // What the last decision did, kept here so it stays on screen after the item leaves the list.
+  const [notice, setNotice] = useState<string | null>(null);
   const q = useQuery({
-    queryKey: ["issues", version.id, version.status, version.schema_sha256],
-    queryFn: () => api<IssuesResp>(`${base}/issues`),
+    ...issuesQuery(tenantId, report.id, version),
     refetchInterval: processing ? 2500 : false,
     placeholderData: keepPreviousData,
   });
@@ -110,11 +130,16 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
       ? `${x.page ? `p${x.page} · ` : ""}${x.heading_text.length > 60 ? `${x.heading_text.slice(0, 57)}…` : x.heading_text}`
       : `Section on page ${x.page ?? "?"}`,
   }));
-  const refresh = () => {
+  // After a decision, wait for the version's new state (the version query fetches the list
+  // that goes with it first): the page then goes into its re-check state all at once, instead
+  // of the list dropping the item while the numbers above still look final.
+  const refresh = async (message?: string) => {
+    if (message) setNotice(message);
+    await qc.invalidateQueries({ queryKey: ["version", version.id] });
     qc.invalidateQueries({ queryKey: ["issues", version.id] });
-    qc.invalidateQueries({ queryKey: ["version", version.id] });
     qc.invalidateQueries({ queryKey: ["report", report.id] });
   };
+  const starting = () => setNotice(null);
 
   if (processing && !q.data?.issues.length) return <Loading label="Checks are running">Checks are running — this page updates automatically.</Loading>;
   if (q.isPending) return <SkeletonRows label="Loading issues" />;
@@ -126,9 +151,9 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
     <div className="stack">
       {s && !embedded && (
         <div className={`stat-row ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
-          <div className="stat"><span className="stat-n">{s.figures_checked}</span><span className="stat-l">figures checked</span></div>
-          <div className="stat"><span className="stat-n ok-text">{s.passed}</span><span className="stat-l">passed</span></div>
-          <div className="stat"><span className="stat-n muted">{s.warnings}</span><span className="stat-l">warnings</span></div>
+          <div className="stat"><span className="stat-n">{processing ? "…" : s.figures_checked}</span><span className="stat-l">figures checked</span></div>
+          <div className="stat"><span className="stat-n ok-text">{processing ? "…" : s.passed}</span><span className="stat-l">passed</span></div>
+          <div className="stat"><span className="stat-n muted">{processing ? "…" : s.warnings}</span><span className="stat-l">warnings</span></div>
           <div className="stat"><span className={`stat-n ${s.blocking ? "error" : ""}`}>{processing ? "…" : s.blocking}</span><span className="stat-l">blocking{processing ? " · updating" : ""}</span></div>
         </div>
       )}
@@ -145,7 +170,7 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
         {sectionOptions.length > 0 && (
           <select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)}><option value="">All sections</option>{sectionOptions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
         )}
-        <span className="muted small">{shownCount} item{shownCount === 1 ? "" : "s"}</span>
+        {!(processing && shownCount === 0) && <span className="muted small">{shownCount} item{shownCount === 1 ? "" : "s"}</span>}
         {bulkable.length > 0 && (
           <span className="seg" role="group" aria-label="Review mode">
             <button className={mode === "grid" ? "on" : ""} onClick={() => setView("grid")}>Side by side</button>
@@ -153,12 +178,16 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
           </span>
         )}
       </div>
+      {notice && <p className="ok-text small" role="status">{notice}</p>}
       {mode === "grid" && bulkable.length > 0 ? (
         <ReviewGrid key={`${page}|${check}|${section}|${severity}`} groups={bulkable} base={base} version={version}
-          canDecide={isAdmin && version.published_at === null} onDone={refresh}
+          canDecide={isAdmin && version.published_at === null} onDone={refresh} onStart={starting}
           onOpen={(id) => { select(id); setView("list"); }} />
       ) : groups.length === 0 ? (
-        <p className="muted">No issues match these filters.</p>
+        // Mid re-check an empty list only means every item here has been decided: the
+        // re-check may still find something, so don't say there's nothing.
+        processing ? <Loading label="Checks are running">Checks are running — this page updates automatically.</Loading>
+          : <p className="muted">No issues match these filters.</p>
       ) : (
         <div className="split issues-split">
           <ul className="issue-list" aria-label="Issues">
@@ -173,34 +202,37 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
               </li>
             ))}
           </ul>
-          {selected && <IssueDetail key={selected.key} issue={selected.lead} also={selected.all.filter((x) => x.id !== selected.lead.id)} base={base} version={version} isAdmin={isAdmin} onDone={refresh} />}
+          {selected && <IssueDetail key={selected.key} issue={selected.lead} also={selected.all.filter((x) => x.id !== selected.lead.id)} base={base} version={version} isAdmin={isAdmin} onDone={refresh} onStart={starting} />}
         </div>
       )}
     </div>
   );
 }
 
-function IssueDetail({ issue, also, base, version, isAdmin, onDone }: { issue: Issue; also: Issue[]; base: string; version: VersionDetail; isAdmin: boolean; onDone: () => void }) {
+type OnDone = (message?: string) => Promise<void>;
+
+function IssueDetail({ issue, also, base, version, isAdmin, onDone, onStart }: { issue: Issue; also: Issue[]; base: string; version: VersionDetail; isAdmin: boolean; onDone: OnDone; onStart: () => void }) {
   const [value, setValue] = useState(issue.figure?.raw ?? "");
   const [note, setNote] = useState("");
   const [editing, setEditing] = useState(false);
   const [flagNote, setFlagNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
   const locked = decisionsLocked(version);
   useEffect(() => { setErr(null); }, [issue.id, locked]);
+  // A new attempt clears the last one's error; a decision that saves leaves no error behind.
   const act = useMutation({
     mutationFn: (body: { action: string; value?: string; note?: string }) => post(`${base}/issues/${issue.id}/resolve`, body),
+    onMutate: () => { setErr(null); onStart(); },
     onSuccess: (_r, body) => {
       setEditing(false);
-      setSaved(body.action === "edit" ? "Correction saved." : body.action === "confirm" ? "Confirmed." : "Marked as not a figure.");
-      onDone();
+      return onDone(`${body.action === "edit" ? "Correction saved." : body.action === "confirm" ? "Confirmed." : "Marked as not a figure."} The page is rebuilt in the background — carry on with the next item.`);
     },
     onError: (e: Error) => { setErr(e.message); if (isBusy(e)) onDone(); },
   });
   const flag = useMutation({
     mutationFn: () => post(`${base}/flags`, { fid: issue.fid, section_id: issue.section_id, note: flagNote }),
-    onSuccess: () => { setFlagNote(""); onDone(); },
+    onMutate: () => { setErr(null); onStart(); },
+    onSuccess: () => { setFlagNote(""); return onDone(); },
     onError: (e: Error) => setErr(e.message),
   });
   const page = version.pages.find((p) => p.page === issue.page);
@@ -233,7 +265,6 @@ function IssueDetail({ issue, also, base, version, isAdmin, onDone }: { issue: I
         </div>
       </div>
       {err && <p className="error" role="alert">{err}</p>}
-      {saved && !err && <p className="ok-text small" role="status">{saved} The page is rebuilt in the background — carry on with the next item.</p>}
       {platform && <p className="callout bad small">This is a problem with the generated page, not with a figure, so it can't be waived. Re-run the page build; if it persists, contact support.</p>}
       {!readonly && !platform && isAdmin && (
         <div className="actions">
@@ -277,14 +308,13 @@ type BulkAction = "confirm" | "not_a_figure";
 /** Every flagged value on screen at once, each as a crop of the PDF next to what was read.
  * Nothing starts ticked: the reviewer ticks the values they've checked (or the junk that
  * isn't a figure) and decides those in one step — logged per figure, re-checked once. */
-function ReviewGrid({ groups, base, version, canDecide, onDone, onOpen }: {
-  groups: IssueGroup[]; base: string; version: VersionDetail; canDecide: boolean; onDone: () => void; onOpen: (issueId: string) => void;
+function ReviewGrid({ groups, base, version, canDecide, onDone, onStart, onOpen }: {
+  groups: IssueGroup[]; base: string; version: VersionDetail; canDecide: boolean; onDone: OnDone; onStart: () => void; onOpen: (issueId: string) => void;
 }) {
   const shown = groups.slice(0, GRID_BATCH);
   const [on, setOn] = useState<Set<string>>(new Set());
   const [asking, setAsking] = useState<BulkAction | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const locked = decisionsLocked(version);
   useEffect(() => { setErr(null); }, [locked]);
   const picked = shown.filter((g) => on.has(g.key));
@@ -292,14 +322,17 @@ function ReviewGrid({ groups, base, version, canDecide, onDone, onOpen }: {
   const bulk = useMutation({
     mutationFn: (action: BulkAction) => post(`${base}/issues/resolve-bulk`, {
       issue_ids: picked.flatMap((g) => g.all.filter((i) => i.status === "open").map((i) => i.id)), action }),
+    onMutate: () => { setErr(null); onStart(); },
     onSuccess: (_r, action) => {
-      setDone(`${picked.length} value${picked.length === 1 ? "" : "s"} ${action === "confirm" ? "confirmed" : "marked as not figures"}. The page is rebuilt in the background — you can keep going.`);
-      setOn(new Set()); setAsking(null); onDone();
+      const n = picked.length;
+      setOn(new Set()); setAsking(null);
+      // shown above the list, so it stays when these were the last tiles here
+      return onDone(`${n} value${n === 1 ? "" : "s"} ${action === "confirm" ? "confirmed" : "marked as not figures"}. The page is rebuilt in the background — you can keep going.`);
     },
     onError: (e: Error) => { setErr(e.message); setAsking(null); if (isBusy(e)) onDone(); },
   });
   const pageOf = (n: number) => version.pages.find((p) => p.page === n);
-  const ask = (action: BulkAction) => { setErr(null); setDone(null); setAsking(action); };
+  const ask = (action: BulkAction) => { setErr(null); onStart(); setAsking(action); };
   const disabled = !picked.length || bulk.isPending || locked;
 
   return (
@@ -329,7 +362,6 @@ function ReviewGrid({ groups, base, version, canDecide, onDone, onOpen }: {
         </div>
       )}
       {err && <p className="error" role="alert">{err}</p>}
-      {done && !err && <p className="ok-text small" role="status">{done}</p>}
       {canDecide && locked && <p className="muted small">Re-reading the PDF — the buttons unlock automatically when it finishes.</p>}
       <p className="muted small">Tick each value whose highlighted spot matches what we read, then confirm them together. Tick logos, icons, page numbers or chart ticks and choose “Not figures”. Anything that's misread: open it to correct it.</p>
       <ul className="review-grid" aria-label="Values to review">
