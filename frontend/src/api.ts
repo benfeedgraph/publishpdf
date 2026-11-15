@@ -85,6 +85,8 @@ export interface ValidationSummary {
   blocking: number;
   resolved: number;
   by_check: Record<string, number>;
+  /** Figures that no check confirmed and no person has confirmed (absent on older runs). */
+  not_confirmed?: number | null;
 }
 
 export interface Version {
@@ -108,6 +110,10 @@ export interface Version {
 export interface VersionDetail extends Version {
   jobs: Job[];
   open_blocking: number;
+  /** Step 1's headline, one status per figure (passed + need_attention + notes = figures), plus
+   *  the items that aren't about one figure. Worked out from the latest run's open items. */
+  headline?: { figures: number; passed: number; need_attention: number; notes: number;
+               other_need_attention: number; other_notes: number } | null;
   page_count: number | null;
   pages: { page: number; width: number; height: number; method: "text_layer" | "ocr"; method_reason?: string }[];
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];

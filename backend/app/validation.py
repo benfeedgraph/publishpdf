@@ -1155,6 +1155,8 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
+    summary["unconfirmed_fids"] = sorted(f["id"] for f in _active(schema)
+                                         if not any(f["id"] in verified.get(k, ()) for k in CONFIRMING_AGENTS))
     return issues, summary
 
 
@@ -1216,6 +1218,49 @@ def _consensus(schema: dict, verified: dict[str, set[str]]) -> dict:
         n = sum(1 for k in CONFIRMING_AGENTS if f["id"] in verified.get(k, ()))
         counts["3+" if n >= 3 else str(n)] += 1
     return counts
+
+
+def figure_headline(figures: int, open_issues: list[tuple[str | None, str]]) -> dict[str, int]:
+    """Step 1's headline, one status per figure so the three figure counts add up to the
+    figures extracted: `need_attention` (an open blocking item), else `notes` (only open
+    notes), else `passed`. Items that aren't about one figure (a table's unit label, a page's
+    count, the web page) are counted separately, never mixed into the figure counts.
+
+    `open_issues`: (fid, severity) of every open item in the latest run."""
+    blocking = {fid for fid, sev in open_issues if fid and sev == "blocking"}
+    noted = {fid for fid, sev in open_issues if fid and sev != "blocking"} - blocking
+    return {"figures": figures,
+            "passed": max(0, figures - len(blocking) - len(noted)),
+            "need_attention": len(blocking), "notes": len(noted),
+            "other_need_attention": sum(1 for fid, sev in open_issues if not fid and sev == "blocking"),
+            "other_notes": sum(1 for fid, sev in open_issues if not fid and sev != "blocking")}
+
+
+def recount_agents(agents: list[dict] | None, issues: list[Issue]) -> list[dict] | None:
+    """Each agent card's blocking and warning counts from the items still open — after people's
+    and the AI's decisions — so a card never says "8 blocking" next to "0 need your attention"."""
+    if agents is None:
+        return None
+    still_open = [i for i in issues if i.status == "open"]
+    return [{**a, "blocking": sum(1 for i in still_open if i.check == a["key"] and i.severity == "blocking"),
+             "warnings": sum(1 for i in still_open if i.check == a["key"] and i.severity == "warning")}
+            for a in agents]
+
+
+def reviewer_confirmed(f: dict) -> bool:
+    """A person confirmed (or corrected) this figure at its current value."""
+    rv = f.get("review") or {}
+    return rv.get("action") == "confirm" and rv.get("raw") == f.get("raw")
+
+
+def count_not_confirmed(schema: dict, unconfirmed_fids: list[str] | None) -> int | None:
+    """Figures still in the document that no check confirmed and no person has confirmed
+    either: "Every figure matches the PDF" is only said when this is 0 (None: not known)."""
+    if unconfirmed_fids is None:
+        return None
+    figs = schema["figures"]
+    return sum(1 for fid in unconfirmed_fids if (f := figs.get(fid)) is not None
+               and f.get("status", "active") == "active" and not reviewer_confirmed(f))
 
 
 def issue_key(check: str, page: int | None, bbox: list | None, message: str) -> str:
@@ -1281,8 +1326,7 @@ def apply_reviews(issues: list[Issue], schema: dict) -> None:
                 i.status, i.resolution = "resolved", "acknowledged"
             continue
         f = schema["figures"].get(i.fid)
-        rv = f.get("review") if f else None
-        if rv and rv.get("action") == "confirm" and rv.get("raw") == f["raw"]:
+        if f and reviewer_confirmed(f):
             i.status, i.resolution = "resolved", "confirmed"
 
 

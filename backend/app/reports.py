@@ -320,6 +320,20 @@ def latest_run_no(s: Session, vid: uuid.UUID) -> int:
     return s.scalar(select(func.max(ValidationIssue.run_no)).where(ValidationIssue.version_id == vid)) or 0
 
 
+def headline(s: Session, v: ReportVersion) -> dict | None:
+    """Step 1's headline counts, worked out together from the latest run's items as they are
+    now (a person's decision counts at once), one status per figure, so they add up to the
+    figures extracted. None before the first check has finished."""
+    from app import validation
+    summary = v.validation_summary or {}
+    if "figures_checked" not in summary:
+        return None
+    run = latest_run_no(s, v.id)
+    rows = s.execute(select(ValidationIssue.fid, ValidationIssue.severity).where(
+        ValidationIssue.version_id == v.id, ValidationIssue.run_no == run, ValidationIssue.status == "open")).all()
+    return validation.figure_headline(summary["figures_checked"], [(r.fid, r.severity) for r in rows])
+
+
 def open_blocking(s: Session, vid: uuid.UUID) -> int:
     run = latest_run_no(s, vid)
     return s.scalar(select(func.count()).select_from(ValidationIssue).where(
