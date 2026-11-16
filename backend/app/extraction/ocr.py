@@ -229,3 +229,32 @@ def ocr_crop(page: pymupdf.Page, bbox: tuple[float, float, float, float], pad: f
     x0, y0, x1, y1 = bbox
     clip = pymupdf.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad) & page.rect
     return ocr_image(dark_on_light(render(page, CROP_DPI, clip)))
+
+
+
+LOGO_MAX_PX = 700
+
+
+def read_pictures(page: pymupdf.Page, rects: list[pymupdf.Rect], dpi: int = 150) -> str:
+    """The words in some pictures on a page (logos): each rendered on its own, stacked into one
+    image with white space between them, and read as sparse text in one Tesseract call (one
+    call, not one per picture: starting Tesseract costs more than reading a logo)."""
+    crops = [ImageOps.autocontrast(dark_on_light(render(page, dpi, r))) for r in rects]
+    crops = [c for c in crops if c.width and c.height]
+    for c in crops:
+        c.thumbnail((LOGO_MAX_PX, LOGO_MAX_PX))       # a logo's letters are large: more pixels only cost time
+    if not crops:
+        return ""
+    gap = 30
+    sheet = Image.new("L", (max(c.width for c in crops) + 2 * gap, sum(c.height + gap for c in crops) + gap), 255)
+    y = gap
+    for c in crops:
+        sheet.paste(c, (gap, y))
+        y += c.height + gap
+    tsv = _run(_png(sheet), "--psm", "11", "tsv", timeout=30)
+    words = []
+    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE):
+        t = _clean((row.get("text") or "").strip())
+        if t and row.get("level") == "5" and float(row["conf"]) >= 50:
+            words.append(t)
+    return " ".join(words)
