@@ -702,19 +702,26 @@ def issue_json(i: ValidationIssue, figures: dict) -> dict:
 def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = None, section_id: str | None = None,
                 severity: str | None = None, status: str | None = None, check: str | None = None,
                 ctx: Context = Depends(require("report.view"))) -> dict:
+    """The latest run's items under these filters, with the filters' options (each value that
+    has at least one item under the other filters, and how many) and the totals, all from the
+    one set of rows loaded here, so the list and its filters can't disagree."""
+    from app import issue_filters
+    from app.validation import AGENTS
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         run = latest_run_no(s, v.id)
         q = select(ValidationIssue).where(ValidationIssue.version_id == v.id, ValidationIssue.run_no == run)
-        for col, val in ((ValidationIssue.page, page), (ValidationIssue.section_id, section_id),
-                         (ValidationIssue.severity, severity), (ValidationIssue.status, status),
-                         (ValidationIssue.check_name, check)):
-            if val is not None:
-                q = q.where(col == val)
         issues = s.scalars(q.order_by(ValidationIssue.severity, ValidationIssue.page, ValidationIssue.check_name)).all()
-        figures = (v.schema_json or {}).get("figures", {})
+        schema = v.schema_json or {}
+        figures = schema.get("figures", {})
+        out = issue_filters.build(
+            [issue_json(i, figures) for i in issues],
+            {"severity": severity, "status": status, "check": check, "page": str(page) if page is not None else None,
+             "section": section_id},
+            sections=schema.get("sections", []), pages=schema.get("pages", []),
+            check_labels={key: name for key, name, _ in AGENTS})
         return {"run": run, "summary": v.validation_summary, "validated_current": version_json(v)["validated_current"],
-                "status": v.status, "issues": [issue_json(i, figures) for i in issues]}
+                "status": v.status, "issues": out["items"], "options": out["options"], "totals": out["totals"]}
 
 
 class ResolveIn(BaseModel):
