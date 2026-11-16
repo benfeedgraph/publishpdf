@@ -6,7 +6,7 @@ import { useMe } from "../../App";
 import DesignPicker, { type DesignDraft, type ThemeT } from "../../components/DesignPicker";
 import PreviewTab, { PublishPanel } from "./PreviewTab";
 import SchemaTab from "./SchemaTab";
-import ValidationTab from "./ValidationTab";
+import ValidationTab, { issuesQuery } from "./ValidationTab";
 import VerifyStep from "./VerifyStep";
 import VersionsTab from "./VersionsTab";
 import { IconCheck } from "../../components/Icons";
@@ -50,7 +50,15 @@ export default function ReportPage() {
   const versionId = params.get("v") ?? report.data?.versions?.[0]?.id;
   const version = useQuery({
     queryKey: ["version", versionId],
-    queryFn: () => api<VersionDetail>(`/api/tenants/${tenantId}/reports/${reportId}/versions/${versionId}`),
+    queryFn: async () => {
+      const next = await api<VersionDetail>(`/api/tenants/${tenantId}/reports/${reportId}/versions/${versionId}`);
+      const prev = qc.getQueryData<VersionDetail>(["version", versionId]);
+      // A re-check started or finished: load the review list for the new state before
+      // showing it, so the numbers, the agent cards and the list all change at once.
+      if (prev && (prev.status !== next.status || prev.schema_sha256 !== next.schema_sha256))
+        await qc.prefetchQuery(issuesQuery(tenantId!, reportId!, next));
+      return next;
+    },
     enabled: !!versionId,
     refetchInterval: (q) => (q.state.data?.status === "processing" ? 1500 : false),
   });
