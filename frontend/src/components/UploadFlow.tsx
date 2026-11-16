@@ -93,11 +93,14 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [company, setCompany] = useState(d.company_name ?? "");
-  const [type, setType] = useState<ReportType>(d.report_type ?? "quarterly_results");
-  const [fy, setFy] = useState(String(d.fiscal_year ?? new Date().getFullYear()));
-  const [period, setPeriod] = useState(d.period ?? "q1");
-  const [currency, setCurrency] = useState(d.currency ?? "INR");
-  const [unit, setUnit] = useState(d.reporting_unit ?? "₹ crore");
+  // Anything the PDF doesn't give starts blank for the person to fill in. A default (this
+  // year, Q1, "Quarterly results") looked like a detected value and got published by mistake.
+  const [type, setType] = useState<ReportType | "">(d.report_type ?? "");
+  const [fy, setFy] = useState(d.fiscal_year != null ? String(d.fiscal_year) : "");
+  const [period, setPeriod] = useState(d.period ?? "");
+  // Same for currency and unit: "INR" / "₹ crore" as defaults showed on a US dollar report.
+  const [currency, setCurrency] = useState(d.currency ?? "");
+  const [unit, setUnit] = useState(d.reporting_unit ?? "");
   const bo = data.build_options;
   const firstAvailable = (m: BuildMode | undefined) =>
     bo?.options.find((o) => o.mode === m && o.available)?.mode
@@ -127,10 +130,11 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
     }
   }
   const conf = (d.confidence ?? {}) as Record<string, string>;
-  // A guess (from the file name, or the biggest words on the cover) is offered, but flagged.
-  const Tag = ({ k }: { k: string }) => (!found(k) ? null : conf[k] === "low"
-    ? <span className="detected guess">best guess — please check</span>
-    : <span className="detected"><IconCheck size={12} /> detected</span>);
+  // Only a value we're sure of is labelled "detected". A guess (a short name without its
+  // legal suffix, a year read from the cover date) is filled in without a label.
+  const Tag = ({ k }: { k: string }) => (found(k) && conf[k] !== "low" && conf[k] !== "medium"
+    ? <span className="detected"><IconCheck size={12} /> detected</span>
+    : null);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-h" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -146,10 +150,10 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
           <label className="field span2"><span className="label">Company <Tag k="company_name" /></span><input required value={company} placeholder="Company name, as printed on the report" onChange={(e) => setCompany(e.target.value)} />
             {!company && <span className="hint">We couldn't find the company name in this PDF — please type it.</span>}</label>
           <label className="field"><span className="label">Report type <Tag k="report_type" /></span>
-            <select value={type} onChange={(e) => setType(e.target.value as ReportType)}>{Object.entries(REPORT_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <select required value={type} onChange={(e) => setType(e.target.value as ReportType)}><option value="" disabled hidden />{Object.entries(REPORT_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="field"><span className="label">Fiscal year (year it ends) <Tag k="fiscal_year" /></span><input required inputMode="numeric" pattern="[0-9]{4}" value={fy} onChange={(e) => setFy(e.target.value)} /></label>
           <label className="field"><span className="label">Period <Tag k="period" /></span>
-            <select value={type === "annual_report" ? "fy" : period} disabled={type === "annual_report"} onChange={(e) => setPeriod(e.target.value)}>{PERIOD_OPTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <select required value={type === "annual_report" ? "fy" : period} disabled={type === "annual_report"} onChange={(e) => setPeriod(e.target.value)}><option value="" disabled hidden />{PERIOD_OPTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="field"><span className="label">Currency <Tag k="currency" /></span><input required maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} /></label>
           <label className="field span2"><span className="label">Reporting unit <Tag k="reporting_unit" /></span><input required value={unit} onChange={(e) => setUnit(e.target.value)} />
             <span className="hint">Used only where a table doesn't state its unit — those tables are flagged for you to confirm.</span></label>
