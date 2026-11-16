@@ -200,12 +200,31 @@ async def inspect(file: UploadFile | None = File(None), incoming: str | None = F
         from app.extraction.detect import company_from_filename
         guess = company_from_filename(name)
         detected = {"company_name": guess, "confidence": {"company_name": "low"}} if guess else {}
-    return {**out, "detected": detected, "build_options": _build_options(ctx, out["page_count"])}
+    return {**out, "detected": detected, "build_options": _build_options(ctx, out["page_count"], _checks_for_pdf(data))}
 
 
-def _build_options(ctx: Context, page_count: int) -> dict:
+def _checks_for_pdf(data: bytes) -> dict | None:
+    """How many checks can run on this PDF's figures (a scanned PDF has no text layer for the
+    second parser), so the upload screen promises no more than Step 1 will show."""
+    import pymupdf
+
+    from app import validation
+    from app.extraction.pdf import page_kinds
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            return validation.checks_for(*page_kinds(doc))
+        finally:
+            doc.close()
+    except Exception:  # noqa: BLE001 - the screen falls back to wording that holds for any PDF
+        log.exception("page kind detection failed")
+        return None
+
+
+def _build_options(ctx: Context, page_count: int, checks: dict | None = None) -> dict:
     """The three ways to build the page, each with the most it can spend, and what this
-    workspace has left this month — shown before anything is processed."""
+    workspace has left this month — shown before anything is processed. `checks`: how many
+    of the nine checks can run on this PDF's figures (None: not known)."""
     from app import ai_usage, build_modes
     try:
         allowance = ai_usage.allowance(ctx)
@@ -213,7 +232,7 @@ def _build_options(ctx: Context, page_count: int) -> dict:
         allowance = None
     return {"default": build_modes.DEFAULT_MODE, "options": build_modes.options(page_count),
             "allowance": allowance, "credit_usd": get_settings().ai_credit_usd,
-            "landing": build_modes.landing_option(page_count)}
+            "landing": build_modes.landing_option(page_count), "checks": checks}
 
 
 class CreateIn(BaseModel):
@@ -395,7 +414,10 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["landing"] = landing_of(s, v.id)
         out["has_overview"] = _bundle_has_overview(ctx, v.bundle_key)
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
-            out["build_options"] = _build_options(ctx, page_count or 0)
+            from app import validation
+            methods = {p.get("method") for p in pages or []} - {None}
+            checks = validation.checks_for("text_layer" in methods, "ocr" in methods) if methods else None
+            out["build_options"] = _build_options(ctx, page_count or 0, checks)
         out["pages"] = pages
         out["sections"] = sections
     out["queue"] = _queue_for(jobs) if v.status == "processing" else None

@@ -85,7 +85,7 @@ def _parts_in(raw: str, found: list[str]) -> bool:
 
 
 def check_traceability(schema: dict, doc: pymupdf.Document, artifact: dict,
-                       verified: set[str] | None = None) -> list[Issue]:
+                       verified: set[str] | None = None, checked: set[str] | None = None) -> list[Issue]:
     issues = []
     page_words: dict[int, list[tuple[str, list[float]]]] = {}
     for p in artifact["pages"]:
@@ -100,6 +100,8 @@ def check_traceability(schema: dict, doc: pymupdf.Document, artifact: dict,
     for f in _active(schema):
         if f.get("edited"):
             continue           # human-entered value; checked by re-extraction instead
+        if checked is not None:
+            checked.add(f["id"])
         found = _words_in(page_words.get(f["source"]["page"], []), f["source"]["bbox"])
         joined = " ".join(found)
         cores = {joined, _split_punct(joined)[1]} | {_split_punct(w)[1] for w in found}
@@ -297,11 +299,13 @@ def reextraction_reads(figs: list[dict], doc: pymupdf.Document, workers: int) ->
 
 def check_reextraction(schema: dict, doc: pymupdf.Document | None, workers: int | None = None,
                        verified: set[str] | None = None, text_confirmed: set[str] | None = None,
-                       reads: dict[str, list[str]] | None = None) -> list[Issue]:
+                       reads: dict[str, list[str]] | None = None, checked: set[str] | None = None) -> list[Issue]:
     """Render each figure's region and read it with OCR (a different method from the
     text layer). A figure passes only if a reading agrees exactly on digits, sign and kind.
     `reads` can come from reextraction_reads_parallel (run alongside other checks)."""
     figs = [f for f in _active(schema) if f["kind"] in REEXTRACT_KINDS]
+    if checked is not None:
+        checked.update(f["id"] for f in figs)
     issues = []
     if reads is None:
         reads = reextraction_reads(figs, doc, workers or _ocr_workers())
@@ -429,7 +433,7 @@ def _same_glyphs(s: str) -> str:
 
 
 def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None,
-                        pool=None) -> list[Issue]:
+                        pool=None, checked: set[str] | None = None) -> list[Issue]:
     text_pages = {p["page"] for p in artifact["pages"] if p["method"] == "text_layer"}
     figs = [f for f in _active(schema) if f["source"]["page"] in text_pages and not f.get("edited")]
     if not figs:
@@ -447,6 +451,8 @@ def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified
             words = _pdfminer_words(pdf_bytes, pages)
     except Exception as e:  # noqa: BLE001 - a parser crash is itself worth a warning, not a silent pass
         return [Issue("second_parser", "warning", f"The second PDF parser couldn't read this file ({type(e).__name__}).")]
+    if checked is not None:
+        checked.update(f["id"] for f in figs)
     issues = []
     for f in figs:
         found = [_same_glyphs(w) for w in _words_in(words.get(f["source"]["page"], []), f["source"]["bbox"], pad=2.5)]
@@ -470,7 +476,7 @@ def _norm_label(s: str | None) -> str:
     return re.sub(r"[^a-z]", "", (s or "").lower())
 
 
-def check_cross_tables(schema: dict, verified: set[str] | None = None) -> list[Issue]:
+def check_cross_tables(schema: dict, verified: set[str] | None = None, checked: set[str] | None = None) -> list[Issue]:
     """The same line item for the same period and unit should have one value wherever it
     appears (e.g. revenue in the highlights table and in the P&L). Differences are
     warnings, since standalone and consolidated statements legitimately differ."""
@@ -486,6 +492,8 @@ def check_cross_tables(schema: dict, verified: set[str] | None = None) -> list[I
         tables = {f.get("table_id") for f in fs}
         if len(tables) < 2:
             continue
+        if checked is not None:
+            checked.update(f["id"] for f in fs)
         values = {Decimal(f["value"]) for f in fs if f.get("value") is not None}
         if len(values) == 1:
             if verified is not None:
@@ -526,7 +534,9 @@ _ASSETS = re.compile(r"^total assets$", re.I)
 _EQ_LIAB = re.compile(r"^total (equity and liabilities|liabilities and (shareholders'? )?equity|equity & liabilities)$", re.I)
 
 
-def check_arithmetic(schema: dict, verified: set[str] | None = None) -> list[Issue]:
+def check_arithmetic(schema: dict, verified: set[str] | None = None, checked: set[str] | None = None) -> list[Issue]:
+    """`checked` gets every figure that took part in a comparison: a total and the rows it
+    adds up, both sides of a balance sheet, a stated % change and the two values behind it."""
     issues: list[Issue] = []
     for sec in schema["sections"]:
         for blk in sec["blocks"]:
@@ -558,6 +568,10 @@ def check_arithmetic(schema: dict, verified: set[str] | None = None) -> list[Iss
                     results.append((c, abs(s - total) <= tol, s, total, tf))
                 ok = [x for x in results if x[1]]
                 bad = [x for x in results if not x[1]]
+                if checked is not None and ok:      # no column adds up: not a sum, so nothing was checked
+                    for c, *_rest in results:
+                        checked.add(matrix[i][c][1]["id"])
+                        checked.update(matrix[k][c][1]["id"] for k in cands if matrix[k][c][1])
                 if verified is not None:
                     for c, good, _s, _t, tf in ok:
                         verified.add(tf["id"])
@@ -577,12 +591,14 @@ def check_arithmetic(schema: dict, verified: set[str] | None = None) -> list[Iss
             if a_row is not None and l_row is not None:
                 for c in numeric_cols:
                     (a, af), (lv, lf) = matrix[a_row][c], matrix[l_row][c]
+                    if checked is not None and a is not None and lv is not None:
+                        checked.update((af["id"], lf["id"]))
                     if a is not None and lv is not None and a != lv:
                         issues.append(_fig_issue("arithmetic", "blocking", lf,
                                                  "Total assets don't equal total equity and liabilities.",
                                                  expected=af["raw"], actual=lf["raw"]))
             # --- stated % changes
-            issues.extend(_check_changes(schema, blk, matrix))
+            issues.extend(_check_changes(schema, blk, matrix, checked))
     return issues
 
 
@@ -603,7 +619,7 @@ def _prev_key(key: str, kind: str) -> str | None:
     return None
 
 
-def _check_changes(schema: dict, blk: dict, matrix) -> list[Issue]:
+def _check_changes(schema: dict, blk: dict, matrix, checked: set[str] | None = None) -> list[Issue]:
     issues = []
     cols = blk["columns"]
     for c, col in enumerate(cols):
@@ -632,6 +648,8 @@ def _check_changes(schema: dict, blk: dict, matrix) -> list[Issue]:
             (cur, cf), (prev, pf) = matrix[i][cur_c], matrix[i][prev_c]
             if stated_f is None or cur is None or prev is None or prev == 0:
                 continue
+            if checked is not None:
+                checked.update((stated_f["id"], cf["id"], pf["id"]))
             stated = Decimal(stated_f["value"])
             dp = _dp(stated_f["raw"])
             computed = (cur - prev) / abs(prev) * 100
@@ -649,7 +667,9 @@ def _check_changes(schema: dict, blk: dict, matrix) -> list[Issue]:
 # ------------------------------------------------------------------ 4. period & unit consistency
 
 
-def check_period_unit(schema: dict) -> list[Issue]:
+def check_period_unit(schema: dict, checked: set[str] | None = None) -> list[Issue]:
+    """`checked` gets every figure in the tables it checks (their unit label, and each value's
+    period against its column). Figures outside tables have no table unit or column to check."""
     issues = []
     meta = schema["metadata"]
     mentioned = set(schema.get("units_mentioned", []))
@@ -663,6 +683,9 @@ def check_period_unit(schema: dict) -> list[Issue]:
                               for row in blk["rows"] for cell in row["cells"] for r in cell["runs"] if "f" in r)
             if not has_numbers:
                 continue
+            if checked is not None:
+                checked.update(r["f"] for row in blk["rows"] for cell in row["cells"] for r in cell["runs"]
+                               if "f" in r and schema["figures"][r["f"]].get("status", "active") == "active")
             if blk.get("unit_source") != "caption":
                 sev = "blocking" if mixed else "warning"
                 msg = ("This document uses both crore and lakh, and this table has no unit label."
@@ -768,11 +791,16 @@ def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict,
 AUTO_CLEAR_MIN_CONFIDENCE = 0.5
 
 
-def check_low_confidence(schema: dict, threshold: float, reread_ok: set[str] | None = None) -> list[Issue]:
+def check_low_confidence(schema: dict, threshold: float, reread_ok: set[str] | None = None,
+                         checked: set[str] | None = None) -> list[Issue]:
+    """Looks at every figure (`checked`): a number that couldn't be parsed, a low-confidence OCR
+    reading or a date that reads either way round needs a person."""
     from app.extraction.tokens import YEAR_RANGE
     issues = []
     reread_ok = reread_ok or set()
     for f in _active(schema):
+        if checked is not None:
+            checked.add(f["id"])
         if f.get("unparsed_numeric") and YEAR_RANGE.match(f["raw"].strip()):
             continue          # a span of years (tenure, financial year) — flagged by older extractions
         if f.get("unparsed_numeric"):
@@ -994,17 +1022,31 @@ def check_bundle(schema: dict, files: dict[str, bytes]) -> list[Issue]:
 
 
 AGENTS = [
-    ("traceability", "Source trace", "Finds each value at its recorded position in the PDF's text layer (or OCR record)."),
-    ("second_parser", "Second PDF parser", "Re-reads every position with a different PDF engine (pdfminer) than the extractor."),
-    ("re_extraction", "Visual re-read", "Renders the page as an image and reads each figure again with OCR."),
+    ("traceability", "Source trace", "Finds each figure at its recorded position in the PDF's text layer (or OCR record)."),
+    ("second_parser", "Second PDF parser", "Re-reads each figure on a text-layer page with a different PDF engine (pdfminer) than the extractor."),
+    ("re_extraction", "Visual re-read", "Renders the page as an image and reads each number, percentage and date again with OCR."),
     ("arithmetic", "Arithmetic", "Totals add up, the balance sheet balances, stated % changes match."),
     ("cross_table", "Cross-table consistency", "The same line and period has the same value in every table."),
-    ("period_unit", "Periods & units", "Each value's period and unit match its table; no crore/lakh mix-ups."),
+    ("period_unit", "Periods & units", "Each table has a unit label and each value's period matches its column; no crore/lakh mix-ups."),
     ("rendered_page", "Web page check", "Every number on the generated page exists in the data, character for character."),
-    ("completeness", "Completeness", "Numbers on each PDF page vs numbers captured."),
-    ("low_confidence", "Human review", "Low-confidence OCR values need a person, unless an independent re-read agrees exactly."),
+    ("completeness", "Completeness", "Counts the numbers on each PDF page against the figures captured."),
+    ("low_confidence", "Human review", "Figures that couldn't be read cleanly need a person, unless an independent re-read agrees exactly."),
     ("schema", "Schema", "The data document matches the published JSON Schema."),
 ]
+SHOWN_AGENTS = [a for a in AGENTS if a[0] != "schema"]   # the nine checks the screens list
+# Agents that compare a figure with the PDF (or with other figures) and can confirm it: these
+# are what the "how many agents confirmed each figure" bar counts.
+CONFIRMING_AGENTS = ("traceability", "second_parser", "re_extraction", "arithmetic", "cross_table")
+
+
+def checks_for(has_text_layer: bool, has_scanned: bool) -> dict:
+    """How many of the nine checks can run on one figure of a PDF, from how its pages are read.
+    The second PDF parser reads the PDF's text layer, so it can't run on scanned pages: a fully
+    scanned PDF gets at most eight. (Arithmetic, cross-table and the other structural checks
+    only look at the figures they apply to; the results screen counts those.)"""
+    total = len(SHOWN_AGENTS)
+    return {"total": total, "max_per_figure": total if has_text_layer else total - 1,
+            "scanned": "all" if has_scanned and not has_text_layer else "some" if has_scanned else "none"}
 
 
 def _check_pool(schema: dict):
@@ -1034,9 +1076,11 @@ def _safe_reads(schema: dict, pdf_bytes: bytes, pool) -> dict[str, list[str]] | 
 def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes] | None,
             *, threshold: float, reextract: bool = True, progress=None) -> tuple[list[Issue], dict[str, Any]]:
     """Runs every validation agent. Each positive confirmation is tallied per figure, so
-    the summary can say how many independent agents agreed on each value."""
+    the summary can say how many independent agents agreed on each value, and each agent
+    records which figures it looked at, so the summary can say how far each one reached."""
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     verified: dict[str, set[str]] = {k: set() for k, *_ in AGENTS}
+    checked: dict[str, set[str]] = {k: set() for k, *_ in AGENTS}
     steps = []
 
     def step(name, fn):
@@ -1055,10 +1099,11 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
             import threading
             sp_box: dict = {}
             sp_ids: set[str] = set()
-            sp_th = threading.Thread(target=lambda: sp_box.update(r=check_second_parser(schema, pdf_bytes, artifact, sp_ids, pool=pool)),
-                                     daemon=True)
+            sp_checked: set[str] = set()
+            sp_th = threading.Thread(target=lambda: sp_box.update(r=check_second_parser(
+                schema, pdf_bytes, artifact, sp_ids, pool=pool, checked=sp_checked)), daemon=True)
             sp_th.start()
-            sp_future = (sp_th, sp_box, sp_ids)
+            sp_future = (sp_th, sp_box, sp_ids, sp_checked)
         reads_future = None
         if pool:
             import threading
@@ -1066,13 +1111,16 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
             th = threading.Thread(target=lambda: box.update(r=_safe_reads(schema, pdf_bytes, pool)), daemon=True)
             th.start()
             reads_future = (th, box)
-        issues += step("Source trace", lambda: check_traceability(schema, doc, artifact, verified["traceability"]))
+        issues += step("Source trace", lambda: check_traceability(schema, doc, artifact, verified["traceability"],
+                                                                  checked["traceability"]))
 
         def second_parser():
             if sp_future is None:
-                return check_second_parser(schema, pdf_bytes, artifact, verified["second_parser"])
+                return check_second_parser(schema, pdf_bytes, artifact, verified["second_parser"],
+                                           checked=checked["second_parser"])
             sp_future[0].join()
             verified["second_parser"].update(sp_future[2])
+            checked["second_parser"].update(sp_future[3])
             return sp_future[1].get("r", [])
         issues += step("Second PDF parser", second_parser)
         if reextract:
@@ -1082,34 +1130,75 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
                     reads_future[0].join()
                     reads = reads_future[1].get("r")
                 return check_reextraction(schema, doc, verified=verified["re_extraction"],
-                                          text_confirmed=verified["traceability"] & verified["second_parser"], reads=reads)
+                                          text_confirmed=verified["traceability"] & verified["second_parser"], reads=reads,
+                                          checked=checked["re_extraction"])
             issues += step("Visual re-read", reread)
     finally:
         if pool:
             pool.shutdown(wait=False, cancel_futures=True)
-    issues += step("Arithmetic", lambda: check_arithmetic(schema, verified["arithmetic"]))
-    issues += step("Cross-table consistency", lambda: check_cross_tables(schema, verified["cross_table"]))
-    issues += step("Periods & units", lambda: check_period_unit(schema))
+    issues += step("Arithmetic", lambda: check_arithmetic(schema, verified["arithmetic"], checked["arithmetic"]))
+    issues += step("Cross-table consistency", lambda: check_cross_tables(schema, verified["cross_table"],
+                                                                         checked["cross_table"]))
+    issues += step("Periods & units", lambda: check_period_unit(schema, checked["period_unit"]))
     if bundle_files is not None:
         issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
     issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files))
     issues += step("Human review", lambda: check_low_confidence(
-        schema, threshold, reread_ok=verified["re_extraction"] if reextract else None))
+        schema, threshold, reread_ok=verified["re_extraction"] if reextract else None, checked=checked["low_confidence"]))
     issues = merge_figure_duplicates(issues)
     summary = summarize(schema, issues)
     has_text_layer = any(p["method"] == "text_layer" for p in artifact["pages"])
-    summary["agents"] = _agent_summary(schema, issues, verified, ran={
+    # Checks that look at pages rather than figures: how many pages they covered.
+    page_counts = {"completeness": ("pdf_pages", len(artifact["pages"])),
+                   "rendered_page": ("web_pages", sum(1 for n in bundle_files or {} if n.endswith((".html", ".md"))))}
+    summary["agents"] = _agent_summary(schema, issues, verified, checked, page_counts, ran={
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
     return issues, summary
 
 
-def _agent_summary(schema: dict, issues: list[Issue], verified: dict[str, set[str]], ran: dict[str, bool]) -> list[dict]:
+# What a check that ran says when this PDF had nothing of the kind it checks.
+_NOTHING_TO_CHECK = {
+    "second_parser": "No figures in this PDF are on a page with a text layer.",
+    "arithmetic": "Nothing to add up in this PDF: no totals, balance sheet or stated % changes.",
+    "cross_table": "No figure in this PDF appears in more than one table.",
+    "period_unit": "No tables with numbers in this PDF.",
+}
+
+
+def _reach(key: str, unit: str, n: int, total: int, found: bool) -> str:
+    """One sentence on how far an agent reached in this PDF. It goes at the end of the card's
+    description, which Step 1 shows under the agent's name, so the card says e.g. that the
+    visual re-read looked at 153 of 228 figures, or that there were no totals to add up."""
+    if unit == "figures":
+        if n == 0 and not found:
+            return _NOTHING_TO_CHECK.get(key, "Nothing to check in this PDF.")
+        return f"Looked at {n:,} of {total:,} figures in this PDF."
+    if unit == "pdf_pages":
+        return f"Counted the numbers on {n:,} PDF page{'' if n == 1 else 's'}."
+    if unit == "web_pages":
+        return f"Checked every number on {n:,} generated page{'' if n == 1 else 's'}."
+    return ""
+
+
+def _agent_summary(schema: dict, issues: list[Issue], verified: dict[str, set[str]], checked: dict[str, set[str]],
+                   page_counts: dict[str, tuple[str, int]], ran: dict[str, bool]) -> list[dict]:
+    """Per agent: whether it ran, what it covered (`checked`, in `unit`: figures for the
+    per-figure checks, PDF pages or generated web pages for the page checks), and what it found.
+    An agent that ran also says how far it reached at the end of its `description`."""
     out = []
+    total = len(_active(schema))
     for key, name, desc in AGENTS:
         mine = [i for i in issues if i.check == key]
-        out.append({"key": key, "name": name, "description": desc, "ran": ran.get(key, True),
+        unit, n = page_counts.get(key, ("figures", len(checked.get(key, ()))))
+        if key == "schema":
+            unit, n = "documents", 1
+        did_run = ran.get(key, True)
+        if did_run and key != "schema":
+            desc = f"{desc} {_reach(key, unit, n, total, bool(mine))}".strip()
+        out.append({"key": key, "name": name, "description": desc, "ran": did_run,
+                    "checked": n if did_run else 0, "unit": unit,
                     "confirmed": len(verified.get(key, ())),
                     "blocking": sum(1 for i in mine if i.severity == "blocking"),
                     "warnings": sum(1 for i in mine if i.severity == "warning")})
@@ -1117,13 +1206,14 @@ def _agent_summary(schema: dict, issues: list[Issue], verified: dict[str, set[st
 
 
 def _consensus(schema: dict, verified: dict[str, set[str]]) -> dict:
-    """How many independent agents positively confirmed each numeric figure."""
+    """How many independent agents positively confirmed each figure — every extracted (active)
+    figure, not just the numbers, so the buckets add up to the figures extracted. Only the four
+    buckets Step 1 draws: a figure no agent confirmed is in "0" (shown as "not confirmed"),
+    including one no confirming agent could look at (e.g. a period a reviewer typed in, which
+    neither the source trace nor the visual re-read covers)."""
     counts = {"3+": 0, "2": 0, "1": 0, "0": 0}
     for f in _active(schema):
-        if f["kind"] not in NUMERIC_KINDS:
-            continue
-        n = sum(1 for k in ("traceability", "second_parser", "re_extraction", "arithmetic", "cross_table")
-                if f["id"] in verified.get(k, ()))
+        n = sum(1 for k in CONFIRMING_AGENTS if f["id"] in verified.get(k, ()))
         counts["3+" if n >= 3 else str(n)] += 1
     return counts
 

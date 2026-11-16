@@ -220,6 +220,70 @@ def test_consensus_counts_independent_confirmations():
     assert summary["consensus"]["0"] == 0 and summary["consensus"]["3+"] > 100
 
 
+def test_agent_bar_counts_every_extracted_figure_not_just_numbers():
+    """Periods ("Q2 FY26"), dates and labels are figures too: the bar's buckets add up to the
+    figures extracted, and each card says how many figures it actually looked at."""
+    data, schema, artifact = clean()
+    _, summary = validation.run_all(schema, data, artifact, None, threshold=0.95)
+    active = [f for f in schema["figures"].values() if f.get("status", "active") == "active"]
+    assert {f["kind"] for f in active} - validation.NUMERIC_KINDS, "fixture needs non-numeric figures"
+    assert sum(summary["consensus"].values()) == summary["figures_checked"] == len(active)
+    assert set(summary["consensus"]) == {"3+", "2", "1", "0"}          # the four buckets Step 1 draws
+    agents = {a["key"]: a for a in summary["agents"]}
+    assert agents["traceability"]["checked"] == len(active) and agents["traceability"]["unit"] == "figures"
+    assert agents["re_extraction"]["checked"] == sum(1 for f in active if f["kind"] in validation.REEXTRACT_KINDS) < len(active)
+    assert agents["second_parser"]["checked"] == len(active)                  # every page has a text layer
+    assert agents["low_confidence"]["checked"] == len(active)
+    assert 0 < agents["arithmetic"]["checked"] < len(active)                  # only totals and % changes
+    assert agents["arithmetic"]["confirmed"] <= agents["arithmetic"]["checked"]
+    assert agents["completeness"] == {**agents["completeness"], "unit": "pdf_pages", "checked": len(artifact["pages"])}
+    assert agents["rendered_page"]["ran"] is False and agents["rendered_page"]["checked"] == 0
+    # The card's description (what Step 1 shows under the name) says how far each one reached.
+    n_reread = agents["re_extraction"]["checked"]
+    assert agents["re_extraction"]["description"].endswith(f"Looked at {n_reread:,} of {len(active):,} figures in this PDF.")
+    assert agents["completeness"]["description"].endswith(f"Counted the numbers on {len(artifact['pages'])} PDF page"
+                                                          f"{'' if len(artifact['pages']) == 1 else 's'}.")
+    assert agents["rendered_page"]["description"] == dict((k, d) for k, _, d in validation.AGENTS)["rendered_page"]
+
+
+def test_a_figure_no_agent_can_check_is_counted_as_not_confirmed():
+    """A reviewer-typed period is skipped by the source trace and the second parser (it isn't
+    in the PDF as typed) and the visual re-read only reads numbers and dates: no agent confirmed
+    it, so it is in "not confirmed", not hidden from the bar."""
+    data, schema, artifact = clean()
+    f = next(f for f in schema["figures"].values() if f["kind"] not in validation.REEXTRACT_KINDS)
+    f["edited"] = True
+    _, summary = validation.run_all(schema, data, artifact, None, threshold=0.95)
+    assert summary["consensus"]["0"] == 1
+    assert sum(summary["consensus"].values()) == summary["figures_checked"]
+
+
+def test_a_check_with_nothing_to_look_at_says_so():
+    data, schema, artifact = clean()
+    for f in schema["figures"].values():
+        f.pop("period", None)                     # nothing for cross-table to line up
+    _, summary = validation.run_all(schema, data, artifact, None, threshold=0.95)
+    cross = next(a for a in summary["agents"] if a["key"] == "cross_table")
+    assert cross["checked"] == 0
+    assert cross["description"].endswith("No figure in this PDF appears in more than one table.")
+
+
+def test_scanned_pdf_runs_eight_checks_and_still_counts_every_figure():
+    from tests.test_checks import META
+    from app.extraction.pdf import page_kinds
+    from app.extraction.schema_builder import extract
+    import pymupdf
+    data = (CORPUS / "acme_q2fy26_results_scanned.pdf").read_bytes()
+    assert page_kinds(pymupdf.open(stream=data, filetype="pdf")) == (False, True)
+    assert validation.checks_for(False, True) == {"total": 9, "max_per_figure": 8, "scanned": "all"}
+    assert validation.checks_for(True, True)["max_per_figure"] == 9
+    schema, artifact = extract(data, META)
+    _, summary = validation.run_all(schema, data, artifact, None, threshold=0.95)
+    agents = {a["key"]: a for a in summary["agents"]}
+    assert agents["second_parser"]["ran"] is False and agents["second_parser"]["checked"] == 0
+    assert sum(summary["consensus"].values()) == summary["figures_checked"]
+
+
 # ------------------------------------------------------------------ report page
 
 
