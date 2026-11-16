@@ -24,7 +24,7 @@ from functools import lru_cache
 
 import pymupdf
 
-from app.extraction.dates import MONTHS, parse_date
+from app.extraction.dates import MONTHS, FiscalYearError, end_year, fiscal_year_of, parse_date, parse_fiscal_year
 from app.extraction.tokens import CURRENCY_CODES, UNIT_CANON
 
 # --- formats ---------------------------------------------------------------------------------
@@ -61,6 +61,13 @@ _DOC_TITLE = re.compile(r"investor presentation|earnings presentation|\bresults\
 # "Q2 FY26", "Q2FY27", "Q2 F26" (FY written F), "H1 FY2026", "Q3 2025" (a calendar-year label)
 _PERIOD_TOKEN = re.compile(r"\b(Q[1-4]|H[12]|9M)\s?[-'’]?\s?((?:FY|F)\s?'?\d{2,4}(?:\s?[-/]\s?\d{2,4})?|(?:19|20)\d{2})\b",
                            re.I)
+# The same with the number first, as US reports write it: "3Q25", "2Q 2025", "4QFY26"
+_PERIOD_TOKEN_US = re.compile(r"\b([1-4])Q\s?((?:FY|F)\s?'?\d{2,4}|(?:19|20)\d{2}|'?\d{2})\b", re.I)
+# German and Japanese reports: "3. Quartal 2025", "1. Halbjahr 2025"; "2026年3月期 第2四半期" (the
+# fiscal year ending March 2026, second quarter), and "2026年3月期" alone, a stated fiscal year
+_PERIOD_TOKEN_DE = re.compile(r"\b([1-4])\.\s?(Quartal|Halbjahr)\s+((?:19|20)\d{2})\b", re.I)
+_PERIOD_TOKEN_JA = re.compile(r"((?:19|20)\d{2})年\s?\d{1,2}月期\s?第\s?([1-4])\s?四半期")
+_FY_JA = re.compile(r"((?:19|20)\d{2})年\s?\d{1,2}月期")
 _SPAN = r"quarter|three months|half\s?-?\s?year|six months|nine months|year"
 # "quarter ended 30 September 2025", "Quarter and Half - year ended September 30, 2025"
 _ENDED = re.compile(rf"({_SPAN})(?:\s+and\s+(?:{_SPAN}))?\s+ended\s+(?:on\s+)?"
@@ -93,20 +100,23 @@ def _fiscal(d: date, start_month: int) -> tuple[int, int]:
     return (d.year + 1 if d.month >= start_month else d.year), ((d.month - start_month) % 12) // 3 + 1
 
 
-def _end_year(start: str, end: str | None) -> int:
-    """'2025', '26' -> 2026; '2024', '2025' -> 2025; '2025', None -> 2025."""
-    s = int(start)
-    if not end:
-        return s
-    return int(end) if len(end) == 4 else s // 100 * 100 + int(end)
+# The year a fiscal year ends, as everywhere else (app.extraction.dates): '2025', '26' -> 2026;
+# '26', '2025-26' -> 2026.
+_end_year = end_year
+_fy_label = fiscal_year_of
 
 
-def _fy_label(s: str) -> int:
-    """'26' -> 2026, '2025' -> 2025, '2025-26' -> 2026."""
-    s = re.sub(r"\s", "", s).lstrip("'’")
-    if m := re.fullmatch(r"(\d{4})[-–/](\d{2,4})", s):
-        return _end_year(m.group(1), m.group(2))
-    return int(s) if len(s) == 4 else 2000 + int(s)
+def _year_label(raw: str | None, prefixed: bool) -> str | None:
+    """How the PDF writes a year, for the upload form: 'FY 2025-26' -> 'FY2025-26', 'F26' ->
+    'FY26', '2025-26' -> '2025-26'. A bare year ('2025', '25') gives nothing: the form shows
+    the year itself."""
+    if not raw:
+        return None
+    s = re.sub(r"\s", "", raw).replace("’", "'")
+    s = re.sub(r"^F\.?Y?\.?", "", s, flags=re.I) if prefixed else s
+    if not prefixed and not re.search(r"[-–/]", s):
+        return None
+    return f"FY{s}" if prefixed else s
 
 
 @lru_cache(maxsize=1024)
@@ -540,23 +550,50 @@ def _fy_start(text: str, currency: str | None) -> int:
     return 4 if currency == "INR" else 1
 
 
-def _period(texts: list[str], text: str, cover: str, fy_start: int,
-            dated_period: bool = True) -> tuple[int | None, str | None, str]:
-    """(fiscal year, period, confidence), strongest evidence first; nothing the PDF doesn't say
-    or plainly imply. A cover date is read in the report's own fiscal calendar, and gives a
-    quarter only for a results deck or presentation (`dated_period`): a broker note or an ESG
-    report dated in April isn't a Q1 report."""
-    def token(pm: re.Match) -> tuple[str, int, int]:
-        kind = pm.group(1).upper()
-        return kind[0], int(kind[1]) if kind[0] in "QH" else 0, _fy_label(re.sub(r"^F[Yy]?", "", pm.group(2)))
+def _period_tokens(s: str) -> list[tuple[tuple[str, int, int], str | None]]:
+    """Every period label in the text as ((kind, number, fiscal year), how it writes the year):
+    'Q2 FY27' -> (('Q', 2, 2027), 'FY27'); '3Q25' -> (('Q', 3, 2025), None);
+    '9M FY26' -> (('9', 0, 2026), 'FY26'); '3. Quartal 2025' -> (('Q', 3, 2025), None)."""
+    out = []
+    for pm in _PERIOD_TOKEN.finditer(s):
+        kind, year = pm.group(1).upper(), pm.group(2)
+        prefixed = bool(re.match(r"F", year, re.I))
+        out.append(((kind[0], int(kind[1]) if kind[0] in "QH" else 0, _fy_label(re.sub(r"^F[Yy]?", "", year))),
+                    _year_label(year, prefixed)))
+    for pm in _PERIOD_TOKEN_US.finditer(s):
+        year = pm.group(2)
+        prefixed = bool(re.match(r"F", year, re.I))
+        out.append((("Q", int(pm.group(1)), _fy_label(re.sub(r"^F[Yy]?", "", year))), _year_label(year, prefixed)))
+    for pm in _PERIOD_TOKEN_DE.finditer(s):
+        out.append(((pm.group(2)[0].upper(), int(pm.group(1)), int(pm.group(3))), None))
+    for pm in _PERIOD_TOKEN_JA.finditer(s):
+        out.append((("Q", int(pm.group(2)), int(pm.group(1))), f"FY{pm.group(1)}"))
+    return [(k, lab) for k, lab in out if k[0] != "H" or k[1] <= 2]
 
-    tokens = Counter(token(pm) for pm in _PERIOD_TOKEN.finditer(text + " " + cover))
-    if tokens:                             # "Q2 FY27": the latest year shown (a deck compares with last year's)
-        latest = max(fy for _, _, fy in tokens)
-        (kind, num, fy), _ = max(((k, n) for k, n in tokens.items() if k[2] == latest), key=lambda kv: kv[1])
-        label = {"Q": f"q{num}", "H": f"h{num}", "9": "9m"}[kind]
-        sure = tokens.most_common(1)[0][0] == (kind, num, fy) or (kind, num, fy) in {token(pm) for pm in _PERIOD_TOKEN.finditer(cover)}
-        return fy, label, "high" if sure else "medium"
+
+def _period(texts: list[str], text: str, cover: str, fy_start: int,
+            dated_period: bool = True) -> tuple[int | None, str | None, str, str | None]:
+    """(fiscal year, period, confidence, how the PDF writes the year), strongest evidence
+    first; nothing the PDF doesn't say or plainly imply. A cover date is read in the report's
+    own fiscal calendar, and gives a quarter only for a results deck or presentation
+    (`dated_period`): a broker note or an ESG report dated in April isn't a Q1 report. A year
+    worked out from a date is written FY<year>, so the form says which fiscal year it means."""
+    full_width = str.maketrans("０１２３４５６７８９", "0123456789")      # Japanese reports: "2026年３月期"
+    texts, text, cover = [t.translate(full_width) for t in texts], text.translate(full_width), cover.translate(full_width)
+    found = _period_tokens(text + " " + cover)
+    on_cover = _period_tokens(cover)
+    tokens = Counter(k for k, _ in found)
+    if tokens:
+        # The period the cover names ("3Q25 Financial Results"), else the latest year shown (a
+        # deck compares with last quarter and last year), then the one used most.
+        pool = Counter(k for k, _ in on_cover) or tokens
+        latest = max(fy for _, _, fy in pool)
+        (kind, num, fy), _ = max(((k, n) for k, n in pool.items() if k[2] == latest), key=lambda kv: kv[1])
+        period = {"Q": f"q{num}", "H": f"h{num}", "9": "9m"}[kind]
+        sure = tokens.most_common(1)[0][0] == (kind, num, fy) or any(k == (kind, num, fy) for k, _ in on_cover)
+        labels = Counter(lab for k, lab in (on_cover or found) if k == (kind, num, fy) and lab) \
+            or Counter(lab for k, lab in found if k == (kind, num, fy) and lab)
+        return fy, period, "high" if sure else "medium", labels.most_common(1)[0][0] if labels else None
 
     def ended(page_texts: list[str]) -> tuple[int, str] | None:
         found = []
@@ -572,36 +609,48 @@ def _period(texts: list[str], text: str, cover: str, fy_start: int,
         return fy, ("fy" if what == "year" else "9m" if "nine" in what else
                     f"h{1 if q <= 2 else 2}" if ("half" in what or "six" in what) else f"q{q}")
 
+    def annual(m: re.Match) -> tuple[int, str | None]:           # "Integrated Annual Report 2025-26"
+        prefixed = bool(re.search(r"FY\s?" + re.escape(m.group(1)), m.group(0), re.I))
+        raw = m.group(1) + (f"-{m.group(2)}" if m.group(2) else "")
+        return _end_year(m.group(1), m.group(2)), _year_label(raw, prefixed)
+
     if e := ended([cover]):                                           # "quarter ended 30 September 2026" on the cover
-        return e[0], e[1], "medium"
+        return e[0], e[1], "medium", f"FY{e[0]}"
     if m := _ANNUAL_YEAR.search(texts[0] if texts else ""):           # "Integrated Annual Report 2025-26" on page 1
-        return _end_year(m.group(1), m.group(2)), "fy", "medium"
+        fy, label = annual(m)
+        return fy, "fy", "medium", label
     for scope in (cover, text):                                       # "Covering fiscal year 2025", "Fiscal Results 2025-26"
         stated = []
         for m in _FY_PHRASE.finditer(scope):
             a, b = next((m.group(x), m.group(y)) for x, y in (("a", "b"), ("c", "d"), ("e", "f")) if m.group(x))
             # "fiscal year 2025" is the full year; a bare "FY2024" only gives the year
-            stated.append((_end_year(a, b), None if m.group("e") else "fy"))
+            stated.append((_end_year(a, b), None if m.group("e") else "fy", _year_label(a + (f"-{b}" if b else ""), True)))
+        for m in _FY_JA.finditer(scope):                              # "2026年3月期": the fiscal year ending March 2026
+            stated.append((int(m.group(1)), None, f"FY{m.group(1)}"))
         if stated:                                                    # the latest: older ones are history
-            fy, label = max(stated, key=lambda s: s[0])
-            return fy, label, "medium"
+            fy, label, written = max(stated, key=lambda s: s[0])
+            return fy, label, "medium", written
     if m := _ANNUAL_YEAR.search(cover):
-        return _end_year(m.group(1), m.group(2)), "fy", "medium"
+        fy, label = annual(m)
+        return fy, "fy", "medium", label
     for m in _COVER_DATE.finditer(cover):                            # the date on the cover: 12 Dec 2023 -> Q3 FY2024
         day, mon, year = (m.group(1), m.group(2), m.group(3)) if m.group(1) else (m.group(5), m.group(4), m.group(6))
         d = parse_date(f"{day} {mon.rstrip('.')} {year}")
         if d and d.precision == "day":
             fy, q = _fiscal(date.fromisoformat(d.iso), fy_start)
-            return fy, f"q{q}" if dated_period else None, "low"
+            return fy, f"q{q}" if dated_period else None, "low", f"FY{fy}"
     if e := ended(texts):                                             # may be boilerplate about another filing
-        return e[0], e[1], "medium"
-    fys = Counter(_fy_label(x) for x in _FY_LABEL.findall(text))
+        return e[0], e[1], "medium", f"FY{e[0]}"
+    labels = _FY_LABEL.findall(text)
+    fys = Counter(_fy_label(x) for x in labels)
     if fys:                                                           # chart labels: most used, ties to the latest;
-        return max(fys.items(), key=lambda kv: (kv[1], kv[0]))[0], None, "low"   # they don't say which period
+        fy = max(fys.items(), key=lambda kv: (kv[1], kv[0]))[0]      # they don't say which period
+        written = Counter(_year_label(x, True) for x in labels if _fy_label(x) == fy)
+        return fy, None, "low", written.most_common(1)[0][0]
     years = Counter(int(y) for y in _YEAR.findall(cover))
     if years:                                                         # "Investor Day 2025"
-        return max(years.items(), key=lambda kv: (kv[1], kv[0]))[0], None, "low"
-    return None, None, "low"
+        return max(years.items(), key=lambda kv: (kv[1], kv[0]))[0], None, "low", None
+    return None, None, "low", None
 
 
 # --- the whole thing -------------------------------------------------------------------------
@@ -706,15 +755,23 @@ def detect_metadata(pdf_bytes: bytes, max_pages: int = 6, filename: str | None =
         out["reporting_unit"], out["confidence"]["reporting_unit"] = f"{symbol} {unit[0]}".strip(), unit[1]
 
     # --- period and fiscal year
-    fy, period, conf = _period(flat[:max_pages], text, cover_text, _fy_start(wide, cur and cur[0]),
-                               dated_period=kind in ("investor_presentation", "quarterly_results"))
+    fy, period, conf, written = _period(flat[:max_pages], text, cover_text, _fy_start(wide, cur and cur[0]),
+                                        dated_period=kind in ("investor_presentation", "quarterly_results"))
     if out.get("report_type") == "annual_report":
         period = "fy"
         if fy is None and (ym := _ANNUAL_YEAR.search(text)):          # "Report and Accounts 2026"
             fy, conf = _end_year(ym.group(1), ym.group(2)), "medium"
+            written = _year_label(ym.group(1) + (f"-{ym.group(2)}" if ym.group(2) else ""), False)
     if fy is not None:
         out["fiscal_year"] = fy
         out["confidence"]["fiscal_year"] = conf
+        # The form shows the year as the PDF writes it ("FY2025-26", "FY26"), when that reads
+        # back as the same year; otherwise the year itself.
+        try:
+            if written and (read := parse_fiscal_year(written)).year == fy:
+                out["fiscal_year_label"] = read.label
+        except FiscalYearError:
+            pass
     if period is not None:
         out["period"] = period
         out["confidence"]["period"] = conf
