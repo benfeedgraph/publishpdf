@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, defer
 
 from app import audit, jobs, storage
@@ -318,6 +318,28 @@ def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, for
 
 def latest_run_no(s: Session, vid: uuid.UUID) -> int:
     return s.scalar(select(func.max(ValidationIssue.run_no)).where(ValidationIssue.version_id == vid)) or 0
+
+
+# The ids of the figures still in a version's document, without loading the document.
+_ACTIVE_FIDS = text("""
+    SELECT coalesce(array_agg(f.key), '{}') AS fids
+    FROM report_versions v, jsonb_each(coalesce(v.schema_json -> 'figures', '{}'::jsonb)) AS f(key, value)
+    WHERE v.id = :id AND coalesce(f.value ->> 'status', 'active') = 'active'
+""")
+
+
+def figure_states(s: Session, v: ReportVersion) -> dict | None:
+    """Step 1's numbers for a version as it is now (see `validation.figure_states`): one status
+    per figure that adds up to the figures in the document, the items not about one figure,
+    and each check card's open results. None until the first check has finished."""
+    from app import validation
+    if "figures_checked" not in (v.validation_summary or {}):
+        return None
+    run = latest_run_no(s, v.id)
+    rows = s.execute(select(ValidationIssue.fid, ValidationIssue.check_name, ValidationIssue.severity).where(
+        ValidationIssue.version_id == v.id, ValidationIssue.run_no == run, ValidationIssue.status == "open")).all()
+    active = set(s.execute(_ACTIVE_FIDS, {"id": v.id}).scalar_one())
+    return validation.figure_states(active, [(r.fid, r.check_name, r.severity) for r in rows])
 
 
 def open_blocking(s: Session, vid: uuid.UUID) -> int:

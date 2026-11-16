@@ -108,6 +108,12 @@ export interface Version {
 export interface VersionDetail extends Version {
   jobs: Job[];
   open_blocking: number;
+  /** Step 1's numbers, all worked out from the items open now (absent on an older API, null
+   *  before the first check): one status per figure, so passed + need_attention + notes =
+   *  figures; the items that aren't about one figure; and to_decide, what is left to decide
+   *  (one per flagged figure plus one per other blocking item, as the review list groups them). */
+  headline?: { figures: number; passed: number; need_attention: number; notes: number;
+               other_need_attention: number; other_notes: number; to_decide: number } | null;
   page_count: number | null;
   pages: { page: number; width: number; height: number; method: "text_layer" | "ocr"; method_reason?: string }[];
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];
@@ -198,6 +204,10 @@ export interface Issue {
   resolution: string | null;
   figure: Partial<Figure> | null;
 }
+
+/** How many decisions are left before publishing: one per flagged figure, however many checks
+ *  flagged it, plus one per other blocking item. */
+export const toDecide = (v: Pick<VersionDetail, "headline" | "open_blocking">) => v.headline?.to_decide ?? v.open_blocking;
 
 export const CHECK_LABEL: Record<string, string> = {
   traceability: "Source traceability",

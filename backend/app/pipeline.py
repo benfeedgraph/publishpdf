@@ -307,7 +307,10 @@ def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
             r.status, r.resolution = i.status, i.resolution
         if (r.severity, r.message) != (i.severity, i.message):
             r.severity, r.message = i.severity, i.message
-    summary = {**validation.summarize(v.schema_json, found), "agents": prev.get("agents"),
+    # The checks' own results (what each confirmed, the agent bar) are unchanged; what is still
+    # open on each check card is not, after the decisions just applied.
+    summary = {**validation.summarize(v.schema_json, found),
+               "agents": validation.with_open_counts(prev.get("agents"), validation.figure_states_of(v.schema_json, found)["by_check"]),
                "consensus": prev.get("consensus"), "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha}
     v.validation_summary = summary
     v.validated_schema_sha256, v.validated_bundle_sha256 = v.schema_sha256, bsha
@@ -341,7 +344,9 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
     validation.apply_reviews(issues, schema)
     ai_check.apply_confirmations(issues, schema)
-    summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"],
+    summary = {**validation.summarize(schema, issues),
+               "agents": validation.with_open_counts(summary["agents"], validation.figure_states_of(schema, issues)["by_check"]),
+               "consensus": summary["consensus"],
                "checked_content_sha": validation.checked_content_sha(schema), "bundle_sha": bsha}
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)

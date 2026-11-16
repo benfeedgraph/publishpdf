@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type React from "react";
-import { api, post, useTenantRole, type Report, type VersionDetail } from "../../api";
+import { api, post, toDecide, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import { IconAlert, IconCheck, IconSparkle } from "../../components/Icons";
 import { Button, Spinner } from "../../components/Spinner";
@@ -96,9 +96,12 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   const cons = s?.consensus;
   const consTotal = cons ? Object.values(cons).reduce((a, b) => a + b, 0) : 0;
 
+  // What is left to decide (one per flagged figure) and the headline (one status per figure,
+  // adding up to the figures extracted), from the same open items; older API: the old counts.
+  const open = toDecide(version);
+  const h = version.headline;
   // Same rule as the stepper: the step is done once the version is out of processing,
   // failed and validation_issues.
-  const open = version.open_blocking;
   const toReview = () => document.getElementById("review-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const mustReview = !processing && version.status !== "failed" && open > 0;
   // While figures wait for a decision, the one next action is to go and decide them.
@@ -153,11 +156,11 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
               cards) is from the previous run. All of them wait for the new run together, so
               none of them disagrees with the others or with the list below. */}
           <div className={`stat-row ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
-            <div className="stat"><span className="stat-n">{processing ? "…" : (s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
-            <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
-            <div className="stat"><span className={`stat-n ${!processing && open ? "error" : ""}`}>{processing ? "…" : open}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
+            <div className="stat"><span className="stat-n">{processing ? "…" : (h?.figures ?? s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
+            <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (h?.passed ?? s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
+            <div className="stat"><span className={`stat-n ${!processing && (h?.need_attention ?? open) ? "error" : ""}`}>{processing ? "…" : (h?.need_attention ?? open)}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
             <div className="stat" title="Things we noticed that don't stop publishing. You don't need to do anything about them.">
-              <span className="stat-n muted">{processing ? "…" : s.warnings}</span><span className="stat-l">notes · no action needed</span>
+              <span className="stat-n muted">{processing ? "…" : (h?.notes ?? s.warnings)}</span><span className="stat-l">notes · no action needed</span>
             </div>
           </div>
 

@@ -1218,6 +1218,61 @@ def _consensus(schema: dict, verified: dict[str, set[str]]) -> dict:
     return counts
 
 
+def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str, str]]) -> dict[str, Any]:
+    """Step 1's numbers, all from one place: the items still open in the latest run, as they are
+    now (a person's decision counts at once), and the figures still in the document.
+
+    Each figure gets exactly one status: `need_attention` if any open item on it blocks,
+    else `notes` if it only has open notes, else `passed` (a figure a person confirmed has no
+    open items left, so it passes). The three add up to `figures`, however many checks
+    flagged one figure.
+
+    Items that aren't about a figure still in the document (a table's unit label, a page's
+    number count, the web page, a flag on something marked "not a figure") are counted on
+    their own, one per figure or item, as the review list shows them: `other_need_attention`
+    and `other_notes`. `to_decide` is what the review list holds that blocks publishing:
+    one per figure plus one per other item.
+
+    `by_check` is each check's own open results (blocking / warnings), for the check cards.
+    One figure flagged by two checks is one result on each card, so the cards count results,
+    not figures.
+
+    `open_items`: (fid, check, severity) of every open item in the latest run."""
+    blocking: set[str] = set()
+    noted: set[str] = set()
+    other_blocking: set[Any] = set()
+    other_noted: set[Any] = set()
+    by_check: dict[str, dict[str, int]] = {}
+    for n, (fid, check, severity) in enumerate(open_items):
+        c = by_check.setdefault(check, {"blocking": 0, "warnings": 0})
+        c["blocking" if severity == "blocking" else "warnings"] += 1
+        if fid and fid in active_fids:
+            (blocking if severity == "blocking" else noted).add(fid)
+        else:                                   # no figure, or one no longer in the document
+            key = ("fig", fid) if fid else ("item", n)
+            (other_blocking if severity == "blocking" else other_noted).add(key)
+    noted -= blocking
+    other_noted -= other_blocking
+    return {"figures": len(active_fids), "passed": len(active_fids) - len(blocking) - len(noted),
+            "need_attention": len(blocking), "notes": len(noted),
+            "other_need_attention": len(other_blocking), "other_notes": len(other_noted),
+            "to_decide": len(blocking) + len(other_blocking), "by_check": by_check}
+
+
+def with_open_counts(agents: list[dict] | None, by_check: dict[str, dict[str, int]]) -> list[dict] | None:
+    """The check cards with each one's blocking / warning counts taken from the items open
+    now, so a card never still counts something a person has already decided."""
+    if agents is None:
+        return None
+    return [{**a, **by_check.get(a["key"], {"blocking": 0, "warnings": 0})} for a in agents]
+
+
+def figure_states_of(schema: dict, issues: list[Issue]) -> dict[str, Any]:
+    """`figure_states` for a run's findings in memory (the pipeline, right after the checks)."""
+    return figure_states({f["id"] for f in _active(schema)},
+                         [(i.fid, i.check, i.severity) for i in issues if i.status == "open"])
+
+
 def issue_key(check: str, page: int | None, bbox: list | None, message: str) -> str:
     import hashlib
     import json
