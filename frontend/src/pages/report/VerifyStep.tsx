@@ -99,6 +99,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   // Same rule as the stepper: the step is done once the version is out of processing,
   // failed and validation_issues.
   const open = version.open_blocking;
+  // One status per figure (they add up to the figures extracted); older API: the old counts.
+  const h = version.headline;
+  // "Every figure matches the PDF" only when every figure was confirmed by a check or a person.
+  const allConfirmed = s?.not_confirmed === 0 || (s?.not_confirmed == null && consTotal === (s?.figures_checked ?? 0));
   const toReview = () => document.getElementById("review-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const mustReview = !processing && version.status !== "failed" && open > 0;
   // While figures wait for a decision, the one next action is to go and decide them.
@@ -153,12 +157,19 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
               show a count that disagrees with the list below. */}
           <div className={`stat-row ${processing ? "is-stale" : ""}`} aria-busy={processing || undefined}>
             <div className="stat"><span className="stat-n">{(s.figures_checked ?? 0).toLocaleString()}</span><span className="stat-l">figures extracted</span></div>
-            <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
-            <div className="stat"><span className={`stat-n ${!processing && open ? "error" : ""}`}>{processing ? "…" : open}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
+            <div className="stat"><span className="stat-n ok-text">{processing ? "…" : (h?.passed ?? s.passed ?? 0).toLocaleString()}</span><span className="stat-l">passed every check</span></div>
+            <div className="stat"><span className={`stat-n ${!processing && (h?.need_attention ?? open) ? "error" : ""}`}>{processing ? "…" : (h?.need_attention ?? open).toLocaleString()}</span><span className="stat-l">{processing ? "need your attention · updating" : "need your attention"}</span></div>
             <div className="stat" title="Things we noticed that don't stop publishing. You don't need to do anything about them.">
-              <span className="stat-n muted">{processing ? "…" : s.warnings}</span><span className="stat-l">notes · no action needed</span>
+              <span className="stat-n muted">{processing ? "…" : (h?.notes ?? s.warnings).toLocaleString()}</span><span className="stat-l">{h ? "have notes · no action needed" : "notes · no action needed"}</span>
             </div>
           </div>
+          {!processing && h && (h.other_need_attention > 0 || h.other_notes > 0) && (
+            <p className="muted small" style={{ margin: "-4px 0 0" }}>
+              Not in the figure counts above, because they're about a page, a table or the web page rather than one figure:{" "}
+              {[h.other_need_attention > 0 && `${h.other_need_attention.toLocaleString()} item${h.other_need_attention === 1 ? "" : "s"} that need${h.other_need_attention === 1 ? "s" : ""} attention`,
+                h.other_notes > 0 && `${h.other_notes.toLocaleString()} note${h.other_notes === 1 ? "" : "s"} (no action needed)`].filter(Boolean).join(" and ")}.
+            </p>
+          )}
 
           {!processing && open > 0 && (
             <div className="callout bad next-step" role="status">
@@ -171,7 +182,10 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           )}
           {!processing && open === 0 && s.blocking === 0 && (
             <div className="callout ok next-step" role="status">
-              <div><strong>All checks passed.</strong> Every figure matches the PDF. Next, choose how the page should look.</div>
+              <div><strong>{allConfirmed ? "All checks passed." : "Nothing left to decide."}</strong>{" "}
+                {allConfirmed ? "Every figure matches the PDF."
+                  : s.not_confirmed ? `${s.not_confirmed.toLocaleString()} figure${s.not_confirmed === 1 ? " wasn't" : "s weren't"} confirmed by any check or by you — look at ${s.not_confirmed === 1 ? "it" : "them"} before publishing.` : ""}
+                {" "}Next, choose how the page should look.</div>
               <Button className="primary" onClick={onContinue}>Next: Design →</Button>
             </div>
           )}
@@ -238,7 +252,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           <Button className="link" busy={rerun.isPending} busyLabel="Restarting the checks" onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</Button>
         </p>
       )}
-      <WizardFooter next={next} hint={mustReview ? `Decide the ${open} flagged item${open === 1 ? "" : "s"}; Design unlocks once none are left.` : "Every figure is checked. Next, choose how the page should look."} />
+      <WizardFooter next={next} hint={mustReview ? `Decide the ${open} flagged item${open === 1 ? "" : "s"}; Design unlocks once none are left.` : allConfirmed ? "Every figure is checked. Next, choose how the page should look." : "Next, choose how the page should look."} />
     </div>
   );
 }

@@ -38,6 +38,7 @@ from app.reports import (
     latest_run_no,
     latest_versions,
     new_draft_from,
+    headline,
     open_blocking,
     publish,
     report_status,
@@ -409,6 +410,7 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out = version_json(v, live_id=r.live_version_id)
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
+        out["headline"] = headline(s, v)
         out["page_count"] = page_count
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
