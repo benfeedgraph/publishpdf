@@ -110,10 +110,12 @@ export interface VersionDetail extends Version {
   open_blocking: number;
   /** Step 1's numbers, all worked out from the items open now (absent on an older API, null
    *  before the first check): one status per figure, so passed + need_attention + notes =
-   *  figures; the items that aren't about one figure; and to_decide, what is left to decide
-   *  (one per flagged figure plus one per other blocking item, as the review list groups them). */
+   *  figures; the items that aren't about one figure; to_decide, what is left to decide
+   *  (one per flagged figure plus one per other blocking item, as the review list groups them);
+   *  and not_confirmed, the figures no check and no person confirmed (null: not recorded). */
   headline?: { figures: number; passed: number; need_attention: number; notes: number;
-               other_need_attention: number; other_notes: number; to_decide: number } | null;
+               other_need_attention: number; other_notes: number; to_decide: number;
+               not_confirmed: number | null } | null;
   page_count: number | null;
   pages: { page: number; width: number; height: number; method: "text_layer" | "ocr"; method_reason?: string }[];
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];

@@ -15,6 +15,7 @@ import pytest
 
 from app import validation
 from app.validation import Issue
+from tests.test_checks import clean
 from tests.test_pipeline_e2e import CORPUS, META, _version, admin_client, drain  # noqa: F401 (fixture)
 
 NOT_BULK = ("rendered_page", "schema", "reviewer_flag")
@@ -67,6 +68,23 @@ def test_states_of_a_run_skip_what_people_already_decided():
     assert (s["figures"], s["passed"], s["need_attention"], s["notes"], s["other_need_attention"]) == (2, 1, 0, 1, 1)
 
 
+def test_not_confirmed_counts_figures_no_check_and_no_person_confirmed():
+    s = validation.figure_states({"f1", "f2", "f3"}, [], unconfirmed=["f1", "f2", "gone"], person_confirmed={"f2"})
+    assert s["not_confirmed"] == 1                   # f2: a person confirmed it; "gone": no longer a figure
+    assert validation.figure_states({"f1"}, [])["not_confirmed"] is None    # a run that didn't record it
+
+
+def test_a_run_records_the_figures_no_check_confirmed():
+    data, schema, artifact = clean()
+    f = next(f for f in schema["figures"].values() if f["kind"] not in validation.REEXTRACT_KINDS)
+    f["edited"] = True                                 # the trace and the second parser skip it now
+    _, summary = validation.run_all(schema, data, artifact, None, threshold=0.95)
+    assert summary["unconfirmed_fids"] == [f["id"]]
+    assert summary["consensus"]["0"] == 1
+    f["review"] = {"action": "confirm", "raw": f["raw"]}
+    assert validation.reviewer_confirmed(f)
+
+
 # ------------------------------------------------------------------ end to end, through the API
 
 
@@ -105,9 +123,14 @@ def _check_counts(client, t, rid, vid, when: str) -> dict:
         mine = [i for i in items if i["check"] == a["key"]]
         assert (a["blocking"], a["warnings"]) == (sum(1 for i in mine if i["severity"] == "blocking"),
                                                   sum(1 for i in mine if i["severity"] == "warning")), (where, a)
+    assert "unconfirmed_fids" not in s, where         # only the count goes out
     if v["status"] != "processing":                  # the run's own numbers: only final once it's done
         assert h["figures"] == s["figures_checked"], where
         assert sum(s["consensus"].values()) == h["figures"], where
+        # nobody confirmed these: never more than the bar's "not confirmed", fewer once people confirm
+        confirmed = {k for k, f in figures.items() if validation.reviewer_confirmed(f)}
+        assert h["not_confirmed"] is not None and h["not_confirmed"] <= s["consensus"]["0"], where
+        assert h["not_confirmed"] >= s["consensus"]["0"] - len(confirmed & active), where
     return {"v": v, "items": items}
 
 

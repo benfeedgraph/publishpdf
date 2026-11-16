@@ -1155,6 +1155,10 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
+    # The figures no check confirmed (the bar's "not confirmed"), so Step 1 only says "every
+    # figure matches the PDF" once a person has confirmed each of these too.
+    summary["unconfirmed_fids"] = sorted(f["id"] for f in _active(schema)
+                                         if not any(f["id"] in verified.get(k, ()) for k in CONFIRMING_AGENTS))
     return issues, summary
 
 
@@ -1218,7 +1222,8 @@ def _consensus(schema: dict, verified: dict[str, set[str]]) -> dict:
     return counts
 
 
-def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str, str]]) -> dict[str, Any]:
+def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str, str]],
+                  unconfirmed: list[str] | None = None, person_confirmed: set[str] = frozenset()) -> dict[str, Any]:
     """Step 1's numbers, all from one place: the items still open in the latest run, as they are
     now (a person's decision counts at once), and the figures still in the document.
 
@@ -1236,6 +1241,10 @@ def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str,
     `by_check` is each check's own open results (blocking / warnings), for the check cards.
     One figure flagged by two checks is one result on each card, so the cards count results,
     not figures.
+
+    `not_confirmed` is how many figures still in the document no check confirmed (`unconfirmed`,
+    from the run) and no person has confirmed either (`person_confirmed`): "every figure matches
+    the PDF" is only true when it is 0 (None when the run didn't record it).
 
     `open_items`: (fid, check, severity) of every open item in the latest run."""
     blocking: set[str] = set()
@@ -1256,7 +1265,10 @@ def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str,
     return {"figures": len(active_fids), "passed": len(active_fids) - len(blocking) - len(noted),
             "need_attention": len(blocking), "notes": len(noted),
             "other_need_attention": len(other_blocking), "other_notes": len(other_noted),
-            "to_decide": len(blocking) + len(other_blocking), "by_check": by_check}
+            "to_decide": len(blocking) + len(other_blocking),
+            "not_confirmed": None if unconfirmed is None else
+            sum(1 for fid in unconfirmed if fid in active_fids and fid not in person_confirmed),
+            "by_check": by_check}
 
 
 def with_open_counts(agents: list[dict] | None, by_check: dict[str, dict[str, int]]) -> list[dict] | None:
@@ -1336,9 +1348,14 @@ def apply_reviews(issues: list[Issue], schema: dict) -> None:
                 i.status, i.resolution = "resolved", "acknowledged"
             continue
         f = schema["figures"].get(i.fid)
-        rv = f.get("review") if f else None
-        if rv and rv.get("action") == "confirm" and rv.get("raw") == f["raw"]:
+        if f and reviewer_confirmed(f):
             i.status, i.resolution = "resolved", "confirmed"
+
+
+def reviewer_confirmed(f: dict) -> bool:
+    """A person confirmed (or corrected) this figure at its current value."""
+    rv = f.get("review") or {}
+    return rv.get("action") == "confirm" and rv.get("raw") == f.get("raw")
 
 
 def summarize(schema: dict, issues: list[Issue]) -> dict[str, Any]:

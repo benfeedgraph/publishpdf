@@ -77,12 +77,18 @@ def _get_version(s, report_id: uuid.UUID, version_id: uuid.UUID) -> ReportVersio
     return v
 
 
+def public_summary(summary: dict | None) -> dict | None:
+    """The validation summary as the API shows it: without the run's list of figure ids that
+    no check confirmed (the version's headline says how many of them are still unconfirmed)."""
+    return None if summary is None else {k: val for k, val in summary.items() if k != "unconfirmed_fids"}
+
+
 def version_json(v: ReportVersion, *, live_id: uuid.UUID | None = None) -> dict:
     return {"id": str(v.id), "version_no": v.version_no, "status": v.status, "stage": v.stage,
             "error": v.error_plain, "created_at": _iso(v.created_at), "published_at": _iso(v.published_at),
             "is_live": live_id == v.id, "source_sha256": v.source_sha256,
             "schema_sha256": v.schema_sha256, "bundle_sha256": v.bundle_sha256,
-            "validation": v.validation_summary, "created_from_version_id": str(v.created_from_version_id) if v.created_from_version_id else None,
+            "validation": public_summary(v.validation_summary), "created_from_version_id": str(v.created_from_version_id) if v.created_from_version_id else None,
             "theme_adjustments": (v.theme_snapshot or {}).get("contrast_adjustments"),
             "validated_current": bool(v.schema_sha256 and v.validated_schema_sha256 == v.schema_sha256
                                       and v.validated_bundle_sha256 == v.bundle_sha256)}
@@ -722,7 +728,7 @@ def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = 
                 q = q.where(col == val)
         issues = s.scalars(q.order_by(ValidationIssue.severity, ValidationIssue.page, ValidationIssue.check_name)).all()
         figures = (v.schema_json or {}).get("figures", {})
-        return {"run": run, "summary": v.validation_summary, "validated_current": version_json(v)["validated_current"],
+        return {"run": run, "summary": public_summary(v.validation_summary), "validated_current": version_json(v)["validated_current"],
                 "status": v.status, "issues": [issue_json(i, figures) for i in issues]}
 
 

@@ -320,9 +320,12 @@ def latest_run_no(s: Session, vid: uuid.UUID) -> int:
     return s.scalar(select(func.max(ValidationIssue.run_no)).where(ValidationIssue.version_id == vid)) or 0
 
 
-# The ids of the figures still in a version's document, without loading the document.
+# The ids of the figures still in a version's document, and of those a person confirmed at their
+# current value (validation.reviewer_confirmed), without loading the document.
 _ACTIVE_FIDS = text("""
-    SELECT coalesce(array_agg(f.key), '{}') AS fids
+    SELECT coalesce(array_agg(f.key), '{}') AS fids,
+           coalesce(array_agg(f.key) FILTER (WHERE f.value -> 'review' ->> 'action' = 'confirm'
+                                             AND f.value -> 'review' ->> 'raw' = f.value ->> 'raw'), '{}') AS confirmed
     FROM report_versions v, jsonb_each(coalesce(v.schema_json -> 'figures', '{}'::jsonb)) AS f(key, value)
     WHERE v.id = :id AND coalesce(f.value ->> 'status', 'active') = 'active'
 """)
@@ -331,15 +334,18 @@ _ACTIVE_FIDS = text("""
 def figure_states(s: Session, v: ReportVersion) -> dict | None:
     """Step 1's numbers for a version as it is now (see `validation.figure_states`): one status
     per figure that adds up to the figures in the document, the items not about one figure,
-    and each check card's open results. None until the first check has finished."""
+    how many figures nobody (no check, no person) confirmed, and each check card's open
+    results. None until the first check has finished."""
     from app import validation
-    if "figures_checked" not in (v.validation_summary or {}):
+    summary = v.validation_summary or {}
+    if "figures_checked" not in summary:
         return None
     run = latest_run_no(s, v.id)
     rows = s.execute(select(ValidationIssue.fid, ValidationIssue.check_name, ValidationIssue.severity).where(
         ValidationIssue.version_id == v.id, ValidationIssue.run_no == run, ValidationIssue.status == "open")).all()
-    active = set(s.execute(_ACTIVE_FIDS, {"id": v.id}).scalar_one())
-    return validation.figure_states(active, [(r.fid, r.check_name, r.severity) for r in rows])
+    figs = s.execute(_ACTIVE_FIDS, {"id": v.id}).one()
+    return validation.figure_states(set(figs.fids), [(r.fid, r.check_name, r.severity) for r in rows],
+                                    summary.get("unconfirmed_fids"), set(figs.confirmed))
 
 
 def open_blocking(s: Session, vid: uuid.UUID) -> int:
