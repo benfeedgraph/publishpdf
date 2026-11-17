@@ -167,13 +167,6 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
               <span className="stat-n muted">{processing ? "…" : (h?.notes ?? s.warnings)}</span><span className="stat-l">{h ? "have notes · no action needed" : "notes · no action needed"}</span>
             </div>
           </div>
-          {!processing && h && (h.other_need_attention > 0 || h.other_notes > 0) && (
-            <p className="muted small" style={{ margin: "-4px 0 0" }}>
-              Not in the figure counts above, because they're about a page, a table or the web page rather than one figure:{" "}
-              {[h.other_need_attention > 0 && `${h.other_need_attention.toLocaleString()} item${h.other_need_attention === 1 ? "" : "s"} that need${h.other_need_attention === 1 ? "s" : ""} attention`,
-                h.other_notes > 0 && `${h.other_notes.toLocaleString()} note${h.other_notes === 1 ? "" : "s"} (no action needed)`].filter(Boolean).join(" and ")}.
-            </p>
-          )}
 
           {!processing && open > 0 && (
             <div className="callout bad next-step" role="status">
