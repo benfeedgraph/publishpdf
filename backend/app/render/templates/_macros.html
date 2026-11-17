@@ -29,13 +29,17 @@
 <caption id="{{ b.id }}-cap">
   <span class="cap-title">{{ runs(section.heading, figures) or section_type_label(section.type) }}</span>
   {%- if b.caption %}<span class="cap-note">{{ runs(b.caption, figures) }}</span>{% endif %}
-  <span class="cap-meta">Unit: {{ unit_label(b.unit) }} · Currency: {{ b.currency }}{% if b.header_rows %} · Periods: {% for row in b.header_rows[-1:] %}{% for c in row %}{{ runs(c.runs, figures) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}{% endif %}</span>
+  {#- "Periods:" names the columns only when they are periods (FY2026, Q2, 2025); "Snacks,
+      Spices" are not, and nothing is said about them here. -#}
+  {%- set cols = b.columns or [] %}
+  {%- set periods_ok = cols and (cols|selectattr('period')|list) and not (cols|rejectattr('period')|rejectattr('change')|list) %}
+  <span class="cap-meta">Unit: {{ unit_label(b.unit) }} · Currency: {{ b.currency }}{% if b.header_rows and periods_ok %} · Periods: {% for row in b.header_rows[-1:] %}{% for c in row %}{{ runs(c.runs, figures) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}{% endif %}</span>
 </caption>
 <thead>
 {%- for row in b.header_rows %}
-<tr>{% if loop.first %}<th scope="col" rowspan="{{ b.header_rows|length }}"><span class="sr-only">Line item</span></th>{% endif %}{% for c in row %}<th scope="col"{% if c.colspan > 1 %} colspan="{{ c.colspan }}"{% endif %}>{{ runs(c.runs, figures) }}</th>{% endfor %}</tr>
+<tr>{% if loop.first %}<th scope="col" rowspan="{{ b.header_rows|length }}">{% if b.corner %}{{ runs(b.corner, figures) }}{% endif %}</th>{% endif %}{% for c in row %}<th scope="col"{% if c.colspan > 1 %} colspan="{{ c.colspan }}"{% endif %}>{{ runs(c.runs, figures) }}</th>{% endfor %}</tr>
 {%- endfor %}
-{%- if not b.header_rows %}<tr><th scope="col"><span class="sr-only">Line item</span></th>{% for col in b.columns %}<th scope="col"><span class="sr-only">Column</span></th>{% endfor %}</tr>{% endif %}
+{%- if not b.header_rows %}<tr><th scope="col">{% if b.corner %}{{ runs(b.corner, figures) }}{% endif %}</th>{% for col in b.columns %}<th scope="col"></th>{% endfor %}</tr>{% endif %}
 </thead>
 <tbody>
 {%- for row in b.rows %}

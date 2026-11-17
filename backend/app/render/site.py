@@ -1068,7 +1068,10 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             doclayout=doclayout, doc_order=story.document_order(schema, doclayout),
             heading_ids=story.heading_like(schema), index_links=index_links, crops=crops,
             graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
-            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og)
+            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og,
+            # a page shown as a picture carries its small charts' combined values under it
+            page_series={pg: [b for b in bl if b.get("series_table")] for pg, bl in page_blocks.items()
+                         if pg in picture_pages and any(b.get("series_table") for b in bl)})
         tmpl = _ENV.get_template("web.html")
         sections_by_id = {s["id"]: s for s in sections}
         # The intro lead and, on a true cover, the page-1 title section stay on the home page

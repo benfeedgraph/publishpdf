@@ -676,6 +676,16 @@ def check_period_unit(schema: dict, checked: set[str] | None = None) -> list[Iss
     mixed = {"crore", "lakh"} <= mentioned
     for sec in schema["sections"]:
         for blk in sec["blocks"]:
+            if blk["type"] == "chart" and blk.get("from_table"):
+                # Its columns couldn't be told apart, so no unit or period could be checked
+                # against them: say so, so a person can look at it on the page.
+                src = blk["source"]
+                issues.append(Issue("period_unit", "warning",
+                                    "This table's numbers don't line up in rows and columns, so the web page "
+                                    "shows it as it looks in the PDF instead of as a table. Each number is still "
+                                    "checked, but its period and unit couldn't be matched to a column.",
+                                    None, src["page"], sec["id"], src["bbox"]))
+                continue
             if blk["type"] != "table":
                 continue
             src = blk["source"]

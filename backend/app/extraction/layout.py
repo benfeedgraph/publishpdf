@@ -185,6 +185,8 @@ class TableEl:
     rows: list[tuple[list[Word], list[list[Word] | None]]]   # (label words, cells per column)
     caption_words: list[Word] = field(default_factory=list)
     kind: str = "table"
+    corner_words: list[Word] = field(default_factory=list)   # the PDF's own header over the row labels
+    unplaced: int = 0                        # numbers in the value columns that found no free cell
 
 
 @dataclass
@@ -225,6 +227,8 @@ class ChartEl:
     labels: list[Word]                       # numeric data labels inside the chart
     axis: list[Word]                         # non-numeric/period labels inside the chart
     kind: str = "chart"
+    title: list[Word] = field(default_factory=list)   # the line over all its values (a small chart's name)
+    from_table: bool = False                 # a table that failed the checks, kept as it looks in the PDF
 
 
 Element = TableEl | TextEl | ChartEl | StatEl
@@ -269,10 +273,27 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
         [(r, True) for r in p.image_regions if not any(_inside_box(r, g) for g in prose)]
     for region, is_image in regions:
         inside = [w for w in words if _inside(w, region)]
+        if is_image and any(_is_label(w) for w in inside):
+            # A chart drawn as a picture: its name, the value over its tallest bar and its axis
+            # sit just outside the image. Take them in with the margin a vector chart's region
+            # gets (pdf._chart_regions), never from another picture (a text box's words stay
+            # its own) or chart.
+            others = [r for r in vector + p.image_regions if r != region]
+            own = region
+            region = (max(0.0, region[0] - 10), max(0.0, region[1] - 30),
+                      min(p.width, region[2] + 10), min(p.height, region[3] + 30))
+            # text set at heading size just over the picture is the section's heading, not a label
+            inside = [w for w in words if _inside(w, region) and not any(_inside(w, o) for o in others)
+                      and (_inside(w, own) or not (body_size and (w.size or w.h) >= 1.25 * body_size))]
         labels = [w for w in inside if _is_label(w)]
+        ticks = _axis_ticks(labels)                  # "2020 2025 2030" under the bars name them
+        labels = [w for w in labels if w not in ticks]
         axis = [w for w in inside if w not in labels]
-        elements.append(ChartEl(region, extracted=bool(labels), labels=labels, axis=axis))
-        words = [w for w in words if not _inside(w, region)]
+        title = _chart_title(axis, labels)
+        axis = [w for w in axis if w not in title]
+        elements.append(ChartEl(region, extracted=bool(labels), labels=labels, axis=axis, title=title))
+        taken = {id(w) for w in inside}
+        words = [w for w in words if id(w) not in taken]
     if not words:
         return _order(elements)
 
@@ -284,7 +305,15 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
 
     used = [False] * len(rows)
     for tbl, idxs in _find_tables(rows, med_h):
-        elements.append(tbl)
+        if table_problems(tbl):
+            # Its numbers don't line up into rows and columns (a chart's data labels, a
+            # diagram): kept as it looks in the PDF, its numbers still checked one by one.
+            tw = [w for i in idxs for sg in rows[i].segments for w in sg.words]
+            labels = [w for w in tw if _is_label(w)]
+            elements.append(ChartEl(tbl.bbox, extracted=bool(labels), labels=labels,
+                                    axis=[w for w in tw if w not in labels], from_table=True))
+        else:
+            elements.append(tbl)
         for i in idxs:
             used[i] = True
 
@@ -511,6 +540,30 @@ def _holds_prose(words: list[Word]) -> bool:
     return bool(words) and reads_as_prose([[w.text for w in ln] for ln in group_lines(words)])
 
 
+def _period_word(t: str) -> bool:
+    t = t.strip("()*")
+    return bool(re.fullmatch(r"(19|20)\d\d[A-Z]?", t) or parse_period(t) or parse_date(t))
+
+
+def _axis_ticks(labels: list[Word]) -> list[Word]:
+    """A chart's axis: a line of two or more years/periods ("2020 2025 2030") under its values."""
+    out: list[Word] = []
+    for ln in group_lines(labels):
+        if len(ln) >= 2 and all(_period_word(w.text) for w in ln):
+            out.extend(ln)
+    return out if len(out) < len(labels) else []
+
+
+def _chart_title(axis: list[Word], labels: list[Word]) -> list[Word]:
+    """The line of words over all of a chart's values: the name of a small chart ("Snacks")."""
+    if not labels:
+        return []
+    top = min(w.bbox[1] for w in labels)
+    above = [w for w in axis if w.yc < top and not any(ch.isdigit() for ch in w.text)]
+    lines = group_lines(above)
+    return lines[0] if lines and _letters(" ".join(w.text for w in lines[0])) else []
+
+
 def _heading_continues(b: TextEl, seg: Segment, size: float) -> bool:
     """`seg` is the next line of heading `b`: set the same way, directly under it, in line with it,
     and `b` is unfinished — it stops on a connector or a comma, `seg` carries on in lower case, or
@@ -602,6 +655,31 @@ def _demote_labels(blocks: list[TextEl], others: list) -> None:
                     h.kind = "heading"
 
 
+TABLE_MAX_EMPTY = 0.5      # a table with more empty cells than this is not laid out as a table
+TABLE_MAX_UNPLACED = 0.25  # nor one with this many numbers left over for every number placed in a cell
+
+
+def table_problems(t: TableEl) -> list[str]:
+    """Why a table can't be published as a table — its numbers don't line up in rows and
+    columns — or [] when it can. Checked before every table goes out."""
+    ncols, nrows = len(t.anchors), len(t.rows)
+    if not ncols or not nrows:
+        return ["no rows or columns"]
+    filled = [sum(1 for c in cells if c) for _, cells in t.rows]
+    empty = 1 - sum(filled) / (ncols * nrows)
+    out = []
+    if t.unplaced > TABLE_MAX_UNPLACED * sum(filled):     # one stray footnote number is not a broken table
+        out.append(f"{t.unplaced} values with no cell of their own")
+    if ncols >= 2 and nrows >= 2 and empty > TABLE_MAX_EMPTY:
+        out.append(f"{round(100 * empty)}% of cells empty")
+    rows = [f for f in filled if f]
+    if ncols >= 3 and len(rows) >= 3 and sum(1 for f in rows if f <= max(1, ncols // 3)) >= 0.6 * len(rows):
+        out.append("values scattered across rows instead of lined up")
+    # (Too few column headers on their own don't make a table unreadable: its numbers still line
+    # up, as in a results table whose period row wasn't read in full. It stays a table.)
+    return out
+
+
 def _order(elements: list[Element]) -> list[Element]:
     """Reading order: top to bottom; blocks starting at the same height read left to right.
     Multi-column text is emitted column by column because each column is its own block."""
@@ -686,7 +764,7 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
     widths = [anchors[k] - anchors[k - 1] for k in range(1, len(anchors))]
     colw = min(widths) if widths else 60.0
     body: list[tuple[list[Word], list[list[Word] | None]]] = []
-    x_min = min(rows[k].segments[0].x0 for k in members)
+    unplaced = 0
     for k in members:
         row = rows[k]
         cells: list[list[Word] | None] = [None] * len(anchors)
@@ -702,12 +780,14 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
                 if col is not None and cells[col] is None:
                     cells[col] = seg.words
                 else:
+                    unplaced += seg.is_numeric
                     label.extend(seg.words)
         body.append((label, cells))
 
     # Header rows: up to 3 lines directly above whose segments sit over the numeric columns.
     extra: list[int] = []
     header_rows: list[list[TableCell]] = []
+    corner: list[Word] = []                  # header text over the row labels ("Particulars")
     col_words: list[list[Word]] = [[] for _ in anchors]
     top = members[0]
     k = top - 1
@@ -735,6 +815,7 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
             for c in span_cols:
                 col_words[c] = list(s.words) + col_words[c]
         header_rows.insert(0, hr)
+        corner = [w for s in row.segments if s not in segs for w in s.words] + corner
         extra.append(k)
         k -= 1
     # Caption (unit line) just above the header, left-aligned.
@@ -749,7 +830,7 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
     all_rows = [rows[m] for m in members + extra]
     bbox = (min(r.segments[0].x0 for r in all_rows), min(r.y0 for r in all_rows),
             max(r.segments[-1].x1 for r in all_rows), max(r.y1 for r in all_rows))
-    return TableEl(bbox, anchors, header_rows, col_words, body, caption), extra
+    return TableEl(bbox, anchors, header_rows, col_words, body, caption, corner_words=corner, unplaced=unplaced), extra
 
 
 def _looks_like_header(row: Row) -> bool:
