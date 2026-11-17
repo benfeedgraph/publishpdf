@@ -283,9 +283,20 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
             own = region
             region = (max(0.0, region[0] - 10), max(0.0, region[1] - 30),
                       min(p.width, region[2] + 10), min(p.height, region[3] + 30))
-            # text set at heading size just over the picture is the section's heading, not a label
-            inside = [w for w in words if _inside(w, region) and not any(_inside(w, o) for o in others)
-                      and (_inside(w, own) or not (body_size and (w.size or w.h) >= 1.25 * body_size))]
+            # Only what reads as the chart's own labels comes in from round it: numbers, a row of
+            # years or periods, and one short line just over it (its name). Running text beside
+            # the picture, and text set at heading size, stays the page's text.
+            near = [w for w in words if _inside(w, region) and not _inside(w, own) and not any(_inside(w, o) for o in others)
+                    and not (body_size and (w.size or w.h) >= 1.25 * body_size)]
+            taken_near = []
+            name_taken = False
+            for ln in group_lines(near):
+                if all(_is_label(w) or _period_word(w.text) for w in ln):
+                    taken_near += ln
+                elif not name_taken and len(ln) <= 5 and max(w.bbox[3] for w in ln) <= own[1] + 2:
+                    taken_near += ln
+                    name_taken = True
+            inside = [w for w in words if _inside(w, own) and not any(_inside(w, o) for o in others)] + taken_near
         labels = [w for w in inside if _is_label(w)]
         ticks = _axis_ticks(labels)                  # "2020 2025 2030" under the bars name them
         labels = [w for w in labels if w not in ticks]

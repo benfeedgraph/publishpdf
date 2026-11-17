@@ -163,3 +163,28 @@ def test_a_chart_read_from_a_picture_is_one_picture_on_a_slide_with_its_labels()
     assert [e.kind for e in els].count("picture") == 1
     assert not any(t in " ".join(texts) for t in ("Snacks", "143000", "2020", "2035"))
     assert "Market size by category" in " ".join(texts)
+
+
+def _staircase_page_pdf() -> bytes:
+    """A text page with a table whose numbers step down a staircase, and short labels round it."""
+    doc = pymupdf.open()
+    p = doc.new_page(width=595, height=842)
+    p.insert_text((72, 70), "Business review", fontname="hebo", fontsize=20)
+    p.insert_text((72, 100), "Sales rose in every region, led by strong demand for consumer products.", fontname="helv", fontsize=10)
+    for i, (x, v) in enumerate(((420, "143,000"), (340, "100,000"), (260, "56,000"), (180, "32,000"))):
+        p.insert_text((x, 160 + 18 * i), v, fontname="helv", fontsize=10)
+    for i, t in enumerate(("Volumes", "Prices", "Currencies", "Portfolio", "Sales")):
+        p.insert_text((72, 260 + 16 * i), t, fontname="helv", fontsize=9)
+    p.insert_text((72, 380), "The outlook for the full year is unchanged and margins are expected to hold.", fontname="helv", fontsize=10)
+    return doc.tobytes()
+
+
+def test_a_table_shown_as_in_the_pdf_is_on_the_page_with_the_text_round_it():
+    pdf = _staircase_page_pdf()
+    schema, _ = extract(pdf, META)
+    shown = [b for s in schema["sections"] for b in s["blocks"] if b.get("from_table")]
+    assert shown and not [b for s in schema["sections"] for b in s["blocks"] if b["type"] == "table"]
+    html = _table_html(pdf)
+    assert 'class="web-vis"' in html                                  # the table, cut out as in the PDF
+    for words in ("Sales rose in every region", "The outlook for the full year is unchanged", "143,000"):
+        assert words in html
