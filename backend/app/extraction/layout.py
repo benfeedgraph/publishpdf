@@ -495,16 +495,22 @@ def _holds_prose(words: list[Word]) -> bool:
 
 def _heading_continues(b: TextEl, seg: Segment, size: float) -> bool:
     """`seg` is the next line of heading `b`: set the same way, directly under it, in line with it,
-    and `b` is unfinished — it stops on a connector or a comma, or `seg` carries on in lower case.
-    (Two finished lines, a title over its subtitle, stay two.)"""
+    and `b` is unfinished — it stops on a connector or a comma, `seg` carries on in lower case, or
+    `b` is a one- or two-word line of a title stacked over several identical lines. (Two finished
+    lines, a title over its subtitle, stay two.)"""
     last = b.lines[-1]
     so_far = " ".join(w.text for w in last)
-    if not (DANGLING.search(so_far) or _UNFINISHED.search(so_far) or seg.text[:1].islower()):
-        return False
-    if len(b.lines) >= 4 or abs(size - b.size) > 1.5 or all(w.bold for w in last) != all(w.bold for w in seg.words):
-        return False
     lh = max(size, b.size, 1.0)
     gap = seg.y0 - max(w.bbox[3] for w in last)
+    # a title set large over several lines ("Regulatory" / "Developments", "Quarterly" /
+    # "Financial" / "Snapshots"): a one- or two-word line with a line set exactly like it, at
+    # the same left edge, tight under it
+    stacked = len(last) <= 2 and abs(size - b.size) <= 0.5 and abs(last[0].bbox[0] - seg.x0) <= 3 \
+        and -0.3 * lh <= gap <= 0.3 * lh
+    if not (stacked or DANGLING.search(so_far) or _UNFINISHED.search(so_far) or seg.text[:1].islower()):
+        return False
+    if len(b.lines) >= 5 or abs(size - b.size) > 1.5 or all(w.bold for w in last) != all(w.bold for w in seg.words):
+        return False
     if not (-0.3 * lh <= gap <= 0.6 * lh):
         return False
     x0, x1 = last[0].bbox[0], last[-1].bbox[2]

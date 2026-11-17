@@ -2157,10 +2157,6 @@
     "Brand Equity: One Unifying symbol across the Hotels business"
    ],
    [
-    185,
-    "brings you a fine"
-   ],
-   [
     188,
     "Sleep Expertise"
    ],
@@ -2472,6 +2468,11 @@
    [
     172,
     "who has the incentive and power to do that",
+    "part of a sentence (starts in lower case), not a title"
+   ],
+   [
+    185,
+    "brings you a fine",
     "part of a sentence (starts in lower case), not a title"
    ]
   ],

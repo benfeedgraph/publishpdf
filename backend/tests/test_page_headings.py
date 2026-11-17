@@ -241,3 +241,13 @@ def test_a_sentence_with_a_few_bold_words_is_not_a_heading_on_a_slide():
                        meta={"mixed": True} if mixed else {})
     assert web_layout.heading_level(el("Minimise total cost of product", mixed=True), 14.0) is None
     assert web_layout.heading_level(el("Key levers of profitable growth"), 14.0) == 3
+
+
+def test_a_title_stacked_one_or_two_words_a_line_is_one_heading():
+    ws = line("Quarterly", 20, 20, size=36) + line("Financial", 20, 58, size=36) + line("Snapshots", 20, 96, size=36) \
+        + line("Revenue grew 12% on the year", 20, 160)
+    assert headings(analyse(page(ws))) == ["Quarterly Financial Snapshots"]
+    # a three-word title over its subtitle stays two
+    ws = line("Cutting-edge R&D capability", 20, 20, size=24, bold=True) \
+        + line("Life Sciences & Technology Centre", 20, 46, size=24, bold=True) + line("Over 350 scientists", 20, 90)
+    assert headings(analyse(page(ws))) == ["Cutting-edge R&D capability", "Life Sciences & Technology Centre"]
