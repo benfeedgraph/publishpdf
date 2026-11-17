@@ -741,6 +741,8 @@ _TAGS = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.S)
 
 
 _WORD = re.compile(r"[^\W\d_]{3,}")
+_DRAWN = re.compile(r'(?:src|srcset)="([^"]*)"|url\(([^)]*)\)')      # where a page's artwork is drawn
+_ART_IN_URL = re.compile(r"pages/p(\d{4})\b")
 
 
 def _words_of(text: str) -> set[str]:
@@ -775,6 +777,10 @@ def check_text_on_site(schema: dict, pdf_bytes: bytes, bundle_files: dict[str, b
     for ws in said.values():
         for w in ws:
             pages_with[w] += 1
+    # pages shown as printed: their artwork is drawn on the page (not just named in its metadata);
+    # one pass over the site, not one per page
+    drawn = {int(n) for m in _DRAWN.finditer(pages_html)
+             for n in _ART_IN_URL.findall(m.group(1) or m.group(2) or "")}
     issues = []
     for pg, ws in sorted(said.items()):
         if pg in left_out:
@@ -783,10 +789,8 @@ def check_text_on_site(schema: dict, pdf_bytes: bytes, bundle_files: dict[str, b
         pool = own if len(own) >= 3 else ws
         if len(pool) < 3:                    # too little text on the page to judge
             continue
-        # shown as printed: the page's artwork is drawn on the page (not just named in its metadata)
-        drawn = re.search(rf'(?:src|srcset)="[^"]*pages/p{pg:04d}\b|url\([^)]*pages/p{pg:04d}\b', pages_html)
         # (most of a page's words on the site: the page is there, even if a footnote isn't)
-        if drawn or len(pool & site) >= 0.5 * len(pool) or len(ws & site) >= 0.7 * len(ws):
+        if pg in drawn or len(pool & site) >= 0.5 * len(pool) or len(ws & site) >= 0.7 * len(ws):
             continue
         example = " ".join(sorted(pool - site, key=len, reverse=True)[:4])
         issues.append(Issue("completeness", "warning",
