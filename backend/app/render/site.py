@@ -20,6 +20,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+from app.extraction import layout
 from app.render import pages as pages_mod
 from app.render import story
 from app.render import theme as theming
@@ -670,8 +671,6 @@ def page_css(theme: dict) -> str:
 
 _JUNK_HEADING = re.compile(r"hyper.?link|^\s*(to\s+)?contents\b|^\s*index\s*$|click\b|refer\s+to\b"
                            r"|relevant\s+pages|return\s+to", re.I)
-# a heading cut off mid-phrase ("Report on") is a wrapped line, not a title
-_DANGLING = re.compile(r"\b(on|of|and|the|to|for|in|with|by|at|from|a|an|&)\s*$", re.I)
 
 
 def _norm_title(t: str) -> str:
@@ -692,7 +691,9 @@ def _is_junk_heading(t: str) -> bool:
         return True
     if t.endswith(".") and len(words) > 4:               # a full sentence
         return True
-    if _DANGLING.search(t):                              # cut off mid-phrase
+    if layout.unfinished(t):                             # cut off mid-phrase
+        return True
+    if not any(sum(ch.isalpha() for ch in w) >= 2 for w in words):   # a number, not a title
         return True
     return False
 

@@ -1,0 +1,2515 @@
+{
+ "_about": "Page titles found on main (6f2f8eb): each page's largest heading, top-most among ties, that reads as a title. The fix must still find each as a heading on its page (alone or joined with its own next line). 'not_titles' are main's page titles the fix no longer makes headings, each reviewed by hand.",
+ "titles": {
+  "ITC_JPMorgan_presentation_30pages.pdf": [
+   [
+    1,
+    "Creating Multiple Drivers of Growth"
+   ],
+   [
+    2,
+    "ITC’s Non-Cigarette Business Portfolio"
+   ],
+   [
+    3,
+    "Strategic directions – ITC FMCG"
+   ],
+   [
+    4,
+    "Foods"
+   ],
+   [
+    5,
+    "Rapid scale up of FMCG businesses"
+   ],
+   [
+    6,
+    "Significant increase in Scale & Profitability of FMCG businesses"
+   ],
+   [
+    7,
+    "Created over 25 world-class mother brands for Indian Consumers"
+   ],
+   [
+    8,
+    "Category Leadership in a relatively short span of time"
+   ],
+   [
+    9,
+    "Branded Packaged Foods – Diverse Portfolio, Strong Brands"
+   ],
+   [
+    10,
+    "Personal Care"
+   ],
+   [
+    11,
+    "ITC FMCG – well positioned for rapid growth"
+   ],
+   [
+    12,
+    "First-to-Market Innovations"
+   ],
+   [
+    13,
+    "Premiumising the Portfolio"
+   ],
+   [
+    14,
+    "Building a ‘Free From’ and ‘Good For You’ portfolio"
+   ],
+   [
+    15,
+    "Winning in Strategic & Emerging Channels"
+   ],
+   [
+    16,
+    "Leveraging Digital to deepen consumer engagement – The 3C’s"
+   ],
+   [
+    17,
+    "Sixth Sense - Marketing Command Centre"
+   ],
+   [
+    18,
+    "Education & Stationery Products"
+   ],
+   [
+    19,
+    "Incense sticks (Agarbattis) & Safety Matches"
+   ],
+   [
+    20,
+    "ICML – Cost advantage, Freshness, Agility and Scalability"
+   ],
+   [
+    22,
+    "Unique sources of competitive advantage – FMCG"
+   ],
+   [
+    23,
+    "Covid-19 - Response"
+   ],
+   [
+    24,
+    "Responding with Speed & Agility"
+   ],
+   [
+    25,
+    "Strategic Interventions : Supply chain & Distribution"
+   ],
+   [
+    26,
+    "Strong Performance Delivery in Q1 FY21"
+   ],
+   [
+    27,
+    "Agri Business"
+   ],
+   [
+    28,
+    "Agri SBU: Strategic Direction"
+   ],
+   [
+    29,
+    "Strategic sourcing support to Foods Businesses"
+   ],
+   [
+    30,
+    "Scaling up presence in Value Added Agriculture"
+   ]
+  ],
+  "Infosys_InvestorAIDay_17Feb2026_30pages.pdf": [
+   [
+    1,
+    "Infosys AI Day"
+   ],
+   [
+    2,
+    "Agenda"
+   ],
+   [
+    4,
+    "Tech transitions - Why is the AI"
+   ],
+   [
+    5,
+    "Safe harbor"
+   ],
+   [
+    6,
+    "Technology has seen fundamental shifts over the years"
+   ],
+   [
+    7,
+    "Tech innovations have continuously redefined enterprise"
+   ],
+   [
+    8,
+    "AI adoption is faster than the earlier tech transitions"
+   ],
+   [
+    9,
+    "The shift has multiple dimensions"
+   ],
+   [
+    10,
+    "Modernization of legacy systems cannot be deferred"
+   ],
+   [
+    11,
+    "Build vs Buy: balance moves towards build and re-"
+   ],
+   [
+    15,
+    "Greenfield AI development is easier than brownfield"
+   ],
+   [
+    16,
+    "AI implementation requires laser focus"
+   ],
+   [
+    17,
+    "What still matters"
+   ],
+   [
+    18,
+    "Thank You"
+   ],
+   [
+    19,
+    "The AI Services Opportunity"
+   ],
+   [
+    20,
+    "Clients trust Infosys for their AI Journey"
+   ],
+   [
+    21,
+    "Our AI First Value framework is comprehensive"
+   ],
+   [
+    22,
+    "We see six areas of new services opportunity from AI"
+   ],
+   [
+    23,
+    "We have successful AI programs at several clients"
+   ],
+   [
+    24,
+    "Scaling AI First Services"
+   ],
+   [
+    25,
+    "We help clients create impact with AI"
+   ],
+   [
+    26,
+    "The dynamic in AI services"
+   ],
+   [
+    27,
+    "Infosys AI Playbook"
+   ],
+   [
+    29,
+    "Infosys AI Playbook"
+   ],
+   [
+    30,
+    "AI Services Playbook"
+   ]
+  ],
+  "TataMotors_InvestorDay_2025_30pages.pdf": [
+   [
+    1,
+    "Tata Motors India"
+   ],
+   [
+    2,
+    "Safe Harbour Statement"
+   ],
+   [
+    3,
+    "Agenda of the day"
+   ],
+   [
+    11,
+    "Slew of corporate actions completed"
+   ],
+   [
+    13,
+    "Tata Motors"
+   ],
+   [
+    21,
+    "Enhancing value delivery to customers through comprehensive"
+   ],
+   [
+    28,
+    "Trucks Business"
+   ],
+   [
+    29,
+    "TATA Trucks: Winning Now and Next"
+   ]
+  ],
+  "HDFC_Bank_Earnings_Q2FY27_30pages.pdf": [
+   [
+    1,
+    "Q2FY27 Earnings"
+   ],
+   [
+    2,
+    "Key performance metrics for Q2 FY27"
+   ],
+   [
+    3,
+    "Key financial parameters for Q2 FY27"
+   ],
+   [
+    4,
+    "Profit after tax"
+   ],
+   [
+    5,
+    "STANDALONE"
+   ],
+   [
+    6,
+    "Capital and liquidity metrics"
+   ],
+   [
+    7,
+    "Growth in deposits"
+   ],
+   [
+    8,
+    "Growth in advances"
+   ],
+   [
+    9,
+    "Retail branch driving deposits"
+   ],
+   [
+    10,
+    "Mix across segments"
+   ],
+   [
+    11,
+    "Retail Assets and Business Banking YoY growth"
+   ],
+   [
+    12,
+    "Branch expansion and vintage"
+   ],
+   [
+    13,
+    "Net revenues"
+   ],
+   [
+    14,
+    "Net interest income"
+   ],
+   [
+    15,
+    "Yield on assets and cost of funds"
+   ],
+   [
+    16,
+    "Other income"
+   ],
+   [
+    17,
+    "Operating expenses"
+   ],
+   [
+    18,
+    "Resilient asset quality"
+   ],
+   [
+    19,
+    "Movement of NPAs"
+   ],
+   [
+    20,
+    "Credit cost and stock of provisions"
+   ],
+   [
+    21,
+    "Profitability"
+   ],
+   [
+    22,
+    "GROUP COMPANIES"
+   ],
+   [
+    23,
+    "Subsidiaries – Q2FY27 update – HDB Financial Services"
+   ],
+   [
+    24,
+    "Subsidiaries – Q2FY27 update – HDFC Life Insurance"
+   ],
+   [
+    25,
+    "Subsidiaries – Q2FY27 update – HDFC AMC"
+   ],
+   [
+    26,
+    "Subsidiaries – Q2FY27 update – HDFC ERGO General Insurance"
+   ],
+   [
+    27,
+    "Subsidiaries – Q2FY27 update – HDFC Securities Limited"
+   ],
+   [
+    28,
+    "CONSOLIDATED"
+   ],
+   [
+    30,
+    "Balance sheet and capital productivity"
+   ]
+  ],
+  "Reliance_IntegratedAnnualReport_FY2026_30pages.pdf": [
+   [
+    1,
+    "Aspirational"
+   ],
+   [
+    3,
+    "Value Added Statement"
+   ],
+   [
+    4,
+    "Chairman and Managing Director’s Statement"
+   ],
+   [
+    5,
+    "Financial Performance and Review"
+   ],
+   [
+    6,
+    "Movement in Key"
+   ],
+   [
+    7,
+    "Financial Performance"
+   ],
+   [
+    9,
+    "Business Performance"
+   ],
+   [
+    11,
+    "Industry Overview"
+   ],
+   [
+    12,
+    "Record-smashing, Era-defining Year for Jio Studios"
+   ],
+   [
+    13,
+    "Polyesters"
+   ],
+   [
+    15,
+    "Risk and Governance"
+   ],
+   [
+    16,
+    "Insurance –"
+   ],
+   [
+    18,
+    "Integrated Approach"
+   ],
+   [
+    19,
+    "Making Significant"
+   ],
+   [
+    21,
+    "Human Capital"
+   ],
+   [
+    22,
+    "Manufactured"
+   ],
+   [
+    24,
+    "Assurance Opinion"
+   ],
+   [
+    25,
+    "APPENDIX I"
+   ],
+   [
+    29,
+    "Board Familiarisation and Induction"
+   ],
+   [
+    30,
+    "Stakeholders’"
+   ]
+  ],
+  "Apple_EnvironmentalProgressReport_2026_30pages.pdf": [
+   [
+    1,
+    "Environmental"
+   ],
+   [
+    2,
+    "Contents"
+   ],
+   [
+    3,
+    "Reflections"
+   ],
+   [
+    4,
+    "Report highlights"
+   ],
+   [
+    5,
+    "Goals and progress"
+   ],
+   [
+    6,
+    "Environmental"
+   ],
+   [
+    7,
+    "Environmental"
+   ],
+   [
+    8,
+    "Apple"
+   ],
+   [
+    9,
+    "Our approach to Apple 2030"
+   ],
+   [
+    10,
+    "Achieving progress that"
+   ],
+   [
+    11,
+    "Apple’s comprehensive carbon footprint"
+   ],
+   [
+    12,
+    "Design and materials"
+   ],
+   [
+    13,
+    "Our approach to design and materials"
+   ],
+   [
+    14,
+    "Hot off"
+   ],
+   [
+    15,
+    "Prioritizing our efforts"
+   ],
+   [
+    16,
+    "Progress across our 15 priority materials"
+   ],
+   [
+    17,
+    "Maximizing the potential of post-industrial"
+   ],
+   [
+    19,
+    "Achieving a new vision for packaging"
+   ],
+   [
+    20,
+    "Powered by progress"
+   ],
+   [
+    21,
+    "Electricity"
+   ],
+   [
+    22,
+    "Operating Apple facilities efficiently"
+   ],
+   [
+    23,
+    "Improving energy efficiency"
+   ],
+   [
+    24,
+    "Clean electricity"
+   ],
+   [
+    25,
+    "Transitioning our suppliers"
+   ],
+   [
+    26,
+    "Supporting supplier capacity"
+   ],
+   [
+    27,
+    "Advocating for policy change"
+   ],
+   [
+    28,
+    "Product use"
+   ],
+   [
+    29,
+    "Engaging with our customers"
+   ],
+   [
+    30,
+    "Reaching communities across the globe"
+   ]
+  ],
+  "HindustanUnilever_IntegratedAnnualReport_FY2026_30pages.pdf": [
+   [
+    1,
+    "Powering a Nation on the Rise"
+   ],
+   [
+    3,
+    "About the Report"
+   ],
+   [
+    7,
+    "Our Value Creation Model"
+   ],
+   [
+    8,
+    "Human"
+   ],
+   [
+    9,
+    "Chairman's Statement"
+   ],
+   [
+    10,
+    "CEO & MD’s Statement"
+   ],
+   [
+    11,
+    "Financial Highlights"
+   ],
+   [
+    12,
+    "Review of the Year"
+   ],
+   [
+    14,
+    "Beauty & Wellbeing"
+   ],
+   [
+    16,
+    "Review of the Year"
+   ],
+   [
+    18,
+    "Review of the Year"
+   ],
+   [
+    19,
+    "To address evolving"
+   ],
+   [
+    21,
+    "Awards & Recognition"
+   ],
+   [
+    22,
+    "Governance Overview"
+   ],
+   [
+    23,
+    "Board of Directors"
+   ],
+   [
+    24,
+    "Management Committee"
+   ],
+   [
+    28,
+    "Climate"
+   ],
+   [
+    29,
+    "Stakeholder Engagement"
+   ],
+   [
+    30,
+    "@ snareHoupvers"
+   ]
+  ],
+  "01_exchange_cover_letter_first_BajajFinance_Q2FY26.pdf": [
+   [
+    1,
+    "R VIJAY"
+   ],
+   [
+    2,
+    "Investor Presentation"
+   ],
+   [
+    6,
+    "Lead financial indicators – Q2 FY26 (1/3)"
+   ],
+   [
+    7,
+    "Lead financial indicators – Q2 FY26 (2/3)"
+   ],
+   [
+    8,
+    "Lead financial indicators – Q2 FY26 (3/3)"
+   ],
+   [
+    9,
+    "Additional updates"
+   ],
+   [
+    10,
+    "FINAI transformation update"
+   ],
+   [
+    11,
+    "Q2 FY26 Executive summary - BHFL"
+   ],
+   [
+    12,
+    "Lead financial indicators – Q2 FY26 (1/2)"
+   ],
+   [
+    13,
+    "Lead financial indicators – Q2 FY26 (2/2)"
+   ],
+   [
+    14,
+    "Q2 FY26 Executive summary - BFSL"
+   ],
+   [
+    15,
+    "Lead financial indicators – Q2 FY26"
+   ],
+   [
+    19,
+    "BFL Consolidated long-term guidance on financial metrics"
+   ],
+   [
+    20,
+    "Key strategic differentiators"
+   ],
+   [
+    24,
+    "Product suite"
+   ],
+   [
+    25,
+    "Executive summary – Bajaj Finance"
+   ],
+   [
+    26,
+    "Executive summary – Bajaj Finance"
+   ],
+   [
+    27,
+    "Executive summary – Bajaj Housing Finance"
+   ],
+   [
+    28,
+    "Executive summary – Bajaj Housing Finance"
+   ],
+   [
+    29,
+    "Executive summary – Bajaj Financial Securities"
+   ]
+  ],
+  "Wipro_Q3_FY25_Investor_Presentation.pdf": [
+   [
+    1,
+    "Titan Company Limited"
+   ]
+  ],
+  "06_subsidiary_ampersand_June_FY_PGHH_FY2025-26.pdf": [
+   [
+    16,
+    "All@ Night"
+   ],
+   [
+    19,
+    "Hes YOU FALL ASLEEP"
+   ]
+  ],
+  "07_broker_report_ICICISecurities_on_HitachiEnergyIndia.pdf": [
+   [
+    1,
+    "BUY"
+   ],
+   [
+    2,
+    "Table of Contents"
+   ],
+   [
+    3,
+    "Investment Argument"
+   ],
+   [
+    4,
+    "Hitachi Energy – a pure play in high-voltage transmission"
+   ],
+   [
+    8,
+    "USD 40bn opportunity in inter-state transmission capex"
+   ],
+   [
+    13,
+    "New grid needs HV equipment"
+   ],
+   [
+    17,
+    "Also, needs a step up in HVDC projects"
+   ],
+   [
+    21,
+    "Also, the rise of equipment needed to stabilise the grid"
+   ],
+   [
+    24,
+    "…and Hitachi Energy has best credentials"
+   ],
+   [
+    27,
+    "…Resulting in strong order inflow"
+   ],
+   [
+    30,
+    "Buttressed by a series of strong addons"
+   ]
+  ],
+  "08_cover_no_year_only_Q2FY26_Hindalco.pdf": [
+   [
+    1,
+    "HINDALCO"
+   ],
+   [
+    2,
+    "Safe harbor statement"
+   ],
+   [
+    3,
+    "Contents"
+   ],
+   [
+    5,
+    "Zero Harm :"
+   ],
+   [
+    6,
+    "Responsible"
+   ],
+   [
+    7,
+    "resources"
+   ],
+   [
+    9,
+    "towards"
+   ],
+   [
+    10,
+    "Economy"
+   ],
+   [
+    11,
+    "Economy Updates"
+   ],
+   [
+    12,
+    "LME Trends"
+   ],
+   [
+    13,
+    "Domestic"
+   ],
+   [
+    14,
+    "Domestic"
+   ],
+   [
+    15,
+    "Quarterly"
+   ],
+   [
+    16,
+    "Snapshot"
+   ],
+   [
+    17,
+    "Financial"
+   ],
+   [
+    19,
+    "Disciplined Capital Allocation"
+   ],
+   [
+    20,
+    "Segment wise"
+   ],
+   [
+    23,
+    "Aluminium"
+   ],
+   [
+    25,
+    "Key"
+   ],
+   [
+    26,
+    "Q2 FY26 Updates"
+   ],
+   [
+    27,
+    "DOUBLE DOWN"
+   ],
+   [
+    28,
+    "Thank You"
+   ]
+  ],
+  "09_blank_image_cover_name_only_in_footer_SunPharma_Dec2025.pdf": [
+   [
+    2,
+    "Disclaimer"
+   ],
+   [
+    3,
+    "Sun Pharma"
+   ],
+   [
+    4,
+    "Sun Pharma at a glance"
+   ],
+   [
+    5,
+    "A diversified revenue base"
+   ],
+   [
+    6,
+    "Impressive track record of growth"
+   ],
+   [
+    7,
+    "Strong profitability and return ratios"
+   ],
+   [
+    8,
+    "Best-in-class profitability"
+   ],
+   [
+    9,
+    "Business operations"
+   ],
+   [
+    10,
+    "Snapshot of business operations"
+   ],
+   [
+    11,
+    "Driving sustainable long term growth"
+   ],
+   [
+    12,
+    "ESG Performance - FY 2024-25"
+   ],
+   [
+    13,
+    "Innovative Medicines"
+   ],
+   [
+    14,
+    "Innovative Medicines highlights"
+   ],
+   [
+    15,
+    "Innovative Medicines portfolio"
+   ],
+   [
+    16,
+    "Innovative Medicines portfolio"
+   ],
+   [
+    17,
+    "Innovative Medicines portfolio"
+   ],
+   [
+    18,
+    "Innovative Medicines pipeline"
+   ],
+   [
+    19,
+    "Innovative Medicines Sales"
+   ],
+   [
+    21,
+    "US highlights"
+   ],
+   [
+    22,
+    "Milestones in the US business"
+   ],
+   [
+    23,
+    "US business: revenue progression"
+   ],
+   [
+    24,
+    "ANDA & NDA pipeline"
+   ],
+   [
+    25,
+    "India Business"
+   ],
+   [
+    26,
+    "India highlights"
+   ],
+   [
+    27,
+    "Largest Pharma company in India"
+   ],
+   [
+    28,
+    "India: revenue progression"
+   ],
+   [
+    29,
+    "Leadership across therapeutic areas*"
+   ],
+   [
+    30,
+    "India: Best-in-class field force productivity"
+   ]
+  ],
+  "10_DrReddys_special_chars_mixed_orientation_XL_page_Q2FY26.pdf": [
+   [
+    2,
+    "Dr. Reddy’s"
+   ],
+   [
+    3,
+    "Safe Harbor Statement"
+   ],
+   [
+    4,
+    "Q2FY26 Financial Highlights"
+   ],
+   [
+    5,
+    "Q2FY26 Business Highlights"
+   ],
+   [
+    6,
+    "Q2FY26 Other Highlights"
+   ],
+   [
+    7,
+    "Q2FY26 Revenue Split"
+   ],
+   [
+    8,
+    "Key Financial Metrics"
+   ],
+   [
+    9,
+    "Q2FY26 North America Performance"
+   ],
+   [
+    10,
+    "Q2FY26 India Performance"
+   ],
+   [
+    11,
+    "Q2FY26 Emerging Markets Performance"
+   ],
+   [
+    12,
+    "Q2FY26 Europe Performance"
+   ],
+   [
+    13,
+    "Q2FY26 PSAI Performance"
+   ],
+   [
+    14,
+    "In Summary"
+   ],
+   [
+    15,
+    "Consolidated Income Statement"
+   ],
+   [
+    16,
+    "At a glance"
+   ],
+   [
+    17,
+    "About Key Metrics and Non-GAAP Financial Measures"
+   ],
+   [
+    19,
+    "Dr. Reddy’s Q2 & H1FY26 Financial Results"
+   ],
+   [
+    20,
+    "Dr. Reddy’s Laboratories Limited & Subsidiaries"
+   ],
+   [
+    23,
+    "Key Business Highlights for Q2FY26"
+   ],
+   [
+    24,
+    "ESG Highlights for Q2FY26"
+   ],
+   [
+    25,
+    "Revenue Analysis"
+   ],
+   [
+    27,
+    "Income Statement Highlights:"
+   ],
+   [
+    29,
+    "Other Financial Highlights:"
+   ],
+   [
+    30,
+    "About key metrics and non-GAAP Financial Measures"
+   ]
+  ],
+  "11_metadata_says_other_company_Novartis_Q3_2025.pdf": [
+   [
+    1,
+    "Results"
+   ],
+   [
+    2,
+    "Disclaimer"
+   ],
+   [
+    3,
+    "Disclaimer"
+   ],
+   [
+    4,
+    "Company overview"
+   ],
+   [
+    5,
+    "Novartis delivered solid sales and core1 operating income growth"
+   ],
+   [
+    6,
+    "Priority brands continued to drive robust growth, allowing us"
+   ],
+   [
+    7,
+    "Kisqali® grew +68% cc in Q3, outpacing the market and CDK4/6 competition"
+   ],
+   [
+    8,
+    "Kisqali® 5-year data demonstrates 28.4% reduction in risk of recurrence1"
+   ],
+   [
+    9,
+    "Kesimpta® grew +44% cc in Q3, fueled by continued strong demand growth"
+   ],
+   [
+    10,
+    "Pluvicto® grew +45% cc in Q3, continuing strong momentum following"
+   ],
+   [
+    12,
+    "Sales evolution"
+   ],
+   [
+    13,
+    "Scemblix® grew +95% cc in Q3, on track for blockbuster status"
+   ],
+   [
+    16,
+    "Rhapsido® approved by FDA as the only oral, targeted BTK inhibitor"
+   ],
+   [
+    17,
+    "Ianalumab positive Phase III studies first ever to demonstrate clinically"
+   ],
+   [
+    18,
+    "Key innovation milestones in 2025"
+   ],
+   [
+    19,
+    "Financial review"
+   ],
+   [
+    20,
+    "Q3 net sales and core1 operating income grew +7% cc, reflecting"
+   ],
+   [
+    21,
+    "9M free cash flow1 approaching the level we achieved in FY 2024"
+   ],
+   [
+    22,
+    "Continuing our shareholder-friendly capital allocation strategy"
+   ],
+   [
+    23,
+    "Reaffirming 2025 FY sales and core1 operating income guidance"
+   ],
+   [
+    24,
+    "Strong underlying growth trends expected throughout 2025, with Q4"
+   ],
+   [
+    25,
+    "Expected currency impact for full year 2025 and 2026"
+   ],
+   [
+    26,
+    "Proposed acquisition of Avidity1 raises Novartis 2024-2029 sales CAGR"
+   ],
+   [
+    27,
+    "Conclusions"
+   ],
+   [
+    28,
+    "Novartis delivered"
+   ],
+   [
+    29,
+    "Immunology"
+   ],
+   [
+    30,
+    "Appendix"
+   ]
+  ],
+  "12_japanese_only_Toyota_FY2026_2Q.pdf": [
+   [
+    1,
+    "トヨタのクルマをご愛顧いただいている"
+   ],
+   [
+    2,
+    "将来予測・インサイダー取引について"
+   ],
+   [
+    5,
+    "世界中のお客様からの強い需要に支えられ、"
+   ],
+   [
+    7,
+    "営業利益の増減要因は、スライドに記載のとおりです。"
+   ],
+   [
+    9,
+    "中国事業の営業利益および持分法による投資損益は、"
+   ],
+   [
+    10,
+    "株主還元"
+   ],
+   [
+    11,
+    "引き続き、⻑期保有の株主の皆様に報いるため、"
+   ],
+   [
+    12,
+    "ご説明いたします。"
+   ],
+   [
+    13,
+    "高い商品力を背景に、"
+   ],
+   [
+    14,
+    "次に、連結決算の見通しです。"
+   ],
+   [
+    16,
+    "みなさま、ジャパンモビリティショーでは、"
+   ],
+   [
+    18,
+    "修理のし易さや補給部品の供給力も含めた"
+   ],
+   [
+    20,
+    "（ご参考）連結営業利益増減要因（前期差）"
+   ],
+   [
+    21,
+    "（ご参考）連結営業利益増減要因（前回⾒通し差）"
+   ],
+   [
+    27,
+    "今後、株価水準等を踏まえ、また、必要に応じて当社株式の"
+   ],
+   [
+    28,
+    "（ご参考）業績推移"
+   ],
+   [
+    29,
+    "（ご参考）台数⾒通し"
+   ],
+   [
+    30,
+    "（ご参考）販売台数について"
+   ]
+  ],
+  "13_german_only_BASF_Quartalsmitteilung_Q3_2025.pdf": [
+   [
+    1,
+    "Quartalsmitteilung"
+   ],
+   [
+    2,
+    "Inhalt"
+   ],
+   [
+    3,
+    "— Auf einen Blick"
+   ],
+   [
+    4,
+    "— Auf einen Blick"
+   ],
+   [
+    5,
+    "Wichtige Kennzahlen – 3. Quartal"
+   ],
+   [
+    6,
+    "Wichtige Kennzahlen – Januar bis September"
+   ],
+   [
+    7,
+    "Geschäftsverlauf"
+   ],
+   [
+    11,
+    "Vermögenslage"
+   ],
+   [
+    14,
+    "Ausblick"
+   ],
+   [
+    16,
+    "Chemicals"
+   ],
+   [
+    18,
+    "Materials"
+   ],
+   [
+    20,
+    "Industrial Solutions"
+   ],
+   [
+    22,
+    "Nutrition & Care"
+   ],
+   [
+    24,
+    "Surface Technologies"
+   ],
+   [
+    27,
+    "Agricultural Solutions"
+   ],
+   [
+    29,
+    "Sonstige"
+   ],
+   [
+    30,
+    "Ausgewählte Finanzinformationen"
+   ]
+  ],
+  "V02_name_in_cover_text.pdf": [
+   [
+    1,
+    "UltraTech Cement Limited"
+   ],
+   [
+    2,
+    "Agenda"
+   ],
+   [
+    4,
+    "Macro Indicators"
+   ],
+   [
+    5,
+    "Sectoral Update Q2 FY26"
+   ],
+   [
+    6,
+    "Business Update"
+   ],
+   [
+    7,
+    "Q2 FY26 Highlights (UltraTech existing assets –"
+   ],
+   [
+    8,
+    "Sales volumes"
+   ],
+   [
+    9,
+    "Q2 FY26 sales performance overview"
+   ],
+   [
+    10,
+    "Ready Mix Concrete"
+   ],
+   [
+    11,
+    "Q2 FY26 Operational Highlights"
+   ],
+   [
+    12,
+    "Organic growth plans on track"
+   ],
+   [
+    13,
+    "Revolutionizing Cement Logistics"
+   ],
+   [
+    14,
+    "ESG Update"
+   ],
+   [
+    15,
+    "Marching ahead sustainably"
+   ],
+   [
+    16,
+    "ESG Scorecard"
+   ],
+   [
+    17,
+    "Leading Sustainably"
+   ],
+   [
+    18,
+    "CSR initiatives"
+   ],
+   [
+    19,
+    "ESG Ratings"
+   ],
+   [
+    20,
+    "Financial"
+   ],
+   [
+    21,
+    "Revenues Mix"
+   ],
+   [
+    22,
+    "Operating EBITDA/Mt (UltraTech existing assets –"
+   ],
+   [
+    23,
+    "Profitability"
+   ],
+   [
+    24,
+    "Sales Realisation"
+   ],
+   [
+    25,
+    "Key Cost Indicators (Grey Cement): Q2 FY26"
+   ],
+   [
+    26,
+    "Logistics Cost (Grey Cement)"
+   ],
+   [
+    27,
+    "Fuel Cost (Grey Cement)"
+   ],
+   [
+    28,
+    "Power Cost (Grey Cement)"
+   ],
+   [
+    29,
+    "Sources of Power (Grey Cement)"
+   ],
+   [
+    30,
+    "Raw Material Cost (Grey Cement)"
+   ]
+  ],
+  "V05_US_calendar_year_quarter.pdf": [
+   [
+    1,
+    "Bank of America"
+   ],
+   [
+    3,
+    "3Q25 Financial Results"
+   ],
+   [
+    5,
+    "Continued Organic Growth in 3Q25"
+   ],
+   [
+    6,
+    "Balance Sheet, Liquidity, and Capital"
+   ],
+   [
+    7,
+    "Average Deposit and Rate Paid Trends"
+   ],
+   [
+    8,
+    "Average Loan and Lease Trends"
+   ],
+   [
+    10,
+    "Expense and Efficiency"
+   ],
+   [
+    11,
+    "Asset Quality"
+   ],
+   [
+    12,
+    "Asset Quality – Consumer and Commercial Portfolios"
+   ],
+   [
+    18,
+    "Supplemental"
+   ],
+   [
+    19,
+    "Consumer Banking Trends"
+   ],
+   [
+    21,
+    "Global Wealth & Investment Management Trends"
+   ],
+   [
+    23,
+    "Global Banking Trends"
+   ],
+   [
+    25,
+    "Global Markets Trends and Revenue Mix"
+   ],
+   [
+    26,
+    "Notes"
+   ],
+   [
+    27,
+    "Business Leadership Sources"
+   ],
+   [
+    28,
+    "Forward-Looking Statements"
+   ],
+   [
+    29,
+    "Important Presentation Information"
+   ]
+  ],
+  "IndusInd_Bank_Q1_FY25_results.pdf": [
+   [
+    1,
+    "Investor Presentation"
+   ],
+   [
+    2,
+    "Axis Bank at a glance"
+   ],
+   [
+    4,
+    "Major highlights for Q3FY26"
+   ],
+   [
+    5,
+    "Key metrics for Q3FY26"
+   ],
+   [
+    7,
+    "Deposit and Loan growth performance"
+   ],
+   [
+    8,
+    "Q3FY26 Core operating profit up 9% QOQ, 7% YOY"
+   ],
+   [
+    9,
+    "Net interest margin trend"
+   ],
+   [
+    10,
+    "NIM has seen structural improvement led by multiple drivers"
+   ],
+   [
+    11,
+    "Healthy growth in fees; granularity built across our business segments"
+   ],
+   [
+    12,
+    "Operating expenses grew at 7% YoY"
+   ],
+   [
+    14,
+    "Strong capital position with adequate liquidity"
+   ],
+   [
+    17,
+    "…with controlled movement in cost of deposits"
+   ],
+   [
+    18,
+    "…led by multiple initiatives across the Bank"
+   ],
+   [
+    19,
+    "Amongst one of the leading player in India’s Wealth Management space"
+   ],
+   [
+    20,
+    "₹6.4 trillion Retail loan book remains well diversified"
+   ],
+   [
+    21,
+    "Small Business Banking"
+   ],
+   [
+    23,
+    "Trend in Credit Card issuances"
+   ],
+   [
+    24,
+    "Trend in Card spends and POS terminals"
+   ],
+   [
+    25,
+    "We have a very well distributed branch network"
+   ],
+   [
+    26,
+    "Corporate & Commercial Banking"
+   ],
+   [
+    27,
+    "Strong relationship led franchise driving synergies across One Axis entities…"
+   ],
+   [
+    28,
+    "…with 90% of the book rated A- and above"
+   ],
+   [
+    29,
+    "We have strengthened our proposition as a Transaction Bank"
+   ],
+   [
+    30,
+    "We remain well placed to benefit from a vibrant Corporate Bond market"
+   ]
+  ],
+  "presentation_final_v2.pdf": [
+   [
+    1,
+    "Performance review"
+   ],
+   [
+    3,
+    "Highlights for Q2-2027"
+   ],
+   [
+    4,
+    "Key highlights for Q2-2027 (1/2)"
+   ],
+   [
+    5,
+    "Key highlights for Q2-2027 (2/2)"
+   ],
+   [
+    6,
+    "Financial performance"
+   ],
+   [
+    7,
+    "Profit & loss statement"
+   ],
+   [
+    8,
+    "Profit & loss statement"
+   ],
+   [
+    9,
+    "Key ratios"
+   ],
+   [
+    10,
+    "Standalone segment-wise PBT"
+   ],
+   [
+    11,
+    "Balance sheet growth"
+   ],
+   [
+    12,
+    "Outstanding deposits"
+   ],
+   [
+    13,
+    "Average deposits"
+   ],
+   [
+    14,
+    "Loan portfolio"
+   ],
+   [
+    15,
+    "Retail and rural portfolio"
+   ],
+   [
+    16,
+    "Asset quality trends"
+   ],
+   [
+    17,
+    "NPA trends"
+   ],
+   [
+    18,
+    "NPA movement1"
+   ],
+   [
+    19,
+    "Other portfolios"
+   ],
+   [
+    20,
+    "Standard assets and other provisions1,2"
+   ],
+   [
+    21,
+    "Loan portfolio information"
+   ],
+   [
+    22,
+    "Diversified and granular loan book"
+   ],
+   [
+    23,
+    "Mortgage, personal loan and credit card portfolio"
+   ],
+   [
+    24,
+    "Business banking portfolio"
+   ],
+   [
+    25,
+    "Rating-wise loan book for corporate portfolio"
+   ],
+   [
+    26,
+    "Exposure to power sector"
+   ],
+   [
+    27,
+    "NBFCs, HFCs and builder portfolio"
+   ],
+   [
+    28,
+    "Overseas branches - Wholesale portfolio"
+   ],
+   [
+    29,
+    "Concentration risk ratios"
+   ],
+   [
+    30,
+    "Technology: Leveraging AI"
+   ]
+  ],
+  "itc-institutional-investor-and-financial-analyst-day-12122023.pdf": [
+   [
+    1,
+    "Sanjiv Puri"
+   ],
+   [
+    2,
+    "Forward-Looking Statements"
+   ],
+   [
+    3,
+    "Amongst Top"
+   ],
+   [
+    5,
+    "Non-Cigarette Businesses"
+   ],
+   [
+    9,
+    "ROCE"
+   ],
+   [
+    10,
+    "Strong Zero debt Balance Sheet"
+   ],
+   [
+    13,
+    "Macro Trends"
+   ],
+   [
+    16,
+    "Digitalisation"
+   ],
+   [
+    17,
+    "De-carbonisation"
+   ],
+   [
+    19,
+    "Multiple Drivers of Consumption"
+   ],
+   [
+    20,
+    "ITC Next Strategies"
+   ],
+   [
+    27,
+    "Cutting-edge R&D capability"
+   ],
+   [
+    28,
+    "Leveraging Innovation Platforms"
+   ],
+   [
+    29,
+    "Cost Reduction | Speed to market"
+   ],
+   [
+    31,
+    "Smart Buying & Value Engineering"
+   ],
+   [
+    35,
+    "Institutional Assets"
+   ],
+   [
+    36,
+    "Mission DigiArc"
+   ],
+   [
+    40,
+    "Sustainable | Inclusive | Competitive"
+   ],
+   [
+    43,
+    "In-house"
+   ],
+   [
+    44,
+    "RE initiatives driving down energy costs"
+   ],
+   [
+    49,
+    "ITC FMCG"
+   ],
+   [
+    50,
+    "ITC FMCG"
+   ],
+   [
+    52,
+    "One of the fastest growing FMCG Businesses in India"
+   ],
+   [
+    54,
+    "FMCG Strategy Pillars"
+   ],
+   [
+    55,
+    "Strong Growth Platforms"
+   ],
+   [
+    56,
+    "Addressing Value Added Adjacencies | Driving Premiumisation"
+   ],
+   [
+    57,
+    "New Growth Vectors"
+   ],
+   [
+    58,
+    "Health | Wellness"
+   ],
+   [
+    59,
+    "Brands with Purpose"
+   ],
+   [
+    62,
+    "Strengthening Effectiveness of distribution"
+   ],
+   [
+    63,
+    "Fast-tracking E-Com, Q-Com, Cash & Carry"
+   ],
+   [
+    64,
+    "End-to-end Digitalisation"
+   ],
+   [
+    66,
+    "Agri Business"
+   ],
+   [
+    69,
+    "Fully Integrated Business Model"
+   ],
+   [
+    71,
+    "Integrated Business Model"
+   ],
+   [
+    73,
+    "Current year performance impacted"
+   ],
+   [
+    76,
+    "ITC Next Strategy"
+   ],
+   [
+    77,
+    "Thank You"
+   ],
+   [
+    78,
+    "Cigarettes Business"
+   ],
+   [
+    79,
+    "Tobacco in India – A Unique Environment"
+   ],
+   [
+    80,
+    "Tax Stability - Increased Revenue while Combating Illicit"
+   ],
+   [
+    81,
+    "International Illicit & Contraband remains a concern"
+   ],
+   [
+    82,
+    "Stability in Taxes & Stricter Enforcement – Combat Illicit"
+   ],
+   [
+    83,
+    "Cigarettes Business – Robust Recovery"
+   ],
+   [
+    84,
+    "Cigarette Business Imperatives"
+   ],
+   [
+    85,
+    "Key Strategic Levers"
+   ],
+   [
+    86,
+    "ITC’s Value Model"
+   ],
+   [
+    87,
+    "Multiple Vectors of Differentiation"
+   ],
+   [
+    89,
+    "Classic"
+   ],
+   [
+    90,
+    "Gold Flake"
+   ],
+   [
+    91,
+    "A Leader in Every Market"
+   ],
+   [
+    92,
+    "Strong & Vibrant Portfolio : Leading Brand in Every Market Segment"
+   ],
+   [
+    93,
+    "Innovation, Premiumization key drivers of ITC’s growth"
+   ],
+   [
+    95,
+    "ITCs Integrated Value Chain – Seed to Smoke"
+   ],
+   [
+    97,
+    "Manufacturing Excellence"
+   ],
+   [
+    98,
+    "Agile & Integrated Manufacturing Ecosystem"
+   ],
+   [
+    99,
+    "Automation & Digital Initiatives"
+   ],
+   [
+    102,
+    "Reinforced Market Standing & Expanding Category Share"
+   ],
+   [
+    103,
+    "Thank You"
+   ],
+   [
+    107,
+    "ITC Foods"
+   ],
+   [
+    108,
+    "Building World class Indian brands"
+   ],
+   [
+    113,
+    "4 Future growth vectors"
+   ],
+   [
+    120,
+    "3. Winning Local cultures– CCM [Culture Centric Marketing] approach"
+   ],
+   [
+    128,
+    "4. Developing Content Destination"
+   ],
+   [
+    131,
+    "Driving Profitable Growth:"
+   ],
+   [
+    137,
+    "Personal Care Products Business"
+   ],
+   [
+    138,
+    "Personal Care Business Portfolio"
+   ],
+   [
+    139,
+    "Personal Wash 24,000 Crore Industry"
+   ],
+   [
+    141,
+    "Create Space in the Clutter – Differentiated Product"
+   ],
+   [
+    142,
+    "Shopper Insight : Consumers Buy an Assortment"
+   ],
+   [
+    143,
+    "Shift in Channel Mix – Use of Data , Analytics & influencers"
+   ],
+   [
+    144,
+    "Consumers of Future : Refreshing Opportunities & Segments"
+   ],
+   [
+    145,
+    "Purpose - How To Feel Good – Mental Wellbeing"
+   ],
+   [
+    148,
+    "Repositioned brand : A new take on Protection & Care"
+   ],
+   [
+    149,
+    "Savlon School Programme"
+   ],
+   [
+    150,
+    "Savlon School Program"
+   ],
+   [
+    154,
+    "One of India’s most awarded Brands"
+   ],
+   [
+    158,
+    "Thank You"
+   ],
+   [
+    159,
+    "Agri Business"
+   ],
+   [
+    160,
+    "New Growth Drivers in Agri Business"
+   ],
+   [
+    161,
+    "Nicotine & Derivatives"
+   ],
+   [
+    162,
+    "ITC Value Proposition"
+   ],
+   [
+    163,
+    "IIVL Nicotine Processing Facility Now Commissioned"
+   ],
+   [
+    164,
+    "Four Pillars of ITC’s Strategy for Value Added Agri Products"
+   ],
+   [
+    165,
+    "Vectors of Value-addition"
+   ],
+   [
+    166,
+    "The Portfolio"
+   ],
+   [
+    167,
+    "Opportunity to Add Value in Spices"
+   ],
+   [
+    168,
+    "Driving Food Safety Across the Value Chain"
+   ],
+   [
+    169,
+    "Catering to different Customers & Markets"
+   ],
+   [
+    171,
+    "Problems in Agriculture"
+   ],
+   [
+    173,
+    "The ITC Advantage"
+   ],
+   [
+    174,
+    "ITC MAARS Phygital Ecosystem"
+   ],
+   [
+    175,
+    "ITCMAARS Progress & Impact"
+   ],
+   [
+    176,
+    "Quick Walk-through of the ITCMAARS Super App"
+   ],
+   [
+    177,
+    "Value to ITC"
+   ],
+   [
+    178,
+    "Hotels Business"
+   ],
+   [
+    179,
+    "Hotels that define the destinations"
+   ],
+   [
+    180,
+    "ITC HOTELS : India’s Pre-eminent Hospitality Chain"
+   ],
+   [
+    181,
+    "Brand Equity: One Unifying symbol across the Hotels business"
+   ],
+   [
+    185,
+    "brings you a fine"
+   ],
+   [
+    188,
+    "Sleep Expertise"
+   ],
+   [
+    189,
+    "Responsible"
+   ],
+   [
+    190,
+    "Responsible Luxury"
+   ],
+   [
+    191,
+    "Responsible Luxury"
+   ],
+   [
+    192,
+    "THE WORLD’S FIRST 12"
+   ],
+   [
+    194,
+    "Responsible Luxury"
+   ],
+   [
+    195,
+    "Responsible Luxury"
+   ],
+   [
+    197,
+    "Hospitality Industry in a Strong Upcycle"
+   ],
+   [
+    198,
+    "Hospitality Industry – Ample headroom for Growth"
+   ],
+   [
+    199,
+    "Hospitality Industry – Buoyant Domestic Demand"
+   ],
+   [
+    202,
+    "Growth Pipeline: 35 Hotels, 3200+ Keys"
+   ],
+   [
+    203,
+    "Accelerating Growth in the Premium Segment"
+   ],
+   [
+    204,
+    "ITC Ratanadipa, Colombo"
+   ],
+   [
+    205,
+    "Mementos, Jaipur"
+   ],
+   [
+    206,
+    "New Hotels in the Making"
+   ],
+   [
+    207,
+    "Relaunch post complete make over"
+   ],
+   [
+    208,
+    "Leveraging Power of Digital – Guest Experience"
+   ],
+   [
+    209,
+    "Service Excellence"
+   ],
+   [
+    210,
+    "New Revenue Streams"
+   ],
+   [
+    211,
+    "Future Fit Talent Management"
+   ],
+   [
+    212,
+    "Robust"
+   ],
+   [
+    215,
+    "Source: STR"
+   ],
+   [
+    216,
+    "ITC Hotels – Capital Efficiency"
+   ],
+   [
+    217,
+    "ITC Royal Bengal -"
+   ],
+   [
+    218,
+    "Raw Material Cost % of F&B Revenue"
+   ],
+   [
+    219,
+    "Awards & Accolades"
+   ],
+   [
+    220,
+    "Exclusive Food & Beverage Partner at the G20 Summit"
+   ],
+   [
+    222,
+    "Food-Tech"
+   ],
+   [
+    223,
+    "Trends shaping rapid growth of online food delivery"
+   ],
+   [
+    229,
+    "Adopted Lean Startup Approach for testing PMF"
+   ],
+   [
+    230,
+    "World of ITC’s Signature Creations"
+   ],
+   [
+    232,
+    "Disciplined growth plan, aligned to principles of lean startup"
+   ],
+   [
+    233,
+    "Enjoy Our Delicacies!"
+   ],
+   [
+    234,
+    "Sustainable Packaging"
+   ],
+   [
+    235,
+    "Sustainable Packaging Drivers"
+   ],
+   [
+    236,
+    "Sustainable Packaging Drivers"
+   ],
+   [
+    239,
+    "Platform 1: Range of Plastic Substitution Solutions"
+   ],
+   [
+    240,
+    "Platform1: Range of Coating Platforms & Formulations"
+   ],
+   [
+    241,
+    "Platform 2 : Fusion Board to Replace Plastic"
+   ],
+   [
+    242,
+    "Moulded Fibre : Futuristic Packaging"
+   ],
+   [
+    243,
+    "Platform 3 : State of the Art Moulded Fibre Facility"
+   ],
+   [
+    244,
+    "Thank"
+   ]
+  ]
+ },
+ "not_titles": {
+  "ITC_JPMorgan_presentation_30pages.pdf": [
+   [
+    21,
+    "LSTC",
+    "a big label in the page's graphic; the page's title 'Cutting-edge R&D capability' is kept"
+   ]
+  ],
+  "Infosys_InvestorAIDay_17Feb2026_30pages.pdf": [
+   [
+    12,
+    "AI is evolving at an astonishing speed led by hyper",
+    "a sentence set large over several lines: now one paragraph"
+   ]
+  ],
+  "01_exchange_cover_letter_first_BajajFinance_Q2FY26.pdf": [
+   [
+    5,
+    "Credit cost remained elevated. Delivered AUM growth of ₹ 20,811 crore",
+    "a two-sentence statement set large: now a paragraph"
+   ]
+  ],
+  "08_cover_no_year_only_Q2FY26_Hindalco.pdf": [
+   [
+    8,
+    "Conservation",
+    "a label in a diagram"
+   ],
+   [
+    21,
+    "aluminium",
+    "a label ('aluminium') in a diagram"
+   ],
+   [
+    22,
+    "aluminium",
+    "a label ('aluminium') in a diagram"
+   ],
+   [
+    24,
+    "aluminium",
+    "a label ('aluminium') in a diagram"
+   ]
+  ],
+  "12_japanese_only_Toyota_FY2026_2Q.pdf": [
+   [
+    6,
+    "当期の連結決算は、",
+    "the first line of a sentence set large: now joined into a paragraph"
+   ],
+   [
+    8,
+    "次に、所在地別の営業利益です。",
+    "a sentence set large: now joined into a paragraph"
+   ],
+   [
+    17,
+    "これからのトヨタにもっとご期待頂きたいと思います。",
+    "a sentence set large: now joined into a paragraph"
+   ],
+   [
+    19,
+    "足場固めの活動を行ってまいりました。",
+    "a sentence set large: now joined into a paragraph"
+   ],
+   [
+    3,
+    "関税影響がある中、商品力を背景とした強い需要に支えられ、",
+    "the first line of a sentence set large (ends in 、): now joined into a paragraph"
+   ],
+   [
+    15,
+    "前期と比較した営業利益の増減要因は、",
+    "the first line of a sentence set large (ends in 、): now joined into a paragraph"
+   ]
+  ],
+  "IndusInd_Bank_Q1_FY25_results.pdf": [
+   [
+    16,
+    "Individual",
+    "a label ('Individual') in a KPI graphic"
+   ],
+   [
+    22,
+    "building a distinct model",
+    "the second half of a sentence set large: now one paragraph with its first half"
+   ]
+  ],
+  "itc-institutional-investor-and-financial-analyst-day-12122023.pdf": [
+   [
+    6,
+    "Overall",
+    "a label ('Overall') in a graphic"
+   ],
+   [
+    105,
+    "that are science-based & consumer-led; prepared using carefully",
+    "the middle of a sentence set large"
+   ],
+   [
+    106,
+    "Business Highlights",
+    "an entry on a 'Table of Contents' slide, not a section of its own"
+   ],
+   [
+    112,
+    "Business Highlights",
+    "an entry on a 'Table of Contents' slide, not a section of its own"
+   ],
+   [
+    116,
+    "Business Highlights",
+    "an entry on a 'Table of Contents' slide, not a section of its own"
+   ],
+   [
+    124,
+    "Business Highlights",
+    "an entry on a 'Table of Contents' slide, not a section of its own"
+   ],
+   [
+    130,
+    "Business Highlights",
+    "an entry on a 'Table of Contents' slide, not a section of its own"
+   ],
+   [
+    200,
+    "Coie eae",
+    "letters read off a picture, not words: not a title"
+   ],
+   [
+    11,
+    "for Water Stewardship",
+    "the second half of an award's name under a picture, not a title"
+   ],
+   [
+    140,
+    "• Younger TG",
+    "a bullet point, not a title"
+   ],
+   [
+    172,
+    "who has the incentive and power to do that",
+    "part of a sentence (starts in lower case), not a title"
+   ]
+  ],
+  "06_subsidiary_ampersand_June_FY_PGHH_FY2025-26.pdf": [
+   [
+    21,
+    "fol",
+    "letters read off a picture, not words: not a title"
+   ],
+   [
+    24,
+    "bh",
+    "letters read off a picture, not words: not a title"
+   ],
+   [
+    15,
+    "whisper",
+    "a brand name in lower case on a pack shot, not a title"
+   ],
+   [
+    17,
+    "syrup",
+    "a brand name in lower case on a pack shot, not a title"
+   ]
+  ],
+  "Reliance_IntegratedAnnualReport_FY2026_30pages.pdf": [
+   [
+    8,
+    "RCPL is committed to the vision of making global quality",
+    "a sentence set large over several lines: now one paragraph"
+   ]
+  ],
+  "V05_US_calendar_year_quarter.pdf": [
+   [
+    4,
+    "• Net income of $8.5B; EPS of $1.06; ROE 11.5%, ROTCE1 15.4%",
+    "a bullet point, not a title"
+   ]
+  ]
+ }
+}

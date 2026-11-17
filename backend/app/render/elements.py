@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from app.extraction.pdf import vector_paths
+from app.extraction import layout
+from app.extraction.pdf import PAGE_SIZED, vector_paths
 from app.render import pages as pages_mod
 
 # Pictures smaller than this share of the page are decoration (bullets, dots, rules). A brand
@@ -141,8 +142,16 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
         if (x1 - x0) * (y1 - y0) >= SPECK_SHARE * W * H:
             boxes.append([x0, y0, x1, y1])
+    # A page-sized image with smaller pictures set on top of it is the slide template's
+    # background, not a picture: as a picture it would swallow every word on the page. (The
+    # extractor reads it the same way, extraction/pdf._classify.) A full-page photo with nothing
+    # on top of it stays a picture.
+    page_sized = [b for b in boxes if (b[2] - b[0]) * (b[3] - b[1]) >= PAGE_SIZED * W * H]
+    if page_sized and len(page_sized) < len(boxes):
+        boxes = [b for b in boxes if b not in page_sized]
     raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_MEDIABOX_CLIP)
     text_blocks = _split_columns([b for b in raw["blocks"] if b.get("type") == 0])
+
     for bb in chart_boxes or []:
         bb = _without_furniture(tuple(bb), drawn_furniture.get(page.number, []), text_blocks)
         if bb is None:
@@ -152,6 +161,11 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         if inner <= 2:
             boxes.append(list(bb))
     pictures = [b for b in _merge(boxes) if (b[2] - b[0]) * (b[3] - b[1]) >= MIN_PICTURE_SHARE * W * H]
+    # A text box drawn as an image (running text on a plain shape) is not a picture: its text is
+    # the page's text, as the extractor reads it (layout.reads_as_prose). Page-sized images
+    # (a background, a full-page photo) are left as they are.
+    pictures = [b for b in pictures if (b[2] - b[0]) * (b[3] - b[1]) >= PAGE_SIZED * W * H
+                or not layout.reads_as_prose(_lines_inside(b, text_blocks))]
     # A row of product packs is drawn as many small images side by side; keep them as ONE
     # strip (as the PDF shows them) instead of scattering them across a web gallery.
     pictures = _merge_rows(pictures)
@@ -213,6 +227,13 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     out.sort(key=lambda e: (round(e.bbox[1] / 6), e.bbox[0]))
     assert len([e for e in out if e.kind == "text"]) == n_text
     return out
+
+
+def _lines_inside(box, text_blocks: list[dict]) -> list[list[str]]:
+    """The words of each text line wholly inside `box`."""
+    return ["".join(c["c"] for s in ln["spans"] for c in s.get("chars", [])).split() or
+            " ".join(s.get("text", "") for s in ln["spans"]).split()
+            for t in text_blocks if _inside(t["bbox"], box) for ln in t["lines"]]
 
 
 def _join_wrapped(texts: list[Element]) -> list[Element]:
