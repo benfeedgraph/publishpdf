@@ -233,3 +233,11 @@ def test_a_slide_background_is_not_a_picture_on_the_web_page_but_a_full_page_pho
     p2.insert_image(pymupdf.Rect(0, 0, W, H), pixmap=_pix((90, 120, 160)))
     p2.insert_text((60, 270), "Agri Business", fontname="hebo", fontsize=40)
     assert [e.kind for e in page_elements(p2, {"figures": {}, "sections": [], "pages": []}, 1)].count("picture") == 1
+
+
+def test_a_sentence_with_a_few_bold_words_is_not_a_heading_on_a_slide():
+    def el(text, *, bold=True, mixed=False):
+        return Element("t", "text", (0, 0, 300, 14), text=text, html=text, size=14.0, bold=bold, safe=True, lines=1,
+                       meta={"mixed": True} if mixed else {})
+    assert web_layout.heading_level(el("Minimise total cost of product", mixed=True), 14.0) is None
+    assert web_layout.heading_level(el("Key levers of profitable growth"), 14.0) == 3

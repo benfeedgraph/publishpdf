@@ -190,6 +190,10 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
             weight[(round(s["size"], 1), bool(s["flags"] & 16) or "bold" in s["font"].lower(), s["color"])] = \
                 weight.get((round(s["size"], 1), bool(s["flags"] & 16) or "bold" in s["font"].lower(), s["color"]), 0) + len(s["text"])
         (size, bold, color), _ = max(weight.items(), key=lambda kv: kv[1])
+        # some words bold, some not ("Invest in cutting-edge **product development**"): emphasis
+        # inside a sentence, not a heading set in bold
+        bold_chars = sum(n for (_, b, _), n in weight.items() if b)
+        mixed = 0.1 < bold_chars / max(1, sum(weight.values())) < 0.9
         # the block's typeface, as one of the bundled faces (pages.face_for)
         fonts: dict[tuple, int] = {}
         for sp in spans:
@@ -203,7 +207,7 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         safe = len(_DIGIT.findall(text)) <= shown_digits and bool(mine)
         out.append(Element(f"t{len(out) + 1}", "text", bx, text=text, html=html_, size=size, bold=bold,
                            color=_hex(color), safe=safe, lines=len(blk["lines"]),
-                           meta={k: v for k, v in (("bullet", bullet), ("bg", label),
+                           meta={k: v for k, v in (("bullet", bullet), ("bg", label), ("mixed", mixed),
                                                    ("bg_box", tuple(panel[0]) if panel else None),
                                                    ("face", pages_mod.face_class(fam, fw, fit))) if v}))
     # Many design-tool PDFs store each wrapped line of a paragraph as its own text object, so a
@@ -282,7 +286,9 @@ def _combine_text(a: Element, b: Element) -> Element:
                     max(a.bbox[2], b.bbox[2]), max(a.bbox[3], b.bbox[3])),
                    text=f"{a.text} {b.text}".strip(), html=f"{a.html} {b.html}".strip(),
                    size=a.size, bold=a.bold, color=a.color, safe=True,
-                   lines=a.lines + b.lines, meta=a.meta)
+                   lines=a.lines + b.lines,
+                   # a bold line joined with a plain one is a sentence with emphasis, not a heading
+                   meta={**a.meta, **({"mixed": True} if a.bold != b.bold or b.meta.get("mixed") else {})})
 
 
 def _trim(pic: tuple, texts: list[tuple]) -> tuple:

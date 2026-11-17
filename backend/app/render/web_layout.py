@@ -56,7 +56,8 @@ def heading_level(e: Element, body: float) -> int | None:
         return 1
     if e.size >= body * 1.3:
         return 2
-    if (e.bold and e.size >= body * 0.98 and w <= 10) or (e.text.isupper() and w <= 6 and e.size >= body * 0.9):
+    if (e.bold and not e.meta.get("mixed") and e.size >= body * 0.98 and w <= 10) \
+            or (e.text.isupper() and w <= 6 and e.size >= body * 0.9):
         return 3
     return None
 
