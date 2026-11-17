@@ -233,7 +233,8 @@ def test_a_long_report_with_a_contents_page_splits_into_one_page_per_section():
     for slug in ("business-review", "strategy", "governance"):
         assert base + slug + "/index.html" in pages
     home = files[base + "index.html"].decode()
-    assert "In this report" not in home and 'class="web-hero"' not in home
+    assert "In this report" not in home                      # the PDF's contents page stays out: the sidebar is the contents
+    assert 'class="web-hero' in home and "pages/p0001" in home    # the cover is on the first page (issue #7 follow-up)
     assert 'class="web-rail"' in home and "Chairman Statement" in home
     assert 'href="/' + base + 'business-review/"' in home or base + "business-review/" in home   # sidebar links on
     sec = files[base + "business-review/index.html"].decode()

@@ -105,9 +105,11 @@ def document_layout(schema: dict, visuals: dict) -> dict[str, dict]:
     return out
 
 
-def document_order(schema: dict, layout: dict[str, dict]) -> dict[str, list[dict]]:
+def document_order(schema: dict, layout: dict[str, dict], apart: set[str] | frozenset[str] = frozenset()) -> dict[str, list[dict]]:
     """Blocks per section in PDF reading order, except that a floated visual moves just
-    before the first paragraph that wraps around it (a float must precede its text)."""
+    before the first paragraph that wraps around it (a float must precede its text).
+    ``apart``: blocks shown inside a picture (the cover, a graphic) — never joined with text
+    from another page, or that text would be hidden with them."""
     out = {}
     for s in schema["sections"]:
         blocks = list(s["blocks"])
@@ -119,7 +121,7 @@ def document_order(schema: dict, layout: dict[str, dict]) -> dict[str, list[dict
                 if p["type"] == "paragraph" and p["source"]["page"] == pg and bb and bb[1] < y1 - 6 and bb[3] > y0 + 6:
                     blocks.insert(j, blocks.pop(i))
                     break
-        out[s["id"]] = mend_lists(_join_across_pages(blocks))
+        out[s["id"]] = mend_lists(_join_across_pages(blocks, apart))
     return out
 
 
@@ -179,14 +181,16 @@ def _run_text(r: dict) -> str:
     return r.get("t", "")
 
 
-def _join_across_pages(blocks: list[dict]) -> list[dict]:
+def _join_across_pages(blocks: list[dict], apart: set[str] | frozenset[str] = frozenset()) -> list[dict]:
     """A sentence the PDF carries over a page break ("…grew 28%" | next page "YoY, while…")
     is one paragraph again: the last paragraph on a page that doesn't end a sentence is
-    joined with the first paragraph of the next page. Runs are concatenated, not re-typed."""
+    joined with the first paragraph of the next page. Runs are concatenated, not re-typed.
+    A block shown inside a picture is never joined with one shown as text (``apart``)."""
     out: list[dict] = []
     for b in blocks:
         prev = out[-1] if out else None
-        if prev and prev["type"] == b["type"] == "paragraph" and bullet_runs(b) is None \
+        if prev and (prev["id"] in apart) == (b["id"] in apart) \
+                and prev["type"] == b["type"] == "paragraph" and bullet_runs(b) is None \
                 and b.get("source", {}).get("page") == (prev.get("source", {}).get("page") or 0) + 1 + prev.get("_extra_pages", 0):
             tail = _run_text(prev["runs"][-1]).rstrip() if prev["runs"] and "t" in prev["runs"][-1] else "x"
             if tail and tail[-1] not in ".?!:;\"”’)":

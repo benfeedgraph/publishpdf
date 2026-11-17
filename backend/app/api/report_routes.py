@@ -31,6 +31,7 @@ from app.reports import (
     create_upload,
     create_version,
     delete_report,
+    disclaimer_problem,
     landing_of,
     store_source,
     enqueue_stage,
@@ -42,6 +43,7 @@ from app.reports import (
     publish,
     report_status,
     rollback,
+    settings_for,
     source_key,
     versions_for,
 )
@@ -413,6 +415,8 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
         out["has_overview"] = _bundle_has_overview(ctx, v.bundle_key)
+        # What the footer disclaimer stops (Approve & publish shows it before the click).
+        out["disclaimer_problem"] = disclaimer_problem(v, settings_for(s, ctx)) if v.published_at is None else None
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
             from app import validation
             methods = {p.get("method") for p in pages or []} - {None}

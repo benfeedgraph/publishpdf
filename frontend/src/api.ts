@@ -123,6 +123,8 @@ export interface VersionDetail extends Version {
   queue: { waiting: boolean; waiting_seconds: number; workers_alive: number | null; stalled: boolean } | null;
   /** Seconds this version has been processing (server clock); null unless processing has begun. */
   elapsed_seconds?: number | null;
+  /** Why the page's footer disclaimer stops publishing (unfinished, or older than Settings); null when fine. */
+  disclaimer_problem?: string | null;
 }
 
 export interface Report {

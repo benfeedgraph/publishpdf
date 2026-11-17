@@ -220,6 +220,21 @@ function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId
   const [failed, setFailed] = useState<string | null>(null);
   const timer = useRef<number>();
   const seq = useRef(0);   // only the latest request may update the preview
+  // The footer (the "Powered by" credit) is at the very bottom of the preview: when a footer
+  // setting changes, the updated preview opens at the footer, so the change is in view.
+  const frame = useRef<HTMLIFrameElement>(null);
+  const footerKey = JSON.stringify(theme.footer ?? {});
+  const lastFooter = useRef(footerKey);
+  const showFooter = useRef(false);
+  if (footerKey !== lastFooter.current) { lastFooter.current = footerKey; showFooter.current = true; }
+  const onFrameLoad = () => {
+    if (!showFooter.current) return;
+    showFooter.current = false;
+    // The footer ends the page: jump the preview (not the page around it) to its bottom. Instant,
+    // since the page scrolls smoothly and would otherwise run through the whole report first.
+    const win = frame.current?.contentWindow, doc = frame.current?.contentDocument;
+    if (win && doc) win.scrollTo({ top: doc.documentElement.scrollHeight, behavior: "instant" });
+  };
   useEffect(() => {
     window.clearTimeout(timer.current);
     setPending(true);
@@ -252,7 +267,7 @@ function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId
     <div className="card live-preview" style={{ padding: 12 }}>
       <div className="toolbar" style={{ marginBottom: 8 }}><strong>Live preview</strong><span className="muted small">Your report in this design</span>{pending && <Spinner label="Updating the preview" />}</div>
       {failed && <p className="error small" role="alert">{failed}</p>}
-      <iframe title="Design preview" srcDoc={html} sandbox="allow-same-origin" />
+      <iframe ref={frame} title="Design preview" srcDoc={html} sandbox="allow-same-origin" onLoad={onFrameLoad} />
     </div>
   );
 }

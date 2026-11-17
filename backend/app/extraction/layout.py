@@ -334,7 +334,15 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
             size = statistics.median(w.size or w.h for w in seg.words)
             is_heading = (_is_heading(seg, size, body_size, med_h))
             target = None
-            if all(w.bold for w in seg.words) and not _QMARK.match(seg.text):
+            if not _QMARK.match(seg.text) and not _BULLET.match(seg.text):
+                # A heading that wraps onto the next line ("Manufactured" / "Capital",
+                # "Polyesters," / "Polymers and" / "Elastomers"): the next line in the same
+                # type, directly below it, is the same heading — not a new one.
+                for b in open_blocks:
+                    if b.kind == "heading" and not _QMARK.match(b.lines[0][0].text) and _wraps(b, seg, size):
+                        target = b
+                        break
+            if target is None and all(w.bold for w in seg.words) and not _QMARK.match(seg.text):
                 # A question that wraps: bold continuation lines join the heading above.
                 for b in open_blocks:
                     if b.kind == "heading" and _QMARK.match(b.lines[0][0].text) \
@@ -358,8 +366,40 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
                 b = TextEl("heading" if is_heading else "paragraph", [seg.words], size)
                 blocks.append(b)
                 open_blocks = [x for x in open_blocks if abs(x.lines[-1][0].bbox[0] - seg.x0) >= 18] + [b]
+    # Large type that runs on over several lines is a passage (a cover quote, a lead paragraph),
+    # not a heading: "We see India as a land of / build globally competitive assets / …".
+    for b in blocks:
+        if b.kind == "heading" and len(b.lines) > 1 and not _QMARK.match(b.lines[0][0].text) and _reads_as_text(b):
+            b.kind = "paragraph"
     elements.extend(blocks)
     return _order(elements)
+
+
+# A list item, never a heading, and never the second line of one: a bullet mark ("❖Housing",
+# "• Revenue"), or a dash followed by a space ("– Operating leverage"; "-5%" is a number).
+_BULLET = re.compile(r"^(?:[•▪◦●‣·■□❖➢►✓]|[–—-]\s)")
+
+
+def _wraps(b: "TextEl", seg: Segment, size: float) -> bool:
+    """`seg` is the next line of heading `b`: the same type size and weight, directly under its
+    last line (no more than a normal line gap) and overlapping it side to side."""
+    last = b.lines[-1]
+    if abs(size - b.size) > max(0.5, 0.06 * b.size):
+        return False
+    if all(w.bold for w in seg.words) != all(w.bold for w in last):
+        return False
+    gap = seg.y0 - max(w.bbox[3] for w in last)
+    if not -0.25 * b.size <= gap <= 0.65 * b.size:
+        return False
+    x0, x1 = min(w.bbox[0] for w in last), max(w.bbox[2] for w in last)
+    return min(x1, seg.x1) - max(x0, seg.x0) > 0
+
+
+def _reads_as_text(b: "TextEl") -> bool:
+    """A multi-line 'heading' that is really running text: longer than any heading, or with a
+    sentence ending inside it."""
+    text = " ".join(w.text for w in b.words).strip()
+    return len(b.words) > 18 or len(text) > 140 or text.endswith((".", ";")) or bool(re.search(r"[.!?;]\s+\S", text))
 
 
 _URLISH = re.compile(r"https?:|www\.|/|\.(pdf|html?|aspx)\b", re.I)
@@ -372,6 +412,8 @@ def _is_heading(seg: Segment, size: float, body_size: float, med_h: float) -> bo
     # FAQ documents: a bold numbered question is a heading at body size, whatever its length.
     if bold and _QMARK.match(text) and len(text) <= 320:
         return True
+    if _BULLET.match(text):                    # "• Revenue grew 12%", "– Operating leverage of 5.6%"
+        return False
     if len(text) > 90 or len(seg.words) > 12 or text.endswith((".", ",", ";")):
         return False
     alpha_words = [w for w in seg.words if sum(ch.isalpha() for ch in w.text) >= 2]

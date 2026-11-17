@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -124,7 +125,62 @@ def effective_theme(st: TenantSettings, report: Report | None = None) -> tuple[d
 
 
 def effective_disclaimer(st: TenantSettings) -> str | None:
-    return (st.disclaimer or "").strip() or (get_settings().disclaimer_default_text or "").strip() or None
+    """The footer disclaimer: only the text the workspace saved itself. With none, the footer
+    carries just the page's own line ("The PDF filing is the official document. Download the
+    original PDF."), which is safe to publish. The platform-wide DISCLAIMER_DEFAULT_TEXT is no
+    longer printed on pages: it went out as "DEVELOPMENT PLACEHOLDER. …" (issue #7)."""
+    return (st.disclaimer or "").strip() or None
+
+
+# Text that says it isn't finished. A small fixed list, agreed for this purpose only.
+_UNFINISHED = re.compile(r"\b(?:placeholder|lorem\s+ipsum|todo|tbd|replace\s+this)\b"
+                         r"|\[[A-Za-z][^\]\n]{0,60}\]|\{\{[^}\n]{0,60}\}\}", re.I)
+
+
+def unfinished_disclaimer(text: str | None) -> str | None:
+    """The part of a disclaimer that shows it isn't the final wording ("PLACEHOLDER",
+    "[Company name]", "{{year}}"), or None."""
+    m = _UNFINISHED.search(text or "")
+    return m.group(0) if m else None
+
+
+def disclaimer_problem(v: ReportVersion, st: TenantSettings) -> str | None:
+    """Why this version's footer disclaimer can't be published, or None. Read from what the page
+    was built with, so a draft made before the disclaimer was fixed is caught too."""
+    snap = v.theme_snapshot or {}
+    if "disclaimer" not in snap:              # not built yet: nothing on a page to check
+        return None
+    built, now = (snap.get("disclaimer") or "").strip() or None, effective_disclaimer(st)
+    if unfinished_disclaimer(built):
+        return (f"The footer disclaimer isn't finished: it says \u201c{_excerpt(built)}\u201d. Save your disclaimer in "
+                "Settings (you can leave it empty) and the page is rebuilt with it.")
+    if built != now:
+        return ("The footer still has an earlier disclaimer, not the one in Settings. Save your disclaimer in "
+                "Settings again and the page is rebuilt with it.")
+    return None
+
+
+def _excerpt(text: str, n: int = 60) -> str:
+    t = " ".join(text.split())
+    return t if len(t) <= n else t[:n - 1].rstrip() + "\u2026"
+
+
+def rebuild_drafts_for_disclaimer(s: Session, ctx: Context) -> int:
+    """Re-render every unpublished draft whose footer has a different disclaimer than the
+    workspace's current one. Drafts still reading their PDF pick it up when they render."""
+    now = effective_disclaimer(settings_for(s, ctx))
+    n = 0
+    for v in s.scalars(select(ReportVersion).join(Report, Report.id == ReportVersion.report_id)
+                       .where(ReportVersion.published_at.is_(None), ReportVersion.bundle_key.is_not(None),
+                              Report.deleted_at.is_(None))):
+        snap = v.theme_snapshot or {}
+        if "disclaimer" not in snap or ((snap.get("disclaimer") or "").strip() or None) == now:
+            continue
+        if v.status == "processing" and (v.stage or "").split(":")[0] in ("extract", "queued"):
+            continue
+        enqueue_stage(s, ctx, v, "render", force=True)
+        n += 1
+    return n
 
 
 def logo_src(theme: dict) -> str | None:
@@ -492,8 +548,9 @@ def publish(s: Session, ctx: Context, v: ReportVersion, *, confirm_reviewed: boo
             and v.schema_sha256 and v.bundle_sha256):
         raise ReportError("This version changed after it was validated. Wait for validation to finish.", 409)
     st = settings_for(s, ctx)
-    if not effective_disclaimer(st):
-        raise ReportError("Add a disclaimer in Settings before publishing (the PDF must be stated as the official source).", 409)
+    # (The page itself always says the PDF filing is the official document.)
+    if problem := disclaimer_problem(v, st):
+        raise ReportError(problem, 409)
     report = s.get(Report, v.report_id)
     assert report is not None
     previous = report.live_version_id

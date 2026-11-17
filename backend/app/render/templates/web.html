@@ -40,7 +40,9 @@
     section with a sidebar navigator; everything stays server-rendered HTML. -#}
 {% block content %}
 <article class="web" id="top"{% if faq and mode != 'section' %} itemscope itemtype="https://schema.org/FAQPage"{% endif %}>
-  {%- if mode != 'section' %}
+  {#- The cover band: on the single page, and on the first page of a report split into chapters
+      (the PDF's cover is shown nowhere else). -#}
+  {%- if mode != 'section' or is_home %}
   <header class="web-hero">
     <div class="web-hero-in{% if cover %} has-cover{% endif %}">
       <div class="web-hero-text">
@@ -63,7 +65,11 @@
     <div class="web-main">
       {{ sections_menu(nav, current.slug, base_path) }}
       {{ breadcrumb(company, current.title) }}
+      {%- if is_home %}
+      <h2 class="web-sec-title" id="start">{{ runs(start.heading, figures) or section_type_label(start.type) }}</h2>
+      {%- else %}
       <h1 class="web-sec-title">{{ runs(start.heading, figures) or section_type_label(start.type) }}</h1>
+      {%- endif %}
       {%- for sid in current.section_ids %}
       {{ section_body(sections_by_id[sid], 'h2', sid != current.start_id) }}
       {%- endfor %}

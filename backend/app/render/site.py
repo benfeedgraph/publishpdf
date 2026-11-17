@@ -428,6 +428,15 @@ def _contents_pages(pdf_bytes: bytes) -> set[int]:
         doc.close()
 
 
+def left_out_pages(schema: dict, pdf_bytes: bytes) -> set[int]:
+    """Pages the web edition leaves out on purpose: the PDF's own contents page(s) near the front
+    ("In this report" does that job on the web). The page check uses the same rule."""
+    page_count = (schema["metadata"].get("source_pdf") or {}).get("page_count")
+    tables = {b["id"]: b for x in schema["sections"] for b in x["blocks"] if b["type"] == "table"}
+    return ({tables[tid]["source"]["page"] for tid in story.index_links(schema, page_count)
+             if tid in tables and tables[tid]["source"]["page"] <= 5} | _contents_pages(pdf_bytes))
+
+
 def _words(b: dict) -> int:
     return sum(len(r.get("t", "").split()) + ("f" in r) for r in b.get("runs") or [])
 
@@ -831,7 +840,8 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     contents table (``index_links``), the chapter starts the AI picked at extraction (``ai_starts``,
     section ids only — titles are always the PDF's heading text), else cleaned headings — so the
     sidebar lists real chapters, not every bold line. Sections between two starts (and the junk headings dropped by the cleaner)
-    fold into the preceding chapter, so no content is lost. A report with no contents page and only
+    fold into the preceding chapter, and sections before the first start open the first chapter, so no
+    content is lost (``skip_ids`` — the intro lead and a true cover's title — never start a chapter). A report with no contents page and only
     a handful of plain sections (a results statement, an FAQ) is not split."""
     heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
     by_id_all = {s["id"]: s for s in sections}
@@ -873,7 +883,11 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     chapters = []
     for k, (sid, title) in enumerate(starts):
         title = _verified_title(title, by_id[sid])
-        lo = order[sid]
+        # Everything before the first start opens the first chapter. That includes the sections
+        # kept off the chapter starts (``skip_ids``: the intro lead, the cover's title section):
+        # they're never a chapter of their own, but their text — the cover section often runs on
+        # to page 2 (a safe-harbour notice) — must still be on a page.
+        lo = order[sid] if k else 0
         hi = order[starts[k + 1][0]] if k + 1 < len(starts) else len(sections)
         members = [s["id"] for s in sections if lo <= order[s["id"]] < hi]
         chapters.append({"slug": by_id[sid]["slug"], "title": title or SECTION_TYPE_LABEL.get(by_id[sid]["type"], "Section"),
@@ -921,10 +935,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         page_count = (m.get("source_pdf") or {}).get("page_count")
         index_links = story.index_links(schema, page_count)
         # The PDF's own contents page is left out: "In this report" does that job on the web.
-        tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
-        skip = {tables[tid]["source"]["page"] for tid in index_links if tables[tid]["source"]["page"] <= 5}
         contents_pages = _contents_pages(pdf_bytes)
-        skip |= contents_pages
+        skip = left_out_pages(schema, pdf_bytes)
         vis_boxes: dict[int, list] = {}
         words: dict[int, int] = {}
         table_pages: set[int] = set()
@@ -1053,7 +1065,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             files.pop(f"{base.lstrip('/')}pages/p{n:04d}-print.webp", None)
         qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
         front = sections[0] if sections and not sections[0].get("heading") else None
-        front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])
+        front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {}), in_graphic).get(front["id"], [])
                         if (b.get("source") or {}).get("page") not in picture_pages and b["id"] not in in_graphic] \
             if front else []
         doclayout = story.document_layout(schema, {})
@@ -1064,7 +1076,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         web_ctx = dict(
             **{**common, "css": css_all}, qparts=qparts, faq=story.is_faq(schema), front=front,
             front_blocks=front_blocks, first_q=next((x for x in sections if qparts[x["id"]]), None),
-            doclayout=doclayout, doc_order=story.document_order(schema, doclayout),
+            doclayout=doclayout, doc_order=story.document_order(schema, doclayout, in_graphic),
             heading_ids=story.heading_like(schema), index_links=index_links, crops=crops,
             graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
             ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og)
@@ -1075,8 +1087,19 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         skip_ids = {front["id"]} if front else set()
         if p1_cover and owner_of(1):
             skip_ids.add(owner_of(1))
-        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count,
-                                   ai_starts=schema.get("chapters"))
+
+        # The PDF's own contents page is left out on purpose (the sidebar is the contents). Its
+        # entries can read as headings ("Performance Highlights"): never a chapter start, and a
+        # section that is only that page doesn't join the first chapter with the rest.
+        def pages_of(x: dict) -> set[int]:
+            return ({b["source"]["page"] for b in x["blocks"] if (b.get("source") or {}).get("page")}
+                    | ({x["source"]["page"]} if (x.get("source") or {}).get("page") else set()))
+        on_contents = {x["id"] for x in sections if pages_of(x) and pages_of(x) <= skip}
+        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids | on_contents, bool(contents_pages),
+                                   page_count, ai_starts=schema.get("chapters"))
+        if chapters:
+            start0 = chapters[0]["start_id"]
+            chapters[0]["section_ids"] = [sid for sid in chapters[0]["section_ids"] if sid == start0 or sid not in on_contents]
         if chapters:
             chapters = _drop_empty_chapters(chapters, sections_by_id, pictures, quiet, in_graphic,
                                             set(region_at), crops, web_ctx["doc_order"])
@@ -1101,7 +1124,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 is_first = i == 0
                 path = "index.html" if is_first else c["slug"] + "/index.html"
                 files[base.lstrip("/") + path] = tmpl.render(
-                    **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, start_href=None,
+                    **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, is_home=is_first,
+                    start_href="#start" if is_first else None,
                     prev=(nav[i - 1] if i > 0 else None), next=(nav[i + 1] if i + 1 < len(chapters) else None),
                     page_title=(title if is_first else f"{c['title']} · {title}"),
                     canonical_path=(base if is_first else base + c["slug"] + "/"),

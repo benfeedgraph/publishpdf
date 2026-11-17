@@ -60,7 +60,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
     if (sec) setSection(sec.id);
   };
   const comments = useQuery({ queryKey: ["comments", version.id], queryFn: () => api<{ comments: CommentRow[] }>(`${base}/comments`) });
-  const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ effective_disclaimer: string | null; site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
+  const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
 
   if (!version.bundle_sha256) return <p className="muted">The web page will appear here once it has been generated.</p>;
   const previewUrl = `${base}/preview`;      // no trailing slash: the hosted /api forwarding drops those
@@ -111,7 +111,7 @@ export default function PreviewTab({ tenantId, report, version, hidePublish = fa
         </div>
       )}
 
-      {!hidePublish && <PublishPanel tenantId={tenantId} report={report} version={version} isAdmin={isAdmin} disclaimer={settings.data?.effective_disclaimer ?? null} siteOrigin={settings.data?.site_origin} />}
+      {!hidePublish && <PublishPanel tenantId={tenantId} report={report} version={version} isAdmin={isAdmin} siteOrigin={settings.data?.site_origin} />}
     </div>
   );
 }
@@ -145,8 +145,8 @@ function Comments({ base, sectionId, rows, readonly, onChange }: { base: string;
   );
 }
 
-export function PublishPanel({ tenantId, report, version, isAdmin, disclaimer, siteOrigin }: {
-  tenantId: string; report: Report; version: VersionDetail; isAdmin: boolean; disclaimer: string | null; siteOrigin?: string;
+export function PublishPanel({ tenantId, report, version, isAdmin, siteOrigin }: {
+  tenantId: string; report: Report; version: VersionDetail; isAdmin: boolean; siteOrigin?: string;
 }) {
   const qc = useQueryClient();
   const [confirmed, setConfirmed] = useState(false);
@@ -171,7 +171,7 @@ export function PublishPanel({ tenantId, report, version, isAdmin, disclaimer, s
   if (version.status === "processing") reasons.push("Checks are still running.");
   if (blocking > 0) reasons.push(`${blocking} blocking issue(s) are open in Validation.`);
   if (!version.validated_current && version.status !== "processing") reasons.push("The latest changes haven't been checked yet.");
-  if (!disclaimer) reasons.push("Add a disclaimer in Settings.");
+  if (version.disclaimer_problem) reasons.push(version.disclaimer_problem);
   const ready = reasons.length === 0;
   return (
     <div className="card publish">

@@ -18,7 +18,16 @@ from app.config import get_settings as get_platform_settings
 from app.models import Domain, EdgeHit, Report, ReportVersion, Tenant
 from app.render import analyze, site
 from app.render import theme as theming
-from app.reports import effective_disclaimer, effective_theme, new_draft_from, public_origin, rebuild_site, settings_for
+from app.reports import (
+    effective_disclaimer,
+    effective_theme,
+    new_draft_from,
+    public_origin,
+    rebuild_drafts_for_disclaimer,
+    rebuild_site,
+    settings_for,
+    unfinished_disclaimer,
+)
 from app.tenancy import Context
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}", tags=["settings"])
@@ -64,6 +73,9 @@ def put_settings(body: SettingsIn, ctx: Context = Depends(require("theme.manage"
         st = settings_for(s, ctx)
         before = {"disclaimer": st.disclaimer, "robots_policy": st.robots_policy, "llm_assist_enabled": st.llm_assist_enabled}
         if body.disclaimer is not None:
+            if bad := unfinished_disclaimer(body.disclaimer):
+                raise HTTPException(400, f"This disclaimer isn't finished yet: it says \u201c{bad}\u201d. "
+                                         "Write the final wording, or leave it empty.")
             st.disclaimer = body.disclaimer.strip() or None
         if body.robots_policy is not None:
             st.robots_policy = body.robots_policy
@@ -73,6 +85,8 @@ def put_settings(body: SettingsIn, ctx: Context = Depends(require("theme.manage"
         after = {"disclaimer": st.disclaimer, "robots_policy": st.robots_policy, "llm_assist_enabled": st.llm_assist_enabled}
         audit.record(s, ctx, "settings.changed", target_type="tenant_settings", target_id=ctx.tenant_id,
                      before=before, after=after)
+        # Drafts already built carry the old disclaimer in their footer: rebuild them with this one.
+        rebuild_drafts_for_disclaimer(s, ctx)
         rebuild_site(s, ctx)
         return after
 

@@ -229,7 +229,7 @@ function ReviewStep({ tenantId, report, version, back, onContinue }: { tenantId:
 }
 
 function PublishStep({ tenantId, report, version, isAdmin, back }: { tenantId: string; report: Report; version: VersionDetail; isAdmin: boolean; back: Back }) {
-  const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ effective_disclaimer: string | null; site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
+  const settings = useQuery({ queryKey: ["settings", tenantId], queryFn: () => api<{ site_origin: string }>(`/api/tenants/${tenantId}/settings`) });
   const [copied, setCopied] = useState(false);
   const liveUrl = version.is_live && settings.data?.site_origin ? `${settings.data.site_origin}${report.path}` : null;
   const overviewUrl = liveUrl && version.has_overview ? `${liveUrl}overview/` : null;
@@ -241,7 +241,7 @@ function PublishStep({ tenantId, report, version, isAdmin, back }: { tenantId: s
   return (
     <div className="stack">
       <PublishPanel tenantId={tenantId} report={report} version={version} isAdmin={isAdmin}
-        disclaimer={settings.data?.effective_disclaimer ?? null} siteOrigin={settings.data?.site_origin} />
+        siteOrigin={settings.data?.site_origin} />
       <div className="card">
         <h2>Version history</h2>
         <VersionsTab tenantId={tenantId} report={report} />
@@ -258,7 +258,7 @@ function PublishStep({ tenantId, report, version, isAdmin, back }: { tenantId: s
         <WizardFooter back={back}
           hint={version.published_at ? "This version was replaced by a newer one. Roll back from Version history to make it live again."
             : !isAdmin ? "A workspace admin approves and publishes this page."
-            : version.status === "processing" || version.open_blocking > 0 || !version.validated_current || (settings.data && !settings.data.effective_disclaimer)
+            : version.status === "processing" || version.open_blocking > 0 || !version.validated_current || !!version.disclaimer_problem
               ? "Publishing unlocks once the items listed above are sorted."
               : "Last step: tick the review box above, then Approve and publish."} />
       )}

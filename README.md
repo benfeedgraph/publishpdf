@@ -24,8 +24,8 @@ cp .env.example .env
 In `.env`, set `APP_SECRET_KEY` (`cd backend && uv run python -m app.cli gen-secret`), point both
 database URLs at `localhost:54329` with the dev passwords (`owner_dev_pw` / `app_dev_pw`), and for
 local use set `APP_ENV=development`, `PUBLIC_SCHEME=http`, `PUBLIC_PORT_SUFFIX=:8080`,
-`TLS_MODE=off`, `PREVIEW_URL_PATTERN={tenant_slug}.preview.localhost` and a placeholder
-`DISCLAIMER_DEFAULT_TEXT`.
+`TLS_MODE=off` and `PREVIEW_URL_PATTERN={tenant_slug}.preview.localhost`. (Each workspace writes
+its own footer disclaimer in Settings; `DISCLAIMER_DEFAULT_TEXT` is no longer printed on pages.)
 
 Then start everything (database, API, worker, public sites, dashboard) with one command:
 

@@ -737,6 +737,64 @@ def pages_shown_as_printed(bundle_files: dict[str, bytes] | None) -> set[int]:
     return shown
 
 
+_TAGS = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.S)
+
+
+_WORD = re.compile(r"[^\W\d_]{3,}")
+
+
+def _words_of(text: str) -> set[str]:
+    """Words of three letters or more (any script), lower-cased: what a page says, whatever
+    order the web page lays it out in."""
+    return {w.lower() for w in _WORD.findall(text)}
+
+
+def check_text_on_site(schema: dict, pdf_bytes: bytes, bundle_files: dict[str, bytes]) -> list[Issue]:
+    """No page of the PDF disappears from the web page: each page with text read from it has
+    its words on the web page, or is shown as printed (a picture of the page). Only the PDF's
+    own contents page is left out, on purpose. A page whose text appears nowhere is noted for
+    the reviewer (a warning, under Completeness: it doesn't stop publishing).
+
+    A page is judged by its own words — the ones on at most two pages of the PDF — so words
+    every page shares ("revenue", "quarter") can't make a missing page look present."""
+    import html as _html
+
+    from app.render.site import left_out_pages
+    left_out = left_out_pages(schema, pdf_bytes)
+    pages_html = " ".join(d.decode("utf-8", "replace") for n, d in bundle_files.items() if n.endswith((".html", ".css")))
+    site = _words_of(_html.unescape(_TAGS.sub(" ", pages_html)))
+    said: dict[int, set[str]] = defaultdict(set)
+    for sec in schema["sections"]:
+        if (sec.get("source") or {}).get("page"):
+            said[sec["source"]["page"]] |= _words_of(sec.get("heading_text") or "")
+        for b in sec["blocks"]:
+            page = (b.get("source") or {}).get("page")
+            if page:
+                said[page] |= _words_of(" ".join(r.get("t", "") for r in b.get("runs") or []))
+    pages_with: dict[str, int] = defaultdict(int)
+    for ws in said.values():
+        for w in ws:
+            pages_with[w] += 1
+    issues = []
+    for pg, ws in sorted(said.items()):
+        if pg in left_out:
+            continue
+        own = {w for w in ws if pages_with[w] <= 2}
+        pool = own if len(own) >= 3 else ws
+        if len(pool) < 3:                    # too little text on the page to judge
+            continue
+        # shown as printed: the page's artwork is drawn on the page (not just named in its metadata)
+        drawn = re.search(rf'(?:src|srcset)="[^"]*pages/p{pg:04d}\b|url\([^)]*pages/p{pg:04d}\b', pages_html)
+        # (most of a page's words on the site: the page is there, even if a footnote isn't)
+        if drawn or len(pool & site) >= 0.5 * len(pool) or len(ws & site) >= 0.7 * len(ws):
+            continue
+        example = " ".join(sorted(pool - site, key=len, reverse=True)[:4])
+        issues.append(Issue("completeness", "warning",
+                            f"Page {pg} of the PDF isn't on the web page: its words aren't there "
+                            f"(e.g. \u201c{example}\u201d). Compare it with the PDF before publishing.", page=pg))
+    return issues
+
+
 def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict,
                        bundle_files: dict[str, bytes] | None = None) -> list[Issue]:
     issues = []
@@ -1142,7 +1200,8 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     issues += step("Periods & units", lambda: check_period_unit(schema, checked["period_unit"]))
     if bundle_files is not None:
         issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
-    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files))
+    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files)
+                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else []))
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None, checked=checked["low_confidence"]))
     issues = merge_figure_duplicates(issues)
