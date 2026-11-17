@@ -328,6 +328,24 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
         if len(r.segments) > 1 and _QMARK.match(r.segments[0].text) and all(w.bold for sg in r.segments for w in sg.words):
             r.segments[:] = [Segment([w for sg in r.segments for w in sg.words])]
 
+    # A small figure printed right before a line set larger ("100.00%" in 8 pt beside the 12 pt
+    # "Meeting Details") belongs to the text next to it, not to that line: it is its own piece.
+    for r in rows:
+        k = 0
+        while k < len(r.segments):
+            sg = r.segments[k]
+            rest_sizes = [w.size or w.h for w in sg.words if not is_numeric_cell(w.text)]
+            lead = []
+            for w in sg.words:
+                if rest_sizes and is_numeric_cell(w.text) and (w.size or w.h) < 0.8 * statistics.median(rest_sizes):
+                    lead.append(w)
+                else:
+                    break
+            if lead and len(lead) < len(sg.words) and _letters(" ".join(w.text for w in sg.words[len(lead):])):
+                r.segments[k:k + 1] = [Segment(lead), Segment(sg.words[len(lead):])]
+                k += 1
+            k += 1
+
     # A line split in two by a wide gap ("Q2 FY26 Highlights (UltraTech existing assets –"
     # | "166.76 Mtpa)") is one line when its first piece is unfinished and both are set alike.
     for r in rows:
@@ -505,8 +523,8 @@ def _heading_continues(b: TextEl, seg: Segment, size: float) -> bool:
     # a title set large over several lines ("Regulatory" / "Developments", "Quarterly" /
     # "Financial" / "Snapshots"): a one- or two-word line with a line set exactly like it, at
     # the same left edge, tight under it
-    stacked = len(last) <= 2 and abs(size - b.size) <= 0.5 and abs(last[0].bbox[0] - seg.x0) <= 3 \
-        and -0.3 * lh <= gap <= 0.3 * lh
+    stacked = len(last) <= 2 and _letters(so_far) and _letters(seg.text) and abs(size - b.size) <= 0.5 \
+        and abs(last[0].bbox[0] - seg.x0) <= 3 and -0.3 * lh <= gap <= 0.3 * lh     # words, never a number ("100.00%")
     if not (stacked or DANGLING.search(so_far) or _UNFINISHED.search(so_far) or seg.text[:1].islower()):
         return False
     if len(b.lines) >= 5 or abs(size - b.size) > 1.5 or all(w.bold for w in last) != all(w.bold for w in seg.words):

@@ -251,3 +251,14 @@ def test_a_title_stacked_one_or_two_words_a_line_is_one_heading():
     ws = line("Cutting-edge R&D capability", 20, 20, size=24, bold=True) \
         + line("Life Sciences & Technology Centre", 20, 46, size=24, bold=True) + line("Over 350 scientists", 20, 90)
     assert headings(analyse(page(ws))) == ["Cutting-edge R&D capability", "Life Sciences & Technology Centre"]
+
+
+def test_a_number_is_never_part_of_the_title_beside_or_under_it():
+    ws = line("100.00%", 20, 20, size=24, bold=True) + line("Meeting Details", 20, 48, size=24, bold=True) \
+        + line("All directors attended every meeting", 20, 100)
+    assert headings(analyse(page(ws))) == ["Meeting Details"]
+    # an 8 pt figure printed right before a 12 pt bold sub-heading on the same line
+    ws = line("100.00%", 937, 165, size=8) + line("Meeting Details", 983, 161, size=12, bold=True) \
+        + line("The committee met four times", 983, 185, size=9)
+    els = layout.analyse_page(PageData(1, 1191, 842, "text_layer", ws, "test"), set(), 9.0)   # a 9 pt report page
+    assert headings(els) == ["Meeting Details"] and "100.00%" in paragraphs(els)
