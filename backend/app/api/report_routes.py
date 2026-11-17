@@ -330,7 +330,9 @@ def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context =
         audit.record(s, ctx, "theme.report_override_changed", target_type="report", target_id=r.id,
                      before={"theme_override": before}, after={"theme_override": r.theme_override})
         # Re-build the page in the new design: the latest draft is re-rendered and
-        # re-validated; a live version stays untouched and gets a new draft instead.
+        # re-validated; a live version stays untouched and gets a new draft instead. Only the
+        # design changed, so the drawn pages and the findings of the checks that don't read
+        # the web page are reused (design_only).
         latest = s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
                            .order_by(ReportVersion.version_no.desc())).first()
         target = None
@@ -341,10 +343,10 @@ def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context =
             # and picks up the new design then.)
             extracting = latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued")
             if latest.published_at is None and not extracting:
-                enqueue_stage(s, ctx, latest, "render", force=True)
+                enqueue_stage(s, ctx, latest, "render", force=True, design_only=True)
                 target = latest
             elif latest.published_at is not None:
-                target = new_draft_from(s, ctx, latest)
+                target = new_draft_from(s, ctx, latest, design_only=True)
         return {"theme_override": r.theme_override, "version_id": str(target.id) if target else None}
 
 

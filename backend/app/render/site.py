@@ -14,6 +14,7 @@ import html
 import io
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -895,15 +896,33 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     return chapters
 
 
+def artwork_key(schema: dict, pdf_bytes: bytes, max_pages: int | None, layouts: dict | None) -> str:
+    """Everything a report's page artwork is made from: the report data, the PDF, the page limit,
+    the AI layouts and this build of the app. Not the design — the design only fills templates."""
+    from app.code_version import code_version
+    made_from = [code_version(), hashlib.sha256(pdf_bytes).hexdigest(), max_pages,
+                 {str(k): v for k, v in (layouts or {}).items()}, schema]
+    return hashlib.sha256(json.dumps(made_from, sort_keys=True, default=str).encode()).hexdigest()
+
+
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
                   pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None,
                   pdf_page_sink=None, layouts: dict[int, dict] | None = None,
-                  landing: bool = False) -> dict[str, bytes]:
+                  landing: bool = False, memo: dict | None = None) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
 
     With the PDF (always, in the pipeline) the report page is the page-faithful web
     edition: every PDF page as designed, its text as real HTML on top. Without it (a
-    design preview on sample data) the report's text is laid out as one flowing page."""
+    design preview on sample data) the report's text is laid out as one flowing page.
+
+    Drawing the PDF's pages is nearly all of the work, and the design plays no part in it. With
+    `memo` (a dict the caller keeps between builds) the drawn pages of the last build are reused
+    when they were made from exactly the same things (`artwork_key`), so a change to the design
+    only fills the templates again; otherwise the pages are drawn and left in `memo`
+    (memo["artwork"] = (key, drawing), replaced in one step: a memo may be shared)."""
+    key = artwork_key(schema, pdf_bytes, max_pages, layouts) if memo is not None and pdf_bytes and not pdf_page_sink else None
+    kept = memo.get("artwork") if key else None
+    reuse = kept[1] if kept and kept[0] == key else None
     m = schema["metadata"]
     base = report_base_path(m)
     figures = schema["figures"]
@@ -1000,10 +1019,14 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # Pages rebuilt as web sections need the page as printed, to cut their pictures from.
         rebuilt = {n for n in wanted if (n != 1 or not p1_cover) and (n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS
                                                                                             or n in table_pages))}
-        page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                   max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
-                                                   skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
-                                                   keep_printed=rebuilt)
+        if reuse:
+            page_list, art = deepcopy(reuse["parts"]), dict(reuse["art"])
+        else:
+            page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
+                                                       max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
+                                                       skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
+                                                       keep_printed=rebuilt)
+            drawn = {"parts": deepcopy(page_list), "art": dict(art)}
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
         # Charts and graphics: cut from their page's artwork, labels as real text on top.
@@ -1056,7 +1079,12 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         for pg, sid in sorted(first.items()):
             anchors.setdefault(sid, []).append(pg)
         # Picture-led pages as web sections, not as pictures of the page.
-        ai_pages, ai_crops = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+        if reuse:
+            ai_pages, ai_crops = dict(reuse["web_pages"]), dict(reuse["web_crops"])
+        else:
+            ai_pages, ai_crops = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+            if key:
+                memo["artwork"] = (key, {**drawn, "web_pages": dict(ai_pages), "web_crops": dict(ai_crops)})
         files.update({base.lstrip("/") + k: v for k, v in ai_crops.items()})
         for n in ai_pages:
             # the page's pictures now ship as their own per-element crops, so the whole-page

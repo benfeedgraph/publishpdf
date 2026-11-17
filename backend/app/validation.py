@@ -1202,22 +1202,63 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     issues += step("Cross-table consistency", lambda: check_cross_tables(schema, verified["cross_table"],
                                                                          checked["cross_table"]))
     issues += step("Periods & units", lambda: check_period_unit(schema, checked["period_unit"]))
-    if bundle_files is not None:
-        issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
-    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files)
-                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else []))
+    issues += _page_checks(schema, doc, pdf_bytes, artifact, bundle_files, step)
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None, checked=checked["low_confidence"]))
     issues = merge_figure_duplicates(issues)
     summary = summarize(schema, issues)
     has_text_layer = any(p["method"] == "text_layer" for p in artifact["pages"])
-    # Checks that look at pages rather than figures: how many pages they covered.
-    page_counts = {"completeness": ("pdf_pages", len(artifact["pages"])),
-                   "rendered_page": ("web_pages", sum(1 for n in bundle_files or {} if n.endswith((".html", ".md"))))}
-    summary["agents"] = _agent_summary(schema, issues, verified, checked, page_counts, ran={
+    summary["agents"] = _agent_summary(schema, issues, verified, checked, _page_counts(artifact, bundle_files), ran={
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
+    return issues, summary
+
+
+# The checks that read the generated web page. Every other check reads only the PDF and the data
+# taken from it, so after a change to the design alone these two are the ones with anything new
+# to find (a number in a new header or footer, a page's words still reaching the site).
+PAGE_CHECKS = ("rendered_page", "completeness")
+
+
+def _page_checks(schema: dict, doc: pymupdf.Document, pdf_bytes: bytes, artifact: dict,
+                 bundle_files: dict[str, bytes] | None, step) -> list[Issue]:
+    issues: list[Issue] = []
+    if bundle_files is not None:
+        issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
+    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files)
+                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else []))
+    return issues
+
+
+def _page_counts(artifact: dict, bundle_files: dict[str, bytes] | None) -> dict[str, tuple[str, int]]:
+    """Checks that look at pages rather than figures: how many pages they covered."""
+    return {"completeness": ("pdf_pages", len(artifact["pages"])),
+            "rendered_page": ("web_pages", sum(1 for n in bundle_files or {} if n.endswith((".html", ".md"))))}
+
+
+def run_page_checks(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes], *,
+                    kept: list[Issue], agents: list[dict], progress=None) -> tuple[list[Issue], dict[str, Any]]:
+    """After a change to the design alone: the page checks run again on the new web page, and the
+    other checks' findings stand (`kept`, with their per-check `agents` summary, from the last run
+    on the same data by the same build of the app), since nothing they read has changed."""
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    done: list[str] = []
+
+    def step(name, fn):
+        done.append(name)
+        if progress:
+            progress(name, len(done))
+        return fn()
+    try:
+        fresh = _page_checks(schema, doc, pdf_bytes, artifact, bundle_files, step)
+    finally:
+        doc.close()
+    issues = [i for i in kept if i.check not in PAGE_CHECKS] + fresh
+    summary = summarize(schema, issues)
+    now = {a["key"]: a for a in _agent_summary(schema, fresh, {}, {}, _page_counts(artifact, bundle_files),
+                                               ran={"rendered_page": True})}
+    summary["agents"] = [now[a["key"]] if a["key"] in PAGE_CHECKS else a for a in agents]
     return issues, summary
 
 

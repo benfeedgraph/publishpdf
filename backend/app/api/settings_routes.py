@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
@@ -284,6 +286,29 @@ PREVIEW_PAGES = 3
 # (so its links can't navigate the frame), and only absolute URLs load from there.
 APP_ORIGIN = "__PPDF_APP_ORIGIN__"
 
+# The preview draws the report's first pages, and the design plays no part in that: the drawing
+# is kept in this process for the last few reports previewed (at most PREVIEW_KEEP_REPORTS, with
+# up to PREVIEW_KEEP_BYTES of pictures), so each further change to the design only fills the
+# templates again.
+PREVIEW_KEEP_REPORTS = 16
+PREVIEW_KEEP_BYTES = 64 * 2 ** 20
+_preview_memos: OrderedDict[tuple, dict] = OrderedDict()
+_preview_lock = threading.Lock()
+
+
+def _preview_memo(key: tuple) -> dict:
+    with _preview_lock:
+        memo = _preview_memos.pop(key, None) or {}
+        _preview_memos[key] = memo                  # most recently used last
+
+        def size(m: dict) -> int:
+            drawing = (m.get("artwork") or (None, {}))[1]
+            return sum(len(b) for part in ("art", "web_crops") for b in (drawing.get(part) or {}).values())
+        while len(_preview_memos) > 1 and (len(_preview_memos) > PREVIEW_KEEP_REPORTS
+                                           or sum(size(m) for m in _preview_memos.values()) > PREVIEW_KEEP_BYTES):
+            _preview_memos.popitem(last=False)
+        return memo
+
 
 @router.post("/theme/preview")
 def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
@@ -307,6 +332,7 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
         stored_base = (f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/reports/{v.report_id}/versions/{v.id}/preview/"
                        if v is not None and v.bundle_key else None)
         bundle_key = v.bundle_key if v is not None else None
+        memo_key = (ctx.tenant_id, v.id) if v is not None else None
         st = settings_for(s, ctx)
         disclaimer = effective_disclaimer(st)
     pdf = None
@@ -318,7 +344,8 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             pdf = None
     # The first few pages are enough to judge a design, and keep the preview instant.
     files = site.render_report(schema, theme=used, disclaimer=disclaimer, pdf_bytes=pdf, max_pages=PREVIEW_PAGES,
-                               logo_src=f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None)
+                               logo_src=f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None,
+                               memo=_preview_memo(memo_key) if memo_key and pdf else None)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     html = files[base + "index.html"].decode()
     import base64

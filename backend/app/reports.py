@@ -354,12 +354,18 @@ def _settings_fingerprint(v: ReportVersion) -> str:
     return hashlib.sha256(json.dumps(v.theme_snapshot or {}, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False) -> None:
-    key = stage_key(v, stage) + (f":rerun:{uuid.uuid4().hex[:8]}" if force else "")
+def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False,
+                  design_only: bool = False) -> None:
+    """`design_only`: only the design changed (render, then validate): the drawn pages and the
+    findings of the checks that don't read the web page can be reused. It is part of the job's
+    key, since a job seen before is re-run as it was first queued."""
+    key = stage_key(v, stage) + (":design" if design_only else "") + (f":rerun:{uuid.uuid4().hex[:8]}" if force else "")
     v.status, v.stage, v.error_plain = "processing", stage, None
-    payload = {"version_id": str(v.id)}
+    payload: dict[str, Any] = {"version_id": str(v.id)}
     if stage == "render" and v.schema_sha256:
         payload["schema_sha256"] = v.schema_sha256      # a newer edit makes this job a no-op
+    if design_only:
+        payload["design_only"] = True
     job = jobs.enqueue(s, ctx, f"pipeline.{stage}", payload, idempotency_key=key)
     if job.version_id is None:
         job.version_id = v.id
@@ -605,8 +611,9 @@ def rollback(s: Session, ctx: Context, report: Report, target: ReportVersion) ->
     rebuild_site(s, ctx)
 
 
-def new_draft_from(s: Session, ctx: Context, v: ReportVersion) -> ReportVersion:
-    """Copy a version's schema into a new draft (to edit figures or re-theme after publishing)."""
+def new_draft_from(s: Session, ctx: Context, v: ReportVersion, *, design_only: bool = False) -> ReportVersion:
+    """Copy a version's schema into a new draft (to edit figures or re-theme after publishing).
+    `design_only`: it is made for a new design, so its checks can start from `v`'s findings."""
     if not v.schema_json:
         raise ReportError("This version has no schema to copy.", 409)
     no = (s.scalar(select(func.max(ReportVersion.version_no)).where(ReportVersion.report_id == v.report_id)) or 0) + 1
@@ -621,7 +628,7 @@ def new_draft_from(s: Session, ctx: Context, v: ReportVersion) -> ReportVersion:
     s.flush()
     audit.record(s, ctx, "report.draft_created", target_type="report_version", target_id=nv.id,
                  after={"from_version": v.version_no, "version": no})
-    enqueue_stage(s, ctx, nv, "render")
+    enqueue_stage(s, ctx, nv, "render", design_only=design_only)
     return nv
 
 
