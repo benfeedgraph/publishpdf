@@ -141,3 +141,25 @@ def test_the_first_column_carries_the_pdfs_own_label_or_nothing():
     html = _table_html(_table_pdf(("FY2026", "FY2025"), "Particulars"))
     assert "Line item" not in html and "Particulars" in html.split("<thead>")[1].split("</thead>")[0]
     assert "Line item" not in _table_html(_table_pdf(("FY2026", "FY2025"), None))
+
+
+def test_a_chart_read_from_a_picture_is_one_picture_on_a_slide_with_its_labels():
+    from app.render.elements import page_elements
+    doc = pymupdf.open()
+    p = doc.new_page(width=W, height=H)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 16, 16), 0)
+    pix.set_rect(pix.irect, (200, 210, 240))
+    p.insert_image(pymupdf.Rect(29, 143, 217, 255), pixmap=pix)                  # the bars
+    p.insert_text((22, 125), "Snacks", fontname="hebo", fontsize=14)              # its name, over it
+    p.insert_text((188, 139), "143000", fontname="hebo", fontsize=10)             # over its tallest bar
+    for x, y in ((35, "2020"), (87, "2025"), (140, "2030"), (192, "2035")):
+        p.insert_text((x, 276), y, fontname="hebo", fontsize=10)                  # its axis, under it
+    p.insert_text((40, 40), "Market size by category", fontname="hebo", fontsize=26)
+    schema = {"figures": {}, "pages": [], "sections": [{"blocks": [
+        {"id": "b1", "type": "chart", "extracted": True, "from_image": True, "points": [{}],
+         "source": {"page": 1, "bbox": [19.0, 113.0, 227.0, 285.0]}}]}]}
+    els = page_elements(p, schema, 1, [[19.0, 113.0, 227.0, 285.0]])
+    texts = [e.text for e in els if e.kind == "text"]
+    assert [e.kind for e in els].count("picture") == 1
+    assert not any(t in " ".join(texts) for t in ("Snacks", "143000", "2020", "2035"))
+    assert "Market size by category" in " ".join(texts)

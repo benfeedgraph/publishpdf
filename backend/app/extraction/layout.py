@@ -229,6 +229,7 @@ class ChartEl:
     kind: str = "chart"
     title: list[Word] = field(default_factory=list)   # the line over all its values (a small chart's name)
     from_table: bool = False                 # a table that failed the checks, kept as it looks in the PDF
+    from_image: bool = False                 # read from a picture on the page (not drawn shapes)
 
 
 Element = TableEl | TextEl | ChartEl | StatEl
@@ -291,7 +292,8 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
         axis = [w for w in inside if w not in labels]
         title = _chart_title(axis, labels)
         axis = [w for w in axis if w not in title]
-        elements.append(ChartEl(region, extracted=bool(labels), labels=labels, axis=axis, title=title))
+        elements.append(ChartEl(region, extracted=bool(labels), labels=labels, axis=axis, title=title,
+                                from_image=is_image))
         taken = {id(w) for w in inside}
         words = [w for w in words if id(w) not in taken]
     if not words:

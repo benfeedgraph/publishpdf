@@ -242,6 +242,8 @@ class Builder:
         out = {"id": bid, "type": "chart", "extracted": True, "points": points,
                "note": "values read from the chart's data labels",
                "source": {"page": page, "bbox": _bbox(el.bbox)}}
+        if el.from_image:
+            out["from_image"] = True
         if el.title:
             out["title"] = self.runs(tokenize(el.title, header=True), page, section_id=section_id, table_id=bid,
                                      role="chart_axis")

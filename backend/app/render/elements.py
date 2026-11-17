@@ -152,13 +152,28 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
     raw = page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_MEDIABOX_CLIP)
     text_blocks = _split_columns([b for b in raw["blocks"] if b.get("type") == 0])
 
+    # A chart read from a picture (with the name, values and axis gathered round it) and a table
+    # shown as it looks in the PDF are each one picture, labels and all: their numbers are in the
+    # "Chart values" table and checked one by one, not scattered over the page as loose lines.
+    whole = {tuple(b["source"]["bbox"]) for sec in schema.get("sections") or [] for b in sec["blocks"]
+             if b["type"] == "chart" and (b.get("source") or {}).get("page") == n and b["source"].get("bbox")
+             and (b.get("from_table") or (b.get("extracted") and b.get("from_image")))}
     for bb in chart_boxes or []:
+        keep = tuple(bb) in whole
         bb = _without_furniture(tuple(bb), drawn_furniture.get(page.number, []), text_blocks)
         if bb is None:
             continue
         # a "chart" region that holds several text blocks is a panel, not a picture
         inner = sum(1 for t in text_blocks if _inside(t["bbox"], bb))
-        if inner <= 2:
+        if keep:
+            # its name or axis can poke a little out of the area read with it: what is centred
+            # inside the chart belongs to the chart
+            for t in text_blocks:
+                tb = t["bbox"]
+                if bb[0] <= (tb[0] + tb[2]) / 2 <= bb[2] and bb[1] <= (tb[1] + tb[3]) / 2 <= bb[3]:
+                    bb = (min(bb[0], tb[0]), min(bb[1], tb[1]), max(bb[2], tb[2]), max(bb[3], tb[3]))
+            boxes.append(list(bb))
+        elif inner <= 2:
             boxes.append(list(bb))
     pictures = [b for b in _merge(boxes) if (b[2] - b[0]) * (b[3] - b[1]) >= MIN_PICTURE_SHARE * W * H]
     # A text box drawn as an image (running text on a plain shape) is not a picture: its text is
