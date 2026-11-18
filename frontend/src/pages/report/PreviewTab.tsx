@@ -4,6 +4,7 @@ import { api, formatDateTime, post, useTenantRole, type Report, type VersionDeta
 import { useMe } from "../../App";
 import RebuildCard from "../../components/RebuildCard";
 import { Button } from "../../components/Spinner";
+import { stepLabel } from "../../steps";
 
 const DESKTOP_W = 1280;   // width the desktop preview is laid out at
 
@@ -165,11 +166,12 @@ export function PublishPanel({ tenantId, report, version, isAdmin, disclaimer, s
       </div>
     );
   }
-  if (version.published_at) return <p className="callout info">This version was published earlier and has been replaced. You can roll back to it from Versions.</p>;
+  if (version.published_at) return <p className="callout info">This version was published earlier and has been replaced. You can roll back to it from Version history.</p>;
   const blocking = version.open_blocking;
   const reasons: string[] = [];
   if (version.status === "processing") reasons.push("Checks are still running.");
-  if (blocking > 0) reasons.push(`${blocking} blocking issue(s) are open in Validation.`);
+  // Step 1 is where the stepper marks them ("! N to resolve") and lists them for a decision.
+  if (blocking > 0) reasons.push(`${blocking} blocking issue${blocking === 1 ? " is" : "s are"} open — resolve ${blocking === 1 ? "it" : "them"} in ${stepLabel("verify")}.`);
   if (!version.validated_current && version.status !== "processing") reasons.push("The latest changes haven't been checked yet.");
   if (!disclaimer) reasons.push("Add a disclaimer in Settings.");
   const ready = reasons.length === 0;

@@ -12,16 +12,10 @@ import VersionsTab from "./VersionsTab";
 import { IconCheck } from "../../components/Icons";
 import { Button, Loading, Spinner } from "../../components/Spinner";
 import WizardFooter from "./WizardFooter";
+import { STEP, STEPS, type StepKey as Step } from "../../steps";
 
-type Step = "verify" | "design" | "review" | "publish";
-const STEP_ORDER: Step[] = ["verify", "design", "review", "publish"];
-const STEP_HELP: Record<Step, string> = {
-  verify: "we read every figure in the PDF and check it; anything flagged needs your decision.",
-  design: "keep your workspace design or choose a new look for this page.",
-  review: "compare the web page with the PDF before you approve it.",
-  publish: "approve the page and put it live.",
-};
-export const STEP_TITLE: Record<Step, string> = { verify: "Extract & verify", design: "Design", review: "Review page", publish: "Approve & publish" };
+// The steps' names, numbers and order come from one definition (backend/app/steps.py).
+const STEP_ORDER: Step[] = STEPS.map((s) => s.key);
 export const STATUS_CLASS: Record<string, string> = {
   processing: "warn", failed: "bad", needs_review: "info", validation_issues: "bad", published: "ok", superseded: "",
 };
@@ -65,7 +59,9 @@ export default function ReportPage() {
   const v = version.data;
   const blocked = !!v && (v.status === "validation_issues" || v.status === "failed");
   const defaultStep: Step = !v || v.status === "processing" || blocked ? "verify" : v.published_at ? "publish" : "review";
-  const step = (params.get("step") as Step) || defaultStep;
+  // An unknown ?step= (an old link, say) opens the step this version is at.
+  const asked = params.get("step") as Step | null;
+  const step: Step = asked && STEP_ORDER.includes(asked) ? asked : defaultStep;
   const go = (s: Step) => { const n = new URLSearchParams(params); n.set("step", s); if (versionId) n.set("v", versionId); n.delete("tab"); setParams(n); window.scrollTo(0, 0); };
 
   if (report.isPending) return <><div className="sk sk-title" /><div className="sk sk-line" /><div className="sk sk-block" /></>;
@@ -87,7 +83,7 @@ export default function ReportPage() {
     { key: "review", sub: "Check it against the PDF", state: v?.published_at || (verifyDone && at > 2) ? "done" : "" },
     { key: "publish", sub: v?.is_live ? "Live" : r.live_version_id ? "Older version live" : "Not published", state: v?.is_live ? "done" : "" },
   ];
-  const back = at > 0 ? { label: STEP_TITLE[STEP_ORDER[at - 1]], onClick: () => go(STEP_ORDER[at - 1]) } : undefined;
+  const back = at > 0 ? { label: STEP[STEP_ORDER[at - 1]].title, onClick: () => go(STEP_ORDER[at - 1]) } : undefined;
 
   return (
     <>
@@ -128,13 +124,13 @@ export default function ReportPage() {
               <span className={`step-n ${!current && !s.state && i > at ? "upcoming" : ""}`} aria-hidden>
                 {s.state === "done" ? <IconCheck size={14} /> : s.state === "blocked" ? "!" : current && v?.status === "processing" && s.key === "verify" ? <Spinner decorative size={12} /> : i + 1}
               </span>
-              <span><span className="step-t">{STEP_TITLE[s.key]}</span><span className="sr-only"> ({said})</span><br /><span className="step-s">{s.sub}</span></span>
+              <span><span className="step-t">{STEP[s.key].title}</span><span className="sr-only"> ({said})</span><br /><span className="step-s">{s.sub}</span></span>
             </button>
           );
         })}
       </nav>
       <div className="step-eyebrow">
-        <p className="small"><span className="eyebrow">Step {at + 1} of {STEP_ORDER.length}</span> <strong>{STEP_TITLE[step]}</strong> — <span className="muted">{STEP_HELP[step]}</span></p>
+        <p className="small"><span className="eyebrow">Step {STEP[step].number} of {STEPS.length}</span> <strong>{STEP[step].title}</strong> — <span className="muted">{STEP[step].help}</span></p>
       </div>
 
       {(report.isError || version.isError) && (
@@ -175,7 +171,7 @@ function DesignStep({ tenantId, report, isAdmin, back, onDone }: { tenantId: str
   // Memoised: the picker resets to `current` whenever it changes identity.
   const current = useMemo(() => settings.data && { ...settings.data.theme, ...(report.theme_override as Partial<ThemeT> | null ?? {}) } as ThemeT,
     [settings.data, report.theme_override]);
-  const next = { label: "Next: Review page →", onClick: onDone };
+  const next = { label: `Next: ${STEP.review.title} →`, onClick: onDone };
   if (settings.isError) return <p className="error">{settings.error.message}</p>;
   if (!current) return <Loading label="Loading your design" />;
   if (!isAdmin) return (
@@ -220,7 +216,7 @@ function ReviewStep({ tenantId, report, version, back, onContinue }: { tenantId:
       <WizardFooter back={back}
         hint={tab === "page" ? "Looks right? Continue to approve and publish." : "When you're happy with the page, continue to approve and publish."}
         next={{
-          label: "Next: Approve & publish →", onClick: onContinue,
+          label: `Next: ${STEP.publish.title} →`, onClick: onContinue,
           disabled: rebuilding || open > 0, waiting: rebuilding,
           reason: rebuilding ? "Rebuilding the page — this unlocks automatically when it's ready." : `Resolve ${open} blocking figure${open === 1 ? "" : "s"} first (Checks & issues).`,
         }} />

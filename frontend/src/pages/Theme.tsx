@@ -5,6 +5,7 @@ import { api, del, post, put, upload, useTenantRole } from "../api";
 import { useMe } from "../App";
 import DesignPicker, { type ThemeT } from "../components/DesignPicker";
 import { Button, Spinner } from "../components/Spinner";
+import { STEP } from "../steps";
 
 export default function Theme() {
   const { tenantId } = useParams();
@@ -31,7 +32,7 @@ export default function Theme() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Brand & design</h1>
-          <p className="muted">The default look for your report pages. Each report can also have its own design, chosen during its Design step.</p>
+          <p className="muted">The default look for your report pages. Each report can also have its own design, chosen during its {STEP.design.title} step.</p>
         </div>
         {isAdmin && <Button className="secondary" busy={applyLive.isPending} busyLabel="Creating drafts in this design" onClick={() => applyLive.mutate()}>Apply to published reports…</Button>}
       </div>
