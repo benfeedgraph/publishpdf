@@ -267,7 +267,7 @@ function LivePreview({ tenantId, reportId, theme }: { tenantId: string; reportId
     <div className="card live-preview" style={{ padding: 12 }}>
       <div className="toolbar" style={{ marginBottom: 8 }}><strong>Live preview</strong><span className="muted small">Your report in this design</span>{pending && <Spinner label="Updating the preview" />}</div>
       {failed && <p className="error small" role="alert">{failed}</p>}
-      <iframe ref={frame} title="Design preview" srcDoc={html} sandbox="allow-same-origin" onLoad={onFrameLoad} />
+      <iframe ref={frame} title="Design preview" srcDoc={html} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" onLoad={onFrameLoad} />
     </div>
   );
 }

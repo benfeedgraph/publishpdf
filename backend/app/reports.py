@@ -646,6 +646,63 @@ def public_origin(s: Session, ctx: Context) -> tuple[str, bool]:
     return cfg.preview_origin(tenant.slug), False
 
 
+def _live_reports(s: Session) -> list[tuple[Report, ReportVersion]]:
+    """The workspace's published reports with their live version, newest first: the order the
+    public site lists them in (/archive/) and takes "Latest results" from."""
+    live = []
+    for r in s.scalars(select(Report).where(Report.deleted_at.is_(None), Report.live_version_id.is_not(None))).all():
+        v = s.get(ReportVersion, r.live_version_id)
+        if v is not None and v.bundle_key and v.schema_json:
+            live.append((r, v))
+    live.sort(key=lambda rv: _archive_order(rv[1].schema_json["metadata"], rv[1].published_at), reverse=True)
+    return live
+
+
+def _archive_order(m: dict, published_at: datetime | None) -> tuple:
+    return (m["fiscal_year"], _period_order(m["period"]), published_at.isoformat() if published_at else "")
+
+
+def site_nav(s: Session, ctx: Context, report: Report, v: ReportVersion | None = None) -> dict:
+    """What a report's previews show for the site's own navigation: "Latest results" is the
+    report itself (the version `v` being previewed, else its newest), "Archive" lists the
+    company's other published reports, newest first as on the live site (an empty list when
+    there are none)."""
+    origin, _ = public_origin(s, ctx)
+    if v is None:
+        v = s.scalars(select(ReportVersion).where(ReportVersion.report_id == report.id)
+                      .order_by(ReportVersion.version_no.desc())).first()
+    m = (v.schema_json or {}).get("metadata") if v else None
+    latest = {"report_id": str(report.id), "period_label": m["period_label"] if m else None,
+              "type_label": site.REPORT_TYPE_LABEL[m["report_type"]] if m else None,
+              "fiscal_year": m["fiscal_year"] if m else None, "period": m["period"] if m else None,
+              "published": bool(v and v.published_at and report.live_version_id == v.id)}
+    archive = []
+    for r, lv in _live_reports(s):
+        if r.id == report.id:
+            continue
+        lm = lv.schema_json["metadata"]
+        archive.append({"report_id": str(r.id), "period_label": lm["period_label"],
+                        "type_label": site.REPORT_TYPE_LABEL[lm["report_type"]],
+                        "fiscal_year": lm["fiscal_year"], "period": lm["period"],
+                        "url": origin + site.report_base_path(lm),
+                        "published_at": lv.published_at.isoformat() if lv.published_at else None})
+    return {"company": report.company_name, "latest": latest, "archive": archive}
+
+
+def preview_archive(nav: dict, this_href: str) -> dict:
+    """The archive page as it will read once this report is published, for a preview: the
+    company's published reports (opening in a new tab) with this report in its place, marked."""
+    me = nav["latest"]
+    mine = {"path": this_href, "period_label": me["period_label"], "type_label": me["type_label"],
+            "note": "This report" if me["published"] else "This report \u00b7 not published yet",
+            "order": (me["fiscal_year"], _period_order(me["period"]), "~")}      # "~": after any date
+    others = [{"path": a["url"], "period_label": a["period_label"], "type_label": a["type_label"], "new_tab": True,
+               "order": (a["fiscal_year"], _period_order(a["period"]), a["published_at"] or "")} for a in nav["archive"]]
+    reports = sorted(others + [mine], key=lambda e: e["order"], reverse=True)
+    return {"company": nav["company"], "reports": reports,
+            "more_note": None if others else "No earlier reports published yet."}
+
+
 def rebuild_site(s: Session, ctx: Context) -> dict:
     """Write site/manifest.json (path -> storage key) and the tenant index pages."""
     tenant = s.get(Tenant, ctx.require_tenant())
@@ -656,10 +713,7 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
                                              Report.live_version_id.is_not(None))).all()
     entries = []
     paths: dict[str, dict] = {}
-    for r in reports:
-        v = s.get(ReportVersion, r.live_version_id)
-        if v is None or not v.bundle_key or not v.schema_json:
-            continue
+    for r, v in _live_reports(s):
         m = v.schema_json["metadata"]
         base = site.report_base_path(m)
         files = json.loads(storage.get(ctx, v.bundle_key + "_files.json"))
@@ -681,9 +735,8 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
                         "sections": [sec["slug"] for sec in v.schema_json["sections"]],
                         "section_pages": section_pages,
                         "lastmod": v.published_at.date().isoformat() if v.published_at else None,
-                        "sort": (m["fiscal_year"], _period_order(m["period"]), v.published_at.isoformat() if v.published_at else ""),
+                        "sort": _archive_order(m, v.published_at),
                         "report_id": str(r.id)})
-    entries.sort(key=lambda e: e["sort"], reverse=True)
     company = reports[0].company_name if reports else tenant.name
     index_files = site.render_site_index(company, [dict(e) for e in entries], theme=theme,
                                          disclaimer=effective_disclaimer(st), robots_policy=st.robots_policy,

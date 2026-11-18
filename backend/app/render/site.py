@@ -1335,17 +1335,52 @@ def figures_exports(schema: dict, base: str) -> tuple[str, str]:
 # ------------------------------------------------------------------ tenant site index
 
 
+def _site_index_common(company: str, theme: dict, disclaimer: str | None, logo_src: str | None,
+                       extra_css: str = "") -> dict:
+    return dict(theme=theme, css=Markup(page_css(theme) + extra_css), company=company, origin=ORIGIN_PLACEHOLDER,
+                disclaimer_html=Markup(disclaimer_html(disclaimer)), logo_src=logo_src, pdf_href=None,
+                powered_by=powered_by_html(theme),
+                fonts_href=theming.google_fonts_href(theme), alternates=None, downloads=None, jsonld=None,
+                m={"company": company})
+
+
+# A report's previews show the archive as it will read once the report is published: the report
+# marked in its place, a way back to it, and a line when nothing else has been published yet.
+PREVIEW_ARCHIVE_CSS = (".archive-back{margin:0 0 .8em}.archive-back a{font-weight:600}"
+                       ".archive-note{display:block;margin-top:4px;color:var(--c-muted);font-weight:400;font-size:.88em}"
+                       ".archive-more{color:var(--c-muted)}")
+
+
+def preview_archive_page(archive: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None,
+                         back_href: str) -> str:
+    """The archive page for a report's preview (see reports.preview_archive): the live site's
+    archive page, with this report marked and a link back to it."""
+    company = archive["company"]
+    return _ENV.get_template("index.html").render(
+        **_site_index_common(company, theme, disclaimer, logo_src, PREVIEW_ARCHIVE_CSS),
+        heading=f"{company}: report archive", latest=None, reports=archive["reports"], back_href=back_href,
+        more_note=archive["more_note"], page_title=f"Report archive \u00b7 {company}",
+        description=f"All reports published by {company}.", canonical_path="/archive/")
+
+
+def preview_archive_overlay(archive: dict, *, theme: dict) -> str:
+    """The same archive, for the design preview, which runs no scripts: a section of the previewed
+    page, placed before its footer, that the Archive link (#ppdf-archive) shows in place of the
+    report — between the site's header and footer, as on the real archive page, with the header
+    kept in view — and "Back to the report" or "Latest results" (#) hides again."""
+    page = preview_archive_page(archive, theme=theme, disclaimer=None, logo_src=None, back_href="#")
+    body = page.split('<main id="main">', 1)[1].rsplit("</main>", 1)[0]       # base.html's <main>
+    return ("<style>" + PREVIEW_ARCHIVE_CSS + ".ppdf-archive{display:none;scroll-margin-top:100vh}.ppdf-archive:target{display:block}"
+            "body:has(.ppdf-archive:target) main{display:none}</style>"
+            f'<section id="ppdf-archive" class="ppdf-archive" aria-label="Archive">{body}</section>')
+
+
 def render_site_index(company: str, reports: list[dict], *, theme: dict, disclaimer: str | None,
                       robots_policy: str, logo_src: str | None = None) -> dict[str, bytes]:
     """Tenant-level pages: home, /archive/, /latest/ (served dynamically), sitemap,
     robots.txt, llms.txt. `reports` = live reports, newest first, each
     {path, period_label, type_label, sections: [slug...], lastmod}."""
-    css = page_css(theme)
-    common = dict(theme=theme, css=Markup(css), company=company, origin=ORIGIN_PLACEHOLDER,
-                  disclaimer_html=Markup(disclaimer_html(disclaimer)), logo_src=logo_src, pdf_href=None,
-                  powered_by=powered_by_html(theme),
-                  fonts_href=theming.google_fonts_href(theme), alternates=None, downloads=None, jsonld=None,
-                  m={"company": company})
+    common = _site_index_common(company, theme, disclaimer, logo_src)
     for r in reports:
         r["path"] = f"{ORIGIN_PLACEHOLDER}{r['base']}"
     latest = reports[0] if reports else None

@@ -24,10 +24,12 @@ from app.reports import (
     effective_disclaimer,
     effective_theme,
     new_draft_from,
+    preview_archive,
     public_origin,
     rebuild_drafts_for_disclaimer,
     rebuild_site,
     settings_for,
+    site_nav,
     unfinished_disclaimer,
 )
 from app.tenancy import Context
@@ -333,6 +335,8 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
                        if v is not None and v.bundle_key else None)
         bundle_key = v.bundle_key if v is not None else None
         memo_key = (ctx.tenant_id, v.id) if v is not None else None
+        report = s.get(Report, v.report_id) if v is not None else None
+        nav = site_nav(s, ctx, report, v) if report is not None and v.schema_json else None
         st = settings_for(s, ctx)
         disclaimer = effective_disclaimer(st)
     pdf = None
@@ -363,9 +367,20 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             else:
                 uri = f"data:{site.content_type(name)};base64,{base64.b64encode(data).decode()}"
                 html = html.replace(target, uri)
-    # A design preview has nowhere to go: its links (Latest results, Archive, Download PDF,
-    # the machine-readable files) would load the dashboard inside the preview frame. Keep
-    # them visible but inert; in-page anchors still scroll.
+    # The site's own navigation works in the preview as it will for visitors: "Latest results"
+    # is this report, "Archive" opens the archive over it (as it will read once this report is
+    # published) and the PDF opens in a new tab. Every other link would load the dashboard
+    # inside the preview frame: those stay visible but inert; in-page anchors still scroll.
+    if nav is not None:
+        origin = re.escape(site.ORIGIN_PLACEHOLDER)
+        html = re.sub(rf'href="{origin}/latest/"', 'href="#"', html)
+        html = re.sub(rf'href="{origin}/archive/"', 'href="#ppdf-archive"', html)
+        if stored_base:
+            pdf_link = f'href="{stored_base}source.pdf" target="_blank" rel="noopener"'
+            html = re.sub(rf'href="{origin}[^"]*/source\.pdf"', lambda _m: pdf_link, html)
+        overlay = site.preview_archive_overlay(preview_archive(nav, "#"), theme=used)
+        footer = '<footer class="site-footer">'
+        html = html.replace(footer, overlay + footer, 1) if footer in html else html.replace("</body>", overlay + "</body>", 1)
     html = re.sub(r'href="' + re.escape(site.ORIGIN_PLACEHOLDER) + r'[^"]*"',
                   'href="#" aria-disabled="true" data-preview-inert="1" title="Links are off in the design preview"', html)
     html = html.replace(site.ORIGIN_PLACEHOLDER, "")

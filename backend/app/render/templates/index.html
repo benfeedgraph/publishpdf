@@ -2,6 +2,9 @@
 {% from "_macros.html" import meta with context %}
 {% block content %}
 <article class="site-index wrap">
+  {%- if back_href %}
+  <p class="archive-back"><a href="{{ back_href }}">&larr; Back to the report</a></p>
+  {%- endif %}
   <h1>{{ heading }}</h1>
   {%- if latest %}
   <section class="latest" aria-labelledby="latest-h">
@@ -12,7 +15,10 @@
   <section aria-labelledby="archive-h">
     <h2 id="archive-h">All reports</h2>
     {%- if reports %}
-    <ul class="archive">{% for r in reports %}<li><a href="{{ r.path }}">{{ meta("period_label", r.period_label) }} {{ r.type_label }}</a></li>{% endfor %}</ul>
+    <ul class="archive">{% for r in reports %}<li><a href="{{ r.path }}"{% if r.new_tab %} target="_blank" rel="noopener"{% endif %}>{{ meta("period_label", r.period_label) }} {{ r.type_label }}{% if r.note %}<span class="archive-note">{{ r.note }}</span>{% endif %}</a></li>{% endfor %}</ul>
+    {%- if more_note %}
+    <p class="archive-more">{{ more_note }}</p>
+    {%- endif %}
     {%- else %}<p>No reports have been published yet.</p>{% endif %}
   </section>
 </article>

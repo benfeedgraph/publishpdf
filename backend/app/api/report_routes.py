@@ -21,7 +21,7 @@ from app.api.tenant_routes import job_json
 from app.config import get_settings
 from app.extraction.schema_builder import render_page_png
 from app.models import Comment, FigureReview, Job, Report, ReportVersion, SourceFile, User, ValidationIssue
-from app.render.site import ORIGIN_PLACEHOLDER
+from app.render.site import ORIGIN_PLACEHOLDER, preview_archive_page
 from app.reports import (
     ReportError,
     acknowledge_issue,
@@ -32,7 +32,9 @@ from app.reports import (
     create_version,
     delete_report,
     disclaimer_problem,
+    effective_theme,
     landing_of,
+    logo_src,
     store_source,
     enqueue_stage,
     flag_figure,
@@ -40,10 +42,12 @@ from app.reports import (
     latest_versions,
     new_draft_from,
     open_blocking,
+    preview_archive,
     publish,
     report_status,
     rollback,
     settings_for,
+    site_nav,
     source_key,
     versions_for,
 )
@@ -289,6 +293,14 @@ def list_reports(ctx: Context = Depends(require("report.view"))) -> dict:
                             .order_by(Report.fiscal_year.desc(), Report.created_at.desc())).all()
         latest = latest_versions(s)
         return {"reports": [report_json(r, [latest[r.id]] if r.id in latest else []) for r in reports]}
+
+
+@router.get("/{report_id}/archive")
+def report_archive(report_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    """The site's own navigation, for this report's previews: "latest" is this report and
+    "archive" the company's other published reports, newest first (empty when there are none)."""
+    with db.session(ctx) as s:
+        return site_nav(s, ctx, _get_report(s, report_id))
 
 
 @router.get("/{report_id}")
@@ -930,7 +942,11 @@ def preview_root(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Dep
 @router.get("/{report_id}/versions/{version_id}/preview/{path:path}")
 def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context = Depends(require("report.view"))) -> Response:
     """Serves the stored bundle exactly as it will publish; only the origin is set to
-    this preview URL and a small scroll-sync script is added (dashboard only)."""
+    this preview URL and a small scroll-sync script is added (dashboard only). The site's own
+    navigation works as for visitors: latest/ is this report, archive/ the site's archive as it
+    will read once this report is published."""
+    root = f"/api/tenants/{ctx.tenant_id}/reports/{report_id}/versions/{version_id}/preview"
+    rel = path.strip("/")
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         if not v.bundle_key:
@@ -940,18 +956,27 @@ def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context
         pdf_name = src.original_filename if src else "report.pdf"
         files = json.loads(storage.get(ctx, bundle + "_files.json"))
         base = min((f for f in files if f.endswith("/index.html")), key=len, default=files[0])   # the landing page
-    root = f"/api/tenants/{ctx.tenant_id}/reports/{report_id}/versions/{version_id}/preview"
-    rel = path.strip("/")
+        archive_page = None
+        if rel.split("/")[0] == "archive":
+            # The site's archive as it will read once this report is published, in this version's
+            # design ("Latest results" is this report: its landing page, below).
+            report = s.get(Report, report_id)
+            snap = v.theme_snapshot or {}
+            theme = snap.get("theme") or effective_theme(settings_for(s, ctx), report)[0]
+            archive_page = preview_archive_page(preview_archive(site_nav(s, ctx, report, v), root + "/"), theme=theme,
+                                                disclaimer=snap.get("disclaimer"), logo_src=logo_src(theme),
+                                                back_href=root + "/")
     if rel.endswith("source.pdf"):
         return _pdf_response(ctx, sha, pdf_name)
     candidates = [rel, rel + "/index.html"] if rel else [base]
-    if rel.startswith(("latest", "archive")) or rel == "":
+    if rel.startswith("latest") or rel == "":
         candidates = [base]
-    name = next((c for c in candidates if c in files), None)
+    name = "archive/index.html" if archive_page else next((c for c in candidates if c in files), None)
     if name is None:
         return Response("<!doctype html><title>Not in this report</title><p>That page isn't part of this report "
                         "preview.</p>", status_code=404, media_type="text/html")
-    data = storage.get(ctx, bundle + name).replace(ORIGIN_PLACEHOLDER.encode(), root.encode())
+    data = (archive_page.encode() if archive_page else storage.get(ctx, bundle + name)).replace(
+        ORIGIN_PLACEHOLDER.encode(), root.encode())
     if name.endswith(".html"):
         html = data.decode()
         html = html.replace("<head>", '<head><meta name="robots" content="noindex">', 1)
