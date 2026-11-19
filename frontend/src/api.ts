@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public detail: string,
+    /** The form field the problem is about (e.g. "fiscal_year"), when the server says. */
+    public field?: string,
   ) {
     super(detail);
   }
@@ -17,7 +19,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = typeof body.detail === "string" ? body.detail : "Something went wrong. Please try again.";
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, typeof body.field === "string" ? body.field : undefined);
   }
   return body as T;
 }
@@ -130,6 +132,8 @@ export interface Report {
   company_name: string;
   report_type: ReportType;
   fiscal_year: number;
+  /** How the company writes the year ("FY2025-26", "FY26"); null for reports made before it was kept. */
+  fiscal_year_label?: string | null;
   period: string;
   period_label: string;
   currency: string;

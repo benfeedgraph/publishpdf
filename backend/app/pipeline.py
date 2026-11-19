@@ -32,6 +32,7 @@ from app.reports import (
     effective_theme,
     enqueue_stage,
     extraction_key,
+    fiscal_year_labels,
     latest_run_no,
     logo_src,
     settings_for,
@@ -122,7 +123,8 @@ def stage_extract(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         vid, sha, version_no = v.id, v.source_sha256, v.version_no
         meta = {"company_name": report.company_name, "report_type": report.report_type,
                 "fiscal_year": report.fiscal_year, "period": report.period, "currency": report.currency,
-                "reporting_unit": report.reporting_unit, "version": version_no}
+                "reporting_unit": report.reporting_unit, "version": version_no,
+                "fiscal_year_label": fiscal_year_labels(s, [report.id]).get(report.id)}
         from app.models import SourceFile
         src = s.get(SourceFile, v.source_file_id)
         meta["filename"] = src.original_filename if src else None

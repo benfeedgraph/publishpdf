@@ -182,7 +182,9 @@ def test_section_tabs_and_last_years_figures_are_not_the_answer():
                  landscape=False, metadata={"title": "BASF 2025 Q3 DE"})
     meta = detect_metadata(deck)
     assert meta["company_name"] == "BASF"
-    assert (meta["fiscal_year"], meta["period"], meta["confidence"]["period"]) == (2025, "q3", "medium")
+    # the cover says "3. Quartal 2025" itself, so the period is the cover's (last year's Q3 2024,
+    # quoted more often, isn't it)
+    assert (meta["fiscal_year"], meta["period"], meta["confidence"]["period"]) == (2025, "q3", "high")
 
 
 def test_a_running_caption_sentence_is_not_a_name():
@@ -285,3 +287,34 @@ def test_chart_labels_tie_to_the_latest_year():
     meta = detect_metadata(_deck(_body("Growth story"), _body("FY17 FY18 FY19 FY20", "FY17 FY18 FY19 FY20")))
     assert (meta["fiscal_year"], meta["confidence"]["fiscal_year"]) == (2020, "low")
     assert "period" not in meta                 # chart labels don't say it is a full-year report
+
+
+# ------------------------------------------------------------------ the year as the PDF writes it (issue #6)
+
+@pytest.mark.parametrize("cover,later,expected", [
+    # a results deck: the year part of its period label
+    (["UltraTech Cement Limited", "Q2 FY26 Result Presentation"], ["Revenue Q2 FY26 Q2 FY25"], (2026, "q2", "FY26")),
+    # US style, number first; the cover names the quarter even where last quarter is mentioned more
+    (["Bank of America", "3Q25 Financial Results", "$ 1,000 million"], ["2Q25 2Q25 2Q25 3Q24 results"], (2025, "q3", None)),
+    # German
+    (["Q3", "Quartalsmitteilung", "3. Quartal 2025", "EUR 1.000 Millionen"], ["Umsatz 3. Quartal 2025"], (2025, "q3", None)),
+    # only a date on the cover: the fiscal year it falls in, written so it says which one
+    (["JP Morgan India Investor Summit 2020", "21st September 2020", "₹ 1,000 crore"], ["Growth"], (2021, "q2", "FY2021")),
+])
+def test_the_year_is_filled_in_as_the_pdf_writes_it(cover, later, expected):
+    meta = detect_metadata(_deck(_body(*cover), _body(*later)))
+    assert (meta["fiscal_year"], meta.get("period"), meta.get("fiscal_year_label")) == expected
+
+
+def test_an_annual_report_keeps_its_year_range():
+    meta = detect_metadata(_pages((False, _body("Powering a Nation", "Integrated Annual Report 2025-26")),
+                                  (False, _body("Chairman's letter"))))
+    assert (meta["report_type"], meta["fiscal_year"], meta["period"], meta["fiscal_year_label"]) == ("annual_report", 2026, "fy", "2025-26")
+
+
+def test_a_japanese_fiscal_year_and_quarter():
+    from app.extraction.detect import _period
+    t = "2026年３月期 第２四半期 決算説明会"
+    assert _period([t], t, t, 4) == (2026, "q2", "high", "FY2026")
+    t = "2026年3月期 決算の概要"                                  # the fiscal year ending March 2026, no quarter
+    assert _period([t], t, t, 4) == (2026, None, "medium", "FY2026")
