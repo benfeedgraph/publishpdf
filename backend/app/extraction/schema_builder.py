@@ -387,8 +387,8 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
             "report_type": metadata["report_type"],
             "fiscal_year": metadata["fiscal_year"],
             "period": metadata["period"],
-            "period_label": period_label(metadata["period"], metadata["fiscal_year"]),
-            "fiscal_year_label": f"FY{metadata['fiscal_year']}",
+            "period_label": period_label(metadata["period"], metadata["fiscal_year"], metadata.get("fiscal_year_label")),
+            "fiscal_year_label": metadata.get("fiscal_year_label") or f"FY{metadata['fiscal_year']}",
             "period_start": metadata.get("period_start"),
             "period_end": metadata.get("period_end"),
             "currency": metadata["currency"],
@@ -462,9 +462,10 @@ def _dedupe_slugs(sections: list[dict]) -> None:
 PERIOD_LABELS = {"q1": "Q1", "q2": "Q2", "q3": "Q3", "q4": "Q4", "h1": "H1", "h2": "H2", "9m": "9M", "fy": ""}
 
 
-def period_label(period: str, fy: int) -> str:
+def period_label(period: str, fy: int, fy_label: str | None = None) -> str:
+    """'Q2 FY2026', or with the company's own way of writing the year: 'Q2 FY26', 'FY2025-26'."""
     p = PERIOD_LABELS[period]
-    return f"{p} FY{fy}".strip()
+    return f"{p} {fy_label or f'FY{fy}'}".strip()
 
 
 def schema_sha256(schema: dict) -> str:

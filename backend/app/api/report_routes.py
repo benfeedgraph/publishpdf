@@ -19,7 +19,8 @@ from app import audit, db, storage
 from app.api.deps import require
 from app.api.tenant_routes import job_json
 from app.config import get_settings
-from app.extraction.schema_builder import render_page_png
+from app.extraction.dates import FiscalYearError, parse_fiscal_year
+from app.extraction.schema_builder import period_label, render_page_png
 from app.models import Comment, FigureReview, Job, Report, ReportVersion, SourceFile, User, ValidationIssue
 from app.render.site import ORIGIN_PLACEHOLDER
 from app.reports import (
@@ -31,6 +32,7 @@ from app.reports import (
     create_upload,
     create_version,
     delete_report,
+    fiscal_year_labels,
     landing_of,
     store_source,
     enqueue_stage,
@@ -53,8 +55,17 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tenants/{tenant_id}/reports", tags=["reports"])
 
 
+class FieldError(HTTPException):
+    """A problem with one form field: answered as {"detail": ..., "field": ...} so the
+    dashboard shows it under that field (see main.py)."""
+
+    def __init__(self, status: int, detail: str, field: str):
+        super().__init__(status, detail)
+        self.field = field
+
+
 def _err(e: ReportError) -> HTTPException:
-    return HTTPException(e.status, e.message)
+    return FieldError(e.status, e.message, e.field) if e.field else HTTPException(e.status, e.message)
 
 
 def _iso(d) -> str | None:
@@ -94,12 +105,13 @@ def version_json(v: ReportVersion, *, live_id: uuid.UUID | None = None) -> dict:
                                       and v.validated_bundle_sha256 == v.bundle_sha256)}
 
 
-def report_json(r: Report, versions: list[ReportVersion]) -> dict:
+def report_json(r: Report, versions: list[ReportVersion], fy_label: str | None = None) -> dict:
+    """`fy_label`: how the company writes the year (reports.fiscal_year_labels), if known."""
     latest = versions[0] if versions else None
     from app.render.site import report_base_path
-    from app.extraction.schema_builder import period_label
     return {"id": str(r.id), "company_name": r.company_name, "report_type": r.report_type,
-            "fiscal_year": r.fiscal_year, "period": r.period, "period_label": period_label(r.period, r.fiscal_year),
+            "fiscal_year": r.fiscal_year, "fiscal_year_label": fy_label,
+            "period": r.period, "period_label": period_label(r.period, r.fiscal_year, fy_label),
             "currency": r.currency, "reporting_unit": r.reporting_unit, "status": report_status(r, latest),
             "live_version_id": str(r.live_version_id) if r.live_version_id else None,
             "latest_version": version_json(latest, live_id=r.live_version_id) if latest else None,
@@ -246,7 +258,9 @@ class CreateIn(BaseModel):
     source_file_id: uuid.UUID
     company_name: str
     report_type: str
-    fiscal_year: int
+    # As typed: "FY2025-26", "FY26", "2025-26", 2026 ... (read by validate_metadata, which
+    # answers with a message for the field instead of a schema error)
+    fiscal_year: int | str | None = None
     period: str
     currency: str
     reporting_unit: str
@@ -293,7 +307,23 @@ def list_reports(ctx: Context = Depends(require("report.view"))) -> dict:
         reports = s.scalars(select(Report).where(Report.deleted_at.is_(None))
                             .order_by(Report.fiscal_year.desc(), Report.created_at.desc())).all()
         latest = latest_versions(s)
-        return {"reports": [report_json(r, [latest[r.id]] if r.id in latest else []) for r in reports]}
+        labels = fiscal_year_labels(s, [r.id for r in reports])
+        return {"reports": [report_json(r, [latest[r.id]] if r.id in latest else [], labels.get(r.id)) for r in reports]}
+
+
+@router.get("/fiscal-year")
+def check_fiscal_year(value: str = "", period: str | None = None,
+                      ctx: Context = Depends(require("report.upload"))) -> dict:
+    """What the upload form's Year box will mean, as the person types: the year it ends and
+    how the page will write it ("FY2025-26" -> 2026, "Q2 FY26"), or why it can't be read."""
+    try:
+        fy = parse_fiscal_year(value)
+    except FiscalYearError as e:
+        raise FieldError(400, str(e), "fiscal_year") from None
+    p = (period or "").lower()
+    from app.extraction.schema_builder import PERIOD_LABELS
+    return {"fiscal_year": fy.year, "fiscal_year_label": fy.label,
+            "shown": period_label(p, fy.year, fy.label) if p in PERIOD_LABELS else fy.label}
 
 
 @router.get("/{report_id}")
@@ -301,7 +331,7 @@ def get_report(report_id: uuid.UUID, ctx: Context = Depends(require("report.view
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
         versions = versions_for(s, r.id)
-        out = report_json(r, versions)
+        out = report_json(r, versions, fiscal_year_labels(s, [r.id]).get(r.id))
         out["versions"] = [version_json(v, live_id=r.live_version_id) for v in versions]
         return out
 
@@ -717,19 +747,26 @@ def issue_json(i: ValidationIssue, figures: dict) -> dict:
 def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = None, section_id: str | None = None,
                 severity: str | None = None, status: str | None = None, check: str | None = None,
                 ctx: Context = Depends(require("report.view"))) -> dict:
+    """The latest run's items under these filters, with the filters' options (each value that
+    has at least one item under the other filters, and how many) and the totals, all from the
+    one set of rows loaded here, so the list and its filters can't disagree."""
+    from app import issue_filters
+    from app.validation import AGENTS
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         run = latest_run_no(s, v.id)
         q = select(ValidationIssue).where(ValidationIssue.version_id == v.id, ValidationIssue.run_no == run)
-        for col, val in ((ValidationIssue.page, page), (ValidationIssue.section_id, section_id),
-                         (ValidationIssue.severity, severity), (ValidationIssue.status, status),
-                         (ValidationIssue.check_name, check)):
-            if val is not None:
-                q = q.where(col == val)
         issues = s.scalars(q.order_by(ValidationIssue.severity, ValidationIssue.page, ValidationIssue.check_name)).all()
-        figures = (v.schema_json or {}).get("figures", {})
+        schema = v.schema_json or {}
+        figures = schema.get("figures", {})
+        out = issue_filters.build(
+            [issue_json(i, figures) for i in issues],
+            {"severity": severity, "status": status, "check": check, "page": str(page) if page is not None else None,
+             "section": section_id},
+            sections=schema.get("sections", []), pages=schema.get("pages", []),
+            check_labels={key: name for key, name, _ in AGENTS})
         return {"run": run, "summary": public_summary(v.validation_summary), "validated_current": version_json(v)["validated_current"],
-                "status": v.status, "issues": [issue_json(i, figures) for i in issues]}
+                "status": v.status, "issues": out["items"], "options": out["options"], "totals": out["totals"]}
 
 
 class ResolveIn(BaseModel):

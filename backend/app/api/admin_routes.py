@@ -155,13 +155,15 @@ def tenant_detail(tenant_id: uuid.UUID, ctx: Context = Depends(admin_context)) -
         t = s.get(Tenant, tenant_id)
         if t is None:
             raise HTTPException(404, "Tenant not found.")
-        from app.reports import latest_versions
+        from app.reports import fiscal_year_labels, latest_versions
         latest = latest_versions(s)
+        rows = s.scalars(select(Report).where(Report.tenant_id == tenant_id, Report.deleted_at.is_(None))
+                         .order_by(Report.created_at.desc())).all()
+        labels = fiscal_year_labels(s, [r.id for r in rows])
         reports = []
-        for r in s.scalars(select(Report).where(Report.tenant_id == tenant_id, Report.deleted_at.is_(None))
-                           .order_by(Report.created_at.desc())):
+        for r in rows:
             v = latest.get(r.id)
-            reports.append(report_json(r, [v] if v else []))
+            reports.append(report_json(r, [v] if v else [], labels.get(r.id)))
         members = s.execute(select(Membership, User).join(User, User.id == Membership.user_id)
                             .where(Membership.tenant_id == tenant_id)).all()
         jobs_ = s.scalars(select(Job).where(Job.tenant_id == tenant_id).order_by(Job.created_at.desc()).limit(50)).all()
