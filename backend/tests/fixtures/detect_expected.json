@@ -1,0 +1,657 @@
+{
+ "_about": "Expected upload auto-fill values for the testers' investor PDFs (used by test_detect_fixtures.py; the PDFs themselves are not in the repository). Each field lists every acceptable value; null in a list means leaving it blank is acceptable; \"*\" means any value, or blank, is fine. company lists the full legal name; company_as_printed is the name exactly as the PDF prints it, accepted where the PDF never writes the legal name on any page.",
+ "files": {
+  "ITC_JPMorgan_presentation_30pages.pdf": {
+   "company": [
+    "ITC Limited"
+   ],
+   "year": [
+    2020,
+    2021
+   ],
+   "period": "*",
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ],
+   "company_as_printed": [
+    "ITC"
+   ]
+  },
+  "ITC_30_pages_test.pdf": {
+   "company": [
+    "ITC Limited"
+   ],
+   "year": [
+    2024
+   ],
+   "period": [
+    "q3"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ crore",
+    null
+   ],
+   "company_as_printed": [
+    "ITC"
+   ]
+  },
+  "itc_report_20pages_compressed.pdf": {
+   "company": [
+    "ITC Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "fy"
+   ],
+   "type": [
+    "annual_report"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ crore",
+    null
+   ]
+  },
+  "itc-institutional-investor-and-financial-analyst-day-12122023.pdf": {
+   "company": [
+    "ITC Limited"
+   ],
+   "year": [
+    2024
+   ],
+   "period": [
+    "q3",
+    null
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ],
+   "company_as_printed": [
+    "ITC"
+   ]
+  },
+  "Infosys_InvestorAIDay_17Feb2026_30pages.pdf": {
+   "company": [
+    "Infosys Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": "*",
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "USD",
+    null
+   ],
+   "unit": "*",
+   "company_as_printed": [
+    "Infosys"
+   ]
+  },
+  "TataMotors_InvestorDay_2025_30pages.pdf": {
+   "company": [
+    "Tata Motors Limited"
+   ],
+   "year": [
+    2025,
+    2026
+   ],
+   "period": "*",
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "HDFC_Bank_Earnings_Q2FY27_30pages.pdf": {
+   "company": [
+    "HDFC Bank Limited"
+   ],
+   "year": [
+    2027
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ billion"
+   ],
+   "company_as_printed": [
+    "HDFC Bank"
+   ]
+  },
+  "Reliance_IntegratedAnnualReport_FY2026_30pages.pdf": {
+   "company": [
+    "Reliance Industries Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "fy"
+   ],
+   "type": [
+    "annual_report"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "Apple_EnvironmentalProgressReport_2026_30pages.pdf": {
+   "company": [
+    "Apple Inc."
+   ],
+   "year": [
+    2025,
+    2026
+   ],
+   "period": "*",
+   "type": [
+    "other"
+   ],
+   "currency": [
+    "USD"
+   ],
+   "unit": [
+    "USD billion",
+    null
+   ],
+   "company_as_printed": [
+    "Apple"
+   ]
+  },
+  "HindustanUnilever_IntegratedAnnualReport_FY2026_30pages.pdf": {
+   "company": [
+    "Hindustan Unilever Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "fy"
+   ],
+   "type": [
+    "annual_report"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "investor_deck_scan_30p.pdf": {
+   "company": [
+    "Larsen & Toubro Limited"
+   ],
+   "year": [
+    2027
+   ],
+   "period": [
+    "q2",
+    "h1"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ billion",
+    null
+   ],
+   "company_as_printed": [
+    "Larsen & Toubro"
+   ]
+  },
+  "01_exchange_cover_letter_first_BajajFinance_Q2FY26.pdf": {
+   "company": [
+    "Bajaj Finance Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "IMG_20231026_0001.pdf": {
+   "company": [
+    "Asian Paints Limited"
+   ],
+   "year": [
+    2024
+   ],
+   "period": [
+    "q2",
+    null
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ crore",
+    null
+   ]
+  },
+  "Wipro_Q3_FY25_Investor_Presentation.pdf": {
+   "company": [
+    "Titan Company Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "document_scan.pdf": {
+   "company": [
+    "Bajaj Finance Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ crore",
+    null
+   ]
+  },
+  "05_mixed_text_and_scanned_MahindraMahindra_Q2F26.pdf": {
+   "company": [
+    "Mahindra & Mahindra Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "06_subsidiary_ampersand_June_FY_PGHH_FY2025-26.pdf": {
+   "company": [
+    "Procter & Gamble Hygiene and Health Care Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "fy",
+    "q4",
+    null
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": [
+    "₹ crore",
+    null
+   ]
+  },
+  "07_broker_report_ICICISecurities_on_HitachiEnergyIndia.pdf": {
+   "company": [
+    "Hitachi Energy India Limited"
+   ],
+   "year": "*",
+   "period": "*",
+   "type": [
+    "other",
+    "quarterly_results",
+    null
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": "*",
+   "company_as_printed": [
+    "Hitachi Energy India"
+   ]
+  },
+  "08_cover_no_year_only_Q2FY26_Hindalco.pdf": {
+   "company": [
+    "Hindalco Industries Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "09_blank_image_cover_name_only_in_footer_SunPharma_Dec2025.pdf": {
+   "company": [
+    "Sun Pharmaceutical Industries Limited"
+   ],
+   "year": [
+    2025,
+    2026
+   ],
+   "period": "*",
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ billion",
+    "₹ crore"
+   ]
+  },
+  "10_DrReddys_special_chars_mixed_orientation_XL_page_Q2FY26.pdf": {
+   "company": [
+    "Dr. Reddy’s Laboratories Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR",
+    "USD"
+   ],
+   "unit": "*"
+  },
+  "11_metadata_says_other_company_Novartis_Q3_2025.pdf": {
+   "company": [
+    "Novartis AG"
+   ],
+   "year": [
+    2025
+   ],
+   "period": [
+    "q3"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "USD"
+   ],
+   "unit": [
+    "USD billion",
+    "USD million"
+   ]
+  },
+  "12_japanese_only_Toyota_FY2026_2Q.pdf": {
+   "company": [
+    "Toyota Motor Corporation"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2",
+    null
+   ],
+   "type": "*",
+   "currency": [
+    "JPY",
+    null
+   ],
+   "unit": [
+    null
+   ],
+   "company_as_printed": [
+    "トヨタ自動車株式会社"
+   ]
+  },
+  "13_german_only_BASF_Quartalsmitteilung_Q3_2025.pdf": {
+   "company": [
+    "BASF SE"
+   ],
+   "year": [
+    2025
+   ],
+   "period": [
+    "q3"
+   ],
+   "type": [
+    "other",
+    "quarterly_results"
+   ],
+   "currency": [
+    "EUR"
+   ],
+   "unit": [
+    null,
+    "EUR million"
+   ]
+  },
+  "V02_name_in_cover_text.pdf": {
+   "company": [
+    "UltraTech Cement Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ]
+  },
+  "V05_US_calendar_year_quarter.pdf": {
+   "company": [
+    "Bank of America Corporation",
+    "Bank of America"
+   ],
+   "year": [
+    2025
+   ],
+   "period": [
+    "q3"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "USD"
+   ],
+   "unit": [
+    "USD billion",
+    "USD million"
+   ]
+  },
+  "V06_fully_scanned_110dpi.pdf": {
+   "company": [
+    "Bharti Airtel Limited"
+   ],
+   "year": [
+    2027
+   ],
+   "period": [
+    "q2",
+    "h1"
+   ],
+   "type": [
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR",
+    null
+   ],
+   "unit": "*"
+  },
+  "V07_mixed_text_and_scanned.pdf": {
+   "company": [
+    "State Bank of India"
+   ],
+   "year": [
+    2027
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": "*",
+   "company_as_printed": [
+    "SBI"
+   ]
+  },
+  "IndusInd_Bank_Q1_FY25_results.pdf": {
+   "company": [
+    "Axis Bank Limited"
+   ],
+   "year": [
+    2026
+   ],
+   "period": [
+    "q3"
+   ],
+   "type": [
+    "investor_presentation",
+    "quarterly_results"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ crore"
+   ],
+   "company_as_printed": [
+    "Axis Bank"
+   ]
+  },
+  "presentation_final_v2.pdf": {
+   "company": [
+    "ICICI Bank Limited"
+   ],
+   "year": [
+    2027
+   ],
+   "period": [
+    "q2"
+   ],
+   "type": [
+    "investor_presentation"
+   ],
+   "currency": [
+    "INR"
+   ],
+   "unit": [
+    "₹ billion"
+   ],
+   "company_as_printed": [
+    "ICICI Bank"
+   ]
+  }
+ }
+}

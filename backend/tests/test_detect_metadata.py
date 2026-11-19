@@ -66,8 +66,8 @@ def test_slogan_on_a_logo_only_cover_is_not_the_company():
     assert (meta["company_name"], meta["confidence"]["company_name"]) == ("ITC", "medium")    # not "detected"
     # 21 Sep 2020 is in FY2020-21 for a rupee report (the year it ends), not the first chart label, FY17
     assert (meta["fiscal_year"], meta["period"], meta["confidence"]["fiscal_year"]) == (2021, "q2", "low")
-    # slides that never say what kind of deck they are: the type is left for the person to choose
-    assert "report_type" not in meta
+    # slides that never say what kind of deck they are: suggested as a presentation, never "detected"
+    assert (meta["report_type"], meta["confidence"]["report_type"]) == ("investor_presentation", "medium")
 
 
 def test_running_header_names_the_company_not_a_sensitivity_label():
@@ -318,3 +318,128 @@ def test_a_japanese_fiscal_year_and_quarter():
     assert _period([t], t, t, 4) == (2026, "q2", "high", "FY2026")
     t = "2026年3月期 決算の概要"                                  # the fiscal year ending March 2026, no quarter
     assert _period([t], t, t, 4) == (2026, None, "medium", "FY2026")
+
+
+# ------------------------------------------------------------------ evidence from the whole PDF
+
+
+def _html_deck(*pages: tuple[bool, list[tuple[float, str]]], images: tuple[int, ...] = ()) -> bytes:
+    """Pages of HTML boxes (a font with é, ’ and ₹), with a small picture on the pages listed."""
+    doc = pymupdf.open()
+    for i, (landscape, boxes) in enumerate(pages):
+        pg = doc.new_page(width=960, height=540) if landscape else doc.new_page()
+        for y, text in boxes:
+            pg.insert_htmlbox(pymupdf.Rect(40, y, pg.rect.width - 40, y + 40), text)
+        if i in images:
+            pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 20), False)
+            pix.clear_with(200)
+            pg.insert_image(pymupdf.Rect(700, 20, 900, 120), pixmap=pix)
+    return doc.tobytes()
+
+
+def test_a_name_with_an_accent_is_kept_whole():
+    """'Nestlé India Limited', not 'India Limited': a name's letters are any script's."""
+    meta = detect_metadata(_html_deck((False, [(100, "To the Stock Exchange"), (160, "Nestlé India Limited")]),
+                                      *[(True, [(100, "Nestlé India at a glance"), (160, "Sales grew")]) for _ in range(3)]))
+    assert meta["company_name"] == "Nestlé India Limited"
+
+
+def test_a_letter_signed_in_capitals_names_the_company(monkeypatch):
+    """A scanned covering letter signed 'For ASIAN PAINTS LIMITED'; the logo reads 'asianpaints'."""
+    _ocr(monkeypatch, {0: _ocr_words("To the Stock Exchange Sub: Investor Conference", 100)
+                       + _ocr_words("Yours truly, For ASIAN PAINTS LIMITED", 400),
+                       1: _ocr_words("asianpaints Investor Conference", 100), 2: _ocr_words("Highlights", 100)})
+    meta = detect_metadata(_deck([], [], []), filename="IMG_0001.pdf")
+    assert meta["company_name"] == "Asian Paints Limited"
+
+
+def test_a_subsidiary_named_holdings_is_not_the_company(monkeypatch):
+    """The cover says 'Bharti Airtel Limited (Incorporated as a public limited company ...)'; a
+    subsidiary list mentions 'Bharti Airtel Holdings' more often."""
+    _ocr(monkeypatch, {
+        0: _ocr_words("Quarterly Report on the results for the second quarter ended September 30, 2026", 60)
+        + _ocr_words("Bharti Airtel Limited (Incorporated as a public limited company on July 7, 1995)", 700),
+        1: _ocr_words("Bharti Airtel Holdings (Singapore) Pte Ltd and Bharti Airtel Holdings", 100),
+        2: _ocr_words("Bharti Airtel customers grew Revenue ₹ 52,145 crore", 100)})
+    meta = detect_metadata(_deck([], [], [], landscape=False), filename="scan.pdf")
+    assert (meta["company_name"], meta["confidence"]["company_name"]) == ("Bharti Airtel Limited", "high")
+    assert (meta["report_type"], meta["fiscal_year"], meta["period"]) == ("quarterly_results", 2027, "q2")
+
+
+def test_the_quarter_on_the_cover_beats_comparisons_quoted_more_often():
+    """A calendar-year bank: '3Q25' on the cover; the slides quote '3Q24' and '2Q25' more often.
+    Amounts are US style ('$1.3B')."""
+    cover = [(60, 200, "Lakeside Bank 3Q25 Financial Results", 40), (60, 300, "October 15, 2025", 18)]
+    slides = [_body("Net income $1.3B vs 3Q24 and 2Q25", "Deposits $2.1B 3Q24 2Q25 3Q24") for _ in range(4)]
+    meta = detect_metadata(_deck(cover, *slides))
+    assert (meta["fiscal_year"], meta["period"], meta["confidence"]["period"]) == (2025, "q3", "high")
+    assert meta["report_type"] == "quarterly_results"
+    assert (meta["currency"], meta["reporting_unit"]) == ("USD", "USD billion")
+
+
+def test_a_product_with_a_two_letter_suffix_is_not_the_company():
+    """'Apple Watch SE' is a product, not a company with the legal form SE."""
+    pages = [_body("Apple's renewable energy", "Apple Watch SE uses recycled aluminium") for _ in range(4)]
+    meta = detect_metadata(_deck([(60, 200, "Environmental Progress Report", 40)], *pages, landscape=False))
+    assert meta["company_name"] == "Apple"
+
+
+def test_a_running_title_is_not_the_company_but_the_listing_code_names_it():
+    """Every slide's header is 'Quarterly Results Q3FY26'; the cover gives 'NSE: LOTUSBANK' and
+    the slides keep writing 'Lotus Bank'."""
+    cover = [(60, 60, "NSE: LOTUSBANK BSE: 532215", 12), (60, 250, "Investor Presentation", 40),
+             (60, 320, "Quarterly Results Q3FY26", 30)]
+    slides = [[_header("Quarterly Results Q3FY26")] + _body("Lotus Bank at a glance", "Deposits ₹ 1,000 crore")
+              for _ in range(5)]
+    meta = detect_metadata(_deck(cover, *slides))
+    assert meta["company_name"] == "Lotus Bank"
+    assert (meta["fiscal_year"], meta["period"]) == (2026, "q3")
+
+
+def test_a_name_drawn_only_in_the_cover_logo(monkeypatch):
+    """The cover's text is 'Q2-2027: Performance review'; the bank's name is in the logo
+    picture, which a second look at the cover reads. The slides say 'India's' far more often."""
+    from app.extraction import ocr
+    monkeypatch.setattr(ocr, "read_pictures", lambda page, rects, dpi=150: "Lotus Bank" if page.number == 0 else "")
+    deck = _html_deck((True, [(250, "Q2-2027: Performance review"), (320, "October 17, 2026")]),
+                      (True, [(100, "Lotus Bank is a leading private sector bank")]),
+                      *[(True, [(100, "India's growth story"), (160, "Loans ₹ 120 billion")]) for _ in range(4)],
+                      images=(0,))
+    meta = detect_metadata(deck)
+    assert meta["company_name"] == "Lotus Bank"
+    assert (meta["fiscal_year"], meta["period"], meta["report_type"]) == (2027, "q2", "investor_presentation")
+
+
+def test_a_subsidiary_named_deep_in_the_report_is_not_the_company():
+    """'Acme Fibre Innovations Limited' appears once, on page 9; the report is Acme's."""
+    pages = [_body("Acme's growth", "Acme businesses") for _ in range(8)] + [_body("Acme Fibre Innovations Limited")]
+    meta = detect_metadata(_deck([(60, 200, "Investor Day 2023", 40)], *pages))
+    assert meta["company_name"] == "Acme"
+
+
+def test_a_legal_name_stated_on_a_contact_page_at_the_end():
+    """The deck says 'Hilltop' throughout; 'Hilltop Industries Limited' and its registration
+    number are only on the last page."""
+    pages = [[_header("Hilltop Q2 FY26 – Earnings Presentation")] + _body("Hilltop revenue grew ₹ 500 crore")
+             for _ in range(30)]
+    pages[-1] += _body("", "For further queries: Hilltop Industries Limited",
+                       "Corporate Identity No.: L27020MH1958PLC011238")
+    meta = detect_metadata(_deck([(60, 200, "Q2 FY26 Earnings Presentation", 40)], *pages))
+    assert (meta["company_name"], meta["confidence"]["company_name"]) == ("Hilltop Industries Limited", "high")
+
+
+def test_a_count_in_lakh_is_not_the_money_unit(monkeypatch):
+    """A scanned report: '20 lakh acres' and '90 lakh households' are counts; '280,867 cr' is money."""
+    _ocr(monkeypatch, {0: _ocr_words("Report and Accounts 2026 Gross Revenue 280,867 cr EBITDA 25,208 cr", 100)
+                       + _ocr_words("Covering over 20 lakh acres and 90 lakh households", 300),
+                       1: _ocr_words("Contents", 100), 2: _ocr_words("Board of Directors", 100)})
+    meta = detect_metadata(_deck([], [], [], landscape=False))
+    assert (meta["reporting_unit"], meta["confidence"]["reporting_unit"]) == ("₹ crore", "medium")
+
+
+def test_a_japanese_legal_name():
+    """株式会社 marks the legal name; the name is the run of katakana and kanji before it."""
+    from app.extraction.detect import _Corpus, _legal_candidates
+    pages = ["2026年3月期第2四半期決算 皆様にサクラ電機株式会社", "サクラの販売台数", "サクラの営業利益", "サクラの見通し"]
+    found = _legal_candidates(_Corpus(pages, pages), pages, [[] for _ in pages])
+    assert [x[0] for x in found] == ["サクラ電機株式会社"]
