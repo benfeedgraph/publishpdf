@@ -201,6 +201,8 @@ export interface Issue {
   status: "open" | "resolved";
   resolution: string | null;
   figure: Partial<Figure> | null;
+  /** From Step 1's list: a value tied to a spot in the PDF, so it can be confirmed side by side. */
+  decidable?: boolean;
 }
 
 export const CHECK_LABEL: Record<string, string> = {
