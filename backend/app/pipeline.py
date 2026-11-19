@@ -222,8 +222,11 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         if site.artwork_key(schema, pdf, None, theirs) == kept.get("key"):
             layouts, key = theirs, kept["key"]
     if layouts is None:
+        # Without a kept drawing (a page built before drawings were kept), a design change still
+        # asks the AI for nothing: the layouts already made for this PDF are the ones the page has.
         try:
-            layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode, progress=on_layout)
+            layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode, progress=on_layout,
+                                               cached_only=bool(payload.get("design_only")))
         except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
             log.exception("AI layouts unavailable")
             layouts = {}

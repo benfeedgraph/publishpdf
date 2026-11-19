@@ -27,6 +27,7 @@ from app.extraction.schema_builder import PIPELINE_VERSION, period_label, schema
 from app.models import (
     Domain,
     FigureReview,
+    Job,
     Report,
     ReportVersion,
     SourceFile,
@@ -132,6 +133,152 @@ def effective_disclaimer(st: TenantSettings) -> str | None:
     return (st.disclaimer or "").strip() or None
 
 
+# ------------------------------------------------------------------ design: on the page vs saved
+
+
+def design_key(theme: dict, disclaimer: str | None) -> str:
+    """One fingerprint of everything the design puts on a page: every theme token as the page
+    uses it (after the contrast fixes), the logo and the footer disclaimer. Any design setting,
+    today's or a future one, changes it; nothing else does."""
+    blob = json.dumps({"theme": theme, "disclaimer": (disclaimer or "").strip() or None}, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def built_design(v: ReportVersion) -> str | None:
+    """The design this version's page was built in (None: no page built yet)."""
+    snap = v.theme_snapshot or {}
+    return design_key(snap["theme"], snap.get("disclaimer")) if snap.get("theme") else None
+
+
+def design_for(st: TenantSettings, override: dict | None) -> tuple[str, dict, list[dict]]:
+    """(fingerprint, theme as the page would use it, colours the contrast fixes changed) for a
+    report whose own design is `override`, as a build would make it now."""
+    theme, adjustments = theming.enforce(theming.validate(theming.merge(st.theme or {}, override or {})))
+    return design_key(theme, effective_disclaimer(st)), theme, adjustments
+
+
+def _pending(jobs_: list[Job], *kinds: str) -> list[Job]:
+    return [j for j in jobs_ if j.kind in kinds and j.status in ("queued", "running")]
+
+
+def version_jobs(s: Session, vid: uuid.UUID) -> list[Job]:
+    return list(s.scalars(select(Job).where(Job.version_id == vid).order_by(Job.created_at)))
+
+
+def design_state(st: TenantSettings, report: Report, v: ReportVersion, jobs_: list[Job]) -> dict:
+    """Whether the page on screen is in the design that's saved for the report:
+    applied — it is (the checks may still be running); applying — a build in the saved design is
+    queued or running; not_applied — the page is in another design and nothing is building it
+    (e.g. the workspace design changed since); failed — the build in the saved design failed;
+    not_built — the PDF is still being read. Read from the page itself, so it holds for every
+    design setting, and so leaving the Design step never needs a rebuild to be sure."""
+    saved, _, adjustments = design_for(st, report.theme_override)
+    page = built_design(v)
+    building = _pending(jobs_, "pipeline.render") if v.published_at is None else []
+    renders = [j for j in jobs_ if j.kind == "pipeline.render"]
+    if building and (page != saved or any((j.payload or {}).get("design_only") for j in building)):
+        state = "applying"
+    elif page is None:
+        state = "failed" if v.status == "failed" and renders else "not_built"
+    elif _design_build_failed(v, jobs_):          # its page may be built, but not checked
+        state = "failed"
+    elif page == saved:
+        state = "applied"
+    else:
+        state = "not_applied"
+    job = building[-1] if building else None
+    return {"state": state, "page_design": page, "saved_design": saved, "adjustments": adjustments,
+            "page_adjustments": (v.theme_snapshot or {}).get("contrast_adjustments"),
+            "job": {"id": str(job.id), "status": job.status} if job else None}
+
+
+RUN_STAGES = ("pipeline.extract", "pipeline.render", "pipeline.validate")
+
+
+def _design_build_failed(v: ReportVersion, jobs_: list[Job]) -> bool:
+    """The version failed in a build for a new design (building or checking its page), not while
+    its PDF was read or its figures were re-checked."""
+    finished = [j for j in jobs_ if j.kind in RUN_STAGES and j.status in ("succeeded", "failed")]
+    last = max(finished, key=lambda j: j.finished_at or j.created_at, default=None)
+    return v.status == "failed" and last is not None and last.status == "failed" \
+        and bool((last.payload or {}).get("design_only"))
+
+
+def step_states(v: ReportVersion, jobs_: list[Job], blocking_open: int, design: dict) -> dict:
+    """Where each step of the report wizard really is, from what has run on this version. A
+    rebuild for a new design is the Design step's work: "Extract & verify" keeps the result its
+    checks gave (the figures and their checks didn't change), and only the page is being built.
+    Keyed like the wizard's steps:
+      verify: running | done | blocked | failed
+      design: as design_state
+      review (the page Review shows): building | checking | ready | failed | not_built"""
+    active = _pending(jobs_, *RUN_STAGES)
+    content = [j for j in active if not (j.payload or {}).get("design_only")]   # reading the PDF, re-checking figures
+    design_failed = _design_build_failed(v, jobs_)
+    # A draft made to re-design a live page has that page's figures, checked and with nothing
+    # blocking (it was published); its first build is a design build.
+    carried = bool(v.created_from_version_id) and not content
+    if v.status == "failed" and not design_failed:
+        verify = "failed"
+    elif content or (v.status == "processing" and not active):
+        verify = "running"
+    elif v.validation_summary or carried:
+        verify = "blocked" if blocking_open > 0 else "done"
+    else:
+        verify = "running" if v.status == "processing" else "failed"
+    if v.status == "failed":
+        review = "failed"
+    elif _pending(jobs_, "pipeline.extract", "pipeline.render"):
+        review = "building"
+    elif v.status == "processing":
+        review = "checking" if v.bundle_key else "building"
+    else:
+        review = "ready" if v.bundle_key else "not_built"
+    return {"verify": verify, "design": design["state"], "review": review}
+
+
+def apply_design(s: Session, ctx: Context, report: Report, override: dict | None) -> dict:
+    """Save the report's own design and build its page in it, when that changes the page.
+
+    The latest draft is rebuilt in place (the design alone: the drawn pages, the AI layouts and
+    the figure checks' findings are reused); a live version is never changed — a new draft gets
+    the design. When the page is already in this design (nothing changed, or only to a colour the
+    contrast fix turns into the same one) nothing is rebuilt: going on to Review is instant.
+    Returns {version_id, job_id, rebuilt}."""
+    if override:
+        theming.validate(override)                  # ThemeError: the caller says what's wrong
+    before = report.theme_override
+    report.theme_override = override or None
+    if before != report.theme_override:
+        audit.record(s, ctx, "theme.report_override_changed", target_type="report", target_id=report.id,
+                     before={"theme_override": before}, after={"theme_override": report.theme_override})
+    latest = s.scalars(select(ReportVersion).where(ReportVersion.report_id == report.id)
+                       .order_by(ReportVersion.version_no.desc())).first()
+    if latest is None or not latest.schema_json:
+        return {"version_id": None, "job_id": None, "rebuilt": False}
+    # (Only a fresh read of the PDF has to finish first — it builds the page in the saved design.)
+    if latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued"):
+        return {"version_id": None, "job_id": None, "rebuilt": False}
+    saved = design_for(settings_for(s, ctx), report.theme_override)[0]
+    if latest.published_at is not None:
+        if built_design(latest) == saved:
+            return {"version_id": None, "job_id": None, "rebuilt": False}
+        nv = new_draft_from(s, ctx, latest, design_only=True)
+        job = _pending(version_jobs(s, nv.id), "pipeline.render")[-1]
+        return {"version_id": str(nv.id), "job_id": str(job.id), "rebuilt": True}
+    building = _pending(version_jobs(s, latest.id), "pipeline.render")
+    # (A version whose last build failed is always built again: applying is how a design build is retried.)
+    if not building and built_design(latest) == saved and latest.status != "failed":
+        return {"version_id": str(latest.id), "job_id": None, "rebuilt": False}
+    # A build still waiting to start reads the design when it starts: it builds this one. A
+    # running one may have read an older design, so this design gets its own build after it.
+    # (A draft still being re-checked after review decisions is rebuilt too: the new build
+    # supersedes the running one, so the design is never silently dropped.)
+    waiting = [j for j in building if j.status == "queued"]
+    job = waiting[-1] if waiting else enqueue_stage(s, ctx, latest, "render", force=True, design_only=True)
+    return {"version_id": str(latest.id), "job_id": str(job.id), "rebuilt": True}
+
+
 # Text that says it isn't finished. A small fixed list, agreed for this purpose only.
 _UNFINISHED = re.compile(r"\b(?:placeholder|lorem\s+ipsum|todo|tbd|replace\s+this)\b"
                          r"|\[[A-Za-z][^\]\n]{0,60}\]|\{\{[^}\n]{0,60}\}\}", re.I)
@@ -178,7 +325,7 @@ def rebuild_drafts_for_disclaimer(s: Session, ctx: Context) -> int:
             continue
         if v.status == "processing" and (v.stage or "").split(":")[0] in ("extract", "queued"):
             continue
-        enqueue_stage(s, ctx, v, "render", force=True)
+        enqueue_stage(s, ctx, v, "render", force=True, design_only=True)      # the footer is design
         n += 1
     return n
 
@@ -355,7 +502,7 @@ def _settings_fingerprint(v: ReportVersion) -> str:
 
 
 def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False,
-                  design_only: bool = False) -> None:
+                  design_only: bool = False) -> Job:
     """`design_only`: only the design changed (render, then validate): the drawn pages and the
     findings of the checks that don't read the web page can be reused. It is part of the job's
     key, since a job seen before is re-run as it was first queued."""
@@ -373,6 +520,7 @@ def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, for
         # Same inputs seen before (e.g. an edit was undone). Stages are idempotent,
         # so run it again rather than leave the version waiting on a finished job.
         jobs.requeue(s, job)
+    return job
 
 
 # ------------------------------------------------------------------ issues & reviews

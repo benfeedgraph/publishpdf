@@ -26,11 +26,15 @@ from app.reports import (
     ReportError,
     acknowledge_issue,
     apply_bulk_review,
+    apply_design,
     apply_figure_action,
     build_mode_of,
+    built_design,
     create_upload,
     create_version,
     delete_report,
+    design_for,
+    design_state,
     disclaimer_problem,
     effective_theme,
     landing_of,
@@ -49,6 +53,8 @@ from app.reports import (
     settings_for,
     site_nav,
     source_key,
+    step_states,
+    version_jobs,
     versions_for,
 )
 from app.tenancy import Context
@@ -327,39 +333,55 @@ class ThemeOverrideIn(BaseModel):
     theme_override: dict | None = None
 
 
-@router.put("/{report_id}/theme")
-def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+def _apply(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context) -> dict:
     from app.render import theme as theming
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
-        if body.theme_override:
-            try:
+        try:
+            done = apply_design(s, ctx, r, body.theme_override)
+        except theming.ThemeError as e:
+            raise HTTPException(400, str(e)) from e
+        out = {"theme_override": r.theme_override, **done}
+        if done["version_id"]:
+            v = s.get(ReportVersion, uuid.UUID(done["version_id"]))
+            out["design"] = design_state(settings_for(s, ctx), r, v, version_jobs(s, v.id))
+        return out
+
+
+@router.post("/{report_id}/design/apply")
+def apply_report_design(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+    """Apply this design to the report's page — and nothing else: no step changes. The page is
+    built in it only when that changes the page (job_id: that build, which the version's
+    `design` and `steps` follow); applying the design the page already has does nothing."""
+    return _apply(report_id, body, ctx)
+
+
+@router.put("/{report_id}/theme")
+def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+    """The same as POST .../design/apply (kept for older dashboards)."""
+    return _apply(report_id, body, ctx)
+
+
+@router.post("/{report_id}/design/check")
+def check_report_design(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("report.view"))) -> dict:
+    """What applying these settings would do, without applying them: their design fingerprint,
+    whether the report's page is already in it (applied: nothing to apply) and which colours the
+    contrast fixes change on the page. Cheap — nothing is drawn — so it can follow every edit."""
+    from app.render import theme as theming
+    with db.session(ctx) as s:
+        r = _get_report(s, report_id)
+        try:
+            if body.theme_override:
                 theming.validate(body.theme_override)
-            except theming.ThemeError as e:
-                raise HTTPException(400, str(e)) from e
-        before = r.theme_override
-        r.theme_override = body.theme_override or None
-        audit.record(s, ctx, "theme.report_override_changed", target_type="report", target_id=r.id,
-                     before={"theme_override": before}, after={"theme_override": r.theme_override})
-        # Re-build the page in the new design: the latest draft is re-rendered and
-        # re-validated; a live version stays untouched and gets a new draft instead. Only the
-        # design changed, so the drawn pages and the findings of the checks that don't read
-        # the web page are reused (design_only).
-        latest = s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
-                           .order_by(ReportVersion.version_no.desc())).first()
-        target = None
-        if latest is not None and latest.schema_json:
-            # A draft still being re-checked after review decisions is rebuilt too: the new
-            # render supersedes the running one, so the design is never silently dropped.
-            # (Only a fresh read of the PDF has to finish first — it re-renders on its own
-            # and picks up the new design then.)
-            extracting = latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued")
-            if latest.published_at is None and not extracting:
-                enqueue_stage(s, ctx, latest, "render", force=True, design_only=True)
-                target = latest
-            elif latest.published_at is not None:
-                target = new_draft_from(s, ctx, latest, design_only=True)
-        return {"theme_override": r.theme_override, "version_id": str(target.id) if target else None}
+            key, _, adjustments = design_for(settings_for(s, ctx), body.theme_override)
+        except theming.ThemeError as e:
+            raise HTTPException(400, str(e)) from e
+        latest = s.scalars(select(ReportVersion).options(defer(ReportVersion.schema_json))
+                           .where(ReportVersion.report_id == r.id).order_by(ReportVersion.version_no.desc())).first()
+        page = built_design(latest) if latest is not None else None
+        saved = design_for(settings_for(s, ctx), r.theme_override)[0]
+        return {"design": key, "page_design": page, "applied": key == page, "saved": key == saved,
+                "adjustments": adjustments}
 
 
 # ------------------------------------------------------------------ version detail
@@ -420,11 +442,15 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
         v = _get_version(s, report_id, version_id)
-        jobs = s.scalars(select(Job).where(Job.version_id == v.id).order_by(Job.created_at)).all()
+        jobs = version_jobs(s, v.id)
         page_count, pages, sections = _schema_bits(s, v.id)
         out = version_json(v, live_id=r.live_version_id)
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
+        # The design the page is in against the one saved, and where each wizard step really is
+        # (a design build never makes "Extract & verify" look unfinished).
+        out["design"] = design_state(settings_for(s, ctx), r, v, jobs)
+        out["steps"] = step_states(v, jobs, out["open_blocking"], out["design"])
         out["page_count"] = page_count
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
