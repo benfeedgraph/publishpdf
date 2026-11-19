@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { api, type Figure, type Report, type Run, type SchemaDoc, type VersionDetail } from "../../api";
+import { api, type Figure, type PageMapEntry, type Report, type Run, type SchemaDoc, type VersionDetail } from "../../api";
 import PdfRegion from "../../components/PdfRegion";
 import { Loading } from "../../components/Spinner";
 
@@ -24,12 +24,42 @@ export function Runs({ runs, figures, onFigure, selected }: { runs: Run[]; figur
   );
 }
 
+/** How a page sits on the web page, in words. */
+function pageStatus(e: PageMapEntry): string {
+  if (e.shown === "left_out") return "Left out (the PDF's contents page)";
+  if (e.shown === "none") return "Not on the web page";
+  if (e.shown === "cover") return "The cover";
+  const under = e.heading ? `“${e.heading}”${e.heading_page && e.heading_page !== e.page ? ` (page ${e.heading_page})` : ""}` : "the page before";
+  if (e.own_section) return "Own section";
+  return e.title ? `Under ${under}` : `Continues ${under}`;
+}
+
+/** "on the web page: 27 under their own heading, 2 continue the page before, 1 left out (contents page)" */
+function pagesSummary(entries: PageMapEntry[]): string {
+  const shown = entries.filter((e) => !["left_out", "none", "cover"].includes(e.shown));
+  const parts: [number, string][] = [
+    [shown.filter((e) => e.own_section).length, "under their own heading"],
+    [entries.filter((e) => e.shown === "cover").length, "the cover"],
+    [shown.filter((e) => !e.own_section && e.title).length, "under another page's heading"],
+    [shown.filter((e) => !e.own_section && !e.title).length, "continue the page before"],
+    [entries.filter((e) => e.shown === "left_out").length, "left out (contents page)"],
+    [entries.filter((e) => e.shown === "none").length, "not on the web page"],
+  ];
+  return parts.filter(([n]) => n > 0).map(([n, what]) => `${n} ${what}`).join(", ");
+}
+
 export default function SchemaTab({ tenantId, report, version }: { tenantId: string; report: Report; version: VersionDetail }) {
   const [mode, setMode] = useState<"tree" | "json">("tree");
   const [sel, setSel] = useState<Figure | null>(null);
   const base = `/api/tenants/${tenantId}/reports/${report.id}/versions/${version.id}`;
   const schema = useQuery({ queryKey: ["schema", version.id, version.schema_sha256], queryFn: () => api<SchemaDoc>(`${base}/schema`), enabled: !!version.schema_sha256 });
   const raw = useMemo(() => (schema.data ? JSON.stringify(schema.data, null, 2) : ""), [schema.data]);
+  const pageMap = useQuery({
+    queryKey: ["page-map", version.id, version.bundle_sha256],
+    queryFn: () => api<{ pages: PageMapEntry[] }>(`${base}/page-map`),
+    enabled: !!version.schema_sha256,
+  });
+  const pm = pageMap.data?.pages ?? [];
   if (!version.schema_sha256) return <p className="muted">The schema will appear when the PDF has been read.</p>;
   if (schema.isPending) return <Loading label="Loading the extracted data" />;
   if (schema.isError) return <p className="error">{schema.error.message}</p>;
@@ -46,8 +76,28 @@ export default function SchemaTab({ tenantId, report, version }: { tenantId: str
         </div>
         <a className="button secondary" href={`${base}/schema?download=true`}>Download JSON</a>
         <a className="button secondary" href="/api/schema/report.schema.json" target="_blank" rel="noreferrer">JSON Schema definition</a>
-        <span className="muted small">{figs.length} figures · {s.sections.length} sections · {s.pages.length} pages</span>
+        <span className="muted small">{figs.length} figures · {s.sections.length} sections · {s.pages.length} pages{pm.length > 0 && <> · on the web page: {pagesSummary(pm)}</>}</span>
       </div>
+      {pm.length > 0 && (
+        <details className="card page-map">
+          <summary>Pages ({pm.length})</summary>
+          <div className="table-scroll">
+          <table className="schema-table page-map-table">
+            <thead><tr><th scope="col">Page</th><th scope="col">Title in the PDF</th><th scope="col">On the web page</th><th scope="col">Web page section</th></tr></thead>
+            <tbody>
+              {pm.map((e) => (
+                <tr key={e.page}>
+                  <td>{e.page}</td>
+                  <td>{e.title ?? <span className="muted">—</span>}</td>
+                  <td>{pageStatus(e)}</td>
+                  <td>{e.chapter ?? e.heading ?? <span className="muted">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </details>
+      )}
       {mode === "json" ? (
         <pre className="json" tabIndex={0}>{raw.length > 400000 ? raw.slice(0, 400000) + "\n… (truncated in the viewer — download for the full file)" : raw}</pre>
       ) : (

@@ -15,7 +15,7 @@ from typing import Any
 
 import pymupdf
 
-from app.extraction import classify, layout, noise
+from app.extraction import classify, layout, noise, page_titles
 from app.extraction.dates import ParsedDate, Period, parse_period
 from app.extraction.numbers import ParsedNumber, has_digit
 from app.extraction.pdf import PageData, Word
@@ -305,18 +305,45 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
         sections.append(s)
         return s
 
+    # Every page's elements first, so each page's own title is known before sections are built.
+    page_els = []
     for p in pages:
         page_body = body_size if p.method == "text_layer" and body_size else \
             (statistics.median(w.h for w in p.words) if p.words else 0.0)
-        els = layout.analyse_page(p, exclude[p.number], page_body)
+        page_els.append((p, page_body, layout.analyse_page(p, exclude[p.number], page_body)))
+    # A page's title is judged against the report's body text, not the page's own: on a page whose
+    # only text is its title (a picture page), the page's own "body" would be the title itself.
+    # Scanned pages are measured by glyph height: the report's text-layer body size when it has
+    # one, else the median glyph height of all its scanned pages.
+    ocr_heights = [w.h for p in pages if p.method == "ocr" for w in p.words]
+    title_body = {p.number: body_size if (p.method == "text_layer" or not ocr_heights) and body_size
+                  else body_size or statistics.median(ocr_heights) for p, _b, _e in page_els}
+    per_page = {p.number: (els, title_body[p.number], p.height) for p, _b, els in page_els}
+    titles = page_titles.page_titles(per_page)
+    on_pictures = page_titles.picture_titles(per_page, titles)
+
+    for p, page_body, els in page_els:
         excluded_words = [w for w in p.words if id(w) in exclude[p.number]]
         page_info.append({
             "page": p.number, "width": _r(p.width), "height": _r(p.height), "method": p.method,
             "method_reason": p.text_layer_reason,
             "ocr_mean_confidence": round(statistics.mean(w.conf for w in p.words), 3) if p.method == "ocr" and p.words else None,
             "excluded_header_footer": [_excluded(w, noise_reasons[p.number].get(id(w))) for w in excluded_words],
+            "title": None,          # set below when the page's own title opens its section
         })
-        for el in els:
+        if p.number in on_pictures:
+            # The page's title is printed over one of its pictures (a banner, a slide drawn as one
+            # image): it opens the page's section all the same; its words also stay in the picture.
+            ws = on_pictures[p.number]
+            sid = f"s{len(sections) + 1}"
+            current = new_section(b.runs(tokenize(ws), p.number, section_id=sid, role="heading"),
+                                  " ".join(w.text for w in ws), p.number,
+                                  (min(w.bbox[0] for w in ws), min(w.bbox[1] for w in ws),
+                                   max(w.bbox[2] for w in ws), max(w.bbox[3] for w in ws)))
+            page_info[-1]["title"] = current["heading_text"]
+            page_info[-1]["title_on_picture"] = True
+        for src in els:
+            el = src
             # OCR of a logo or texture read as a 'heading' ('gtaaliyy', 'MM ENA'), or a short
             # low-confidence scrap of the same: drop it rather than open a section with it.
             # Anything carrying a digit is kept (as a paragraph): its figures go through the
@@ -326,10 +353,17 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
                     page_info[-1]["excluded_header_footer"].extend(_excluded(w, "ocr_garbage_text") for w in el.words)
                     continue
                 el = layout.TextEl("paragraph", el.lines, el.size)
+            elif el is titles.get(p.number) and el.kind != "heading":
+                # The page's own title (its top line in its largest type) opens the page's
+                # section, even when it reads like a sentence: otherwise the whole page would
+                # run on under the previous page's heading.
+                el = layout.TextEl("heading", el.lines, el.size)
             if isinstance(el, layout.TextEl) and el.kind == "heading":
                 sid = f"s{len(sections) + 1}"
                 runs = b.runs(tokenize(el.words), p.number, section_id=sid, role="heading")
                 current = new_section(runs, " ".join(w.text for w in el.words), p.number, el.bbox)
+                if src is titles.get(p.number):
+                    page_info[-1]["title"] = current["heading_text"]
                 continue
             if current is None:
                 current = new_section(None, "", p.number, None)
@@ -349,9 +383,11 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
     for s in sections:
         # Only merge one level deep, so no heading text is ever dropped.
         # A numbered question is never folded into the one before it, even if that one
-        # has no answer text of its own.
+        # has no answer text of its own. Nor is the next page's heading: a page break ends a
+        # section, so a caption at the foot of one page never takes the next page's title.
         if merged and not merged[-1]["blocks"] and merged[-1]["heading"] and s["heading"] \
-                and not merged[-1].get("subheading") and not layout._QMARK.match(s["heading_text"]):
+                and not merged[-1].get("subheading") and not layout._QMARK.match(s["heading_text"]) \
+                and (merged[-1]["source"] or {}).get("page") == (s["source"] or {}).get("page"):
             prev = merged[-1]
             prev["subheading"] = s["heading"]
             prev["subheading_text"] = s["heading_text"]

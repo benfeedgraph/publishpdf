@@ -482,6 +482,17 @@ def get_schema(report_id: uuid.UUID, version_id: uuid.UUID, download: bool = Fal
         return Response(body, media_type="application/json", headers=headers)
 
 
+@router.get("/{report_id}/versions/{version_id}/page-map")
+def get_page_map(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    """Where each PDF page is on the web page, as the page build recorded it (see
+    app.render.site.page_map). ``pages`` is empty for a page built before this was recorded."""
+    from app.pipeline import stored_page_map
+    with db.session(ctx) as s:
+        v = _get_version(s, report_id, version_id)
+        bundle_key = v.bundle_key
+    return {"pages": stored_page_map(ctx, bundle_key) or []}
+
+
 @router.get("/{report_id}/versions/{version_id}/source.pdf")
 def get_source(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> Response:
     with db.session(ctx) as s:

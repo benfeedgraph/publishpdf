@@ -751,6 +751,56 @@ def _words_of(text: str) -> set[str]:
     return {w.lower() for w in _WORD.findall(text)}
 
 
+def _page_words(schema: dict) -> dict[int, set[str]]:
+    """Each page's words, as extracted (its section headings and its blocks)."""
+    said: dict[int, set[str]] = defaultdict(set)
+    for sec in schema["sections"]:
+        if (sec.get("source") or {}).get("page"):
+            said[sec["source"]["page"]] |= _words_of(sec.get("heading_text") or "")
+        for b in sec["blocks"]:
+            page = (b.get("source") or {}).get("page")
+            if page:
+                said[page] |= _words_of(" ".join(r.get("t", "") for r in b.get("runs") or []))
+    return said
+
+
+def check_page_coverage(schema: dict, artifact: dict, page_map: list[dict]) -> list[Issue]:
+    """Every PDF page with content is on the web page under a heading of its own, or is
+    reported here (a warning under Completeness: it doesn't stop publishing):
+      - a page with its own title (the extracted data's ``pages[].title``) whose content sits
+        under another page's heading;
+      - a page with pictures and nothing else that isn't on the web page at all (a page with
+        text that is missing is reported by `check_text_on_site`).
+    The PDF's contents page and pages that only repeat other pages (an agenda shown again
+    before each part) are left out on purpose and not reported. ``page_map`` is the build's
+    own account of where each page went (`app.render.site.page_map`)."""
+    titles = {pi["page"]: pi.get("title") for pi in schema.get("pages", [])}
+    pictures = {pg["page"]: len(pg.get("image_regions") or []) for pg in (artifact or {}).get("pages", [])}
+    said = _page_words(schema)
+    pages_with: dict[str, int] = defaultdict(int)
+    for ws in said.values():
+        for w in ws:
+            pages_with[w] += 1
+    issues = []
+    for e in page_map:
+        n = e["page"]
+        if e["shown"] in ("left_out", "cover"):
+            continue
+        if said.get(n) and all(pages_with[w] >= 2 for w in said[n]) and not titles.get(n):
+            continue                                 # every word of it is on another page too: it repeats
+        if titles.get(n) and e["shown"] != "none" and not e["own_section"]:
+            where = (f"is under \u201c{e['heading']}\u201d from page {e['heading_page']}" if e.get("heading") and e.get("heading_page")
+                     else f"is under \u201c{e['heading']}\u201d" if e.get("heading") else "runs on from the page before")
+            issues.append(Issue("completeness", "warning",
+                                f"Page {n} has no section of its own on the web page: its content (\u201c{titles[n]}\u201d) {where}. "
+                                "Compare it with the PDF before publishing.", page=n))
+        elif e["shown"] == "none" and pictures.get(n) and len(said.get(n, ())) < 3:
+            issues.append(Issue("completeness", "warning",
+                                f"Page {n} of the PDF isn't on the web page: neither its text nor its pictures are there. "
+                                "Compare it with the PDF before publishing.", page=n))
+    return issues
+
+
 def check_text_on_site(schema: dict, pdf_bytes: bytes, bundle_files: dict[str, bytes]) -> list[Issue]:
     """No page of the PDF disappears from the web page: each page with text read from it has
     its words on the web page, or is shown as printed (a picture of the page). Only the PDF's
@@ -1136,7 +1186,8 @@ def _safe_reads(schema: dict, pdf_bytes: bytes, pool) -> dict[str, list[str]] | 
 
 
 def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes] | None,
-            *, threshold: float, reextract: bool = True, progress=None) -> tuple[list[Issue], dict[str, Any]]:
+            *, threshold: float, reextract: bool = True, progress=None,
+            page_map: list[dict] | None = None) -> tuple[list[Issue], dict[str, Any]]:
     """Runs every validation agent. Each positive confirmation is tallied per figure, so
     the summary can say how many independent agents agreed on each value, and each agent
     records which figures it looked at, so the summary can say how far each one reached."""
@@ -1205,7 +1256,8 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     if bundle_files is not None:
         issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
     issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files)
-                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else []))
+                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else [])
+                   + (check_page_coverage(schema, artifact, page_map) if page_map else []))
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None, checked=checked["low_confidence"]))
     issues = merge_figure_duplicates(issues)
