@@ -17,7 +17,7 @@ from collections import Counter
 
 import statistics
 
-from app.extraction.layout import ChartEl, TextEl, _reads_as_text, group_lines, split_segments
+from app.extraction.layout import ChartEl, TextEl, _reads_as_text, group_lines, not_a_title, split_segments
 
 TITLE_SIZE = 1.25        # a title's type is at least this many times the body text (as for headings)
 TOP_SHARE = 0.4          # ...and it starts in the top part of the page
@@ -41,7 +41,10 @@ def is_wordy(text: str) -> bool:
     # it (a title in a script without spaces is one long token, digits and all: still a title)
     if len(tokens) <= 2 and words < 2 and any(_NUMBER.fullmatch(t) for t in tokens):
         return False
-    return letters >= 0.7 * len(chars) and words >= 1 and not text.rstrip().endswith((",", ":", ";"))
+    # nor a line the page reader never takes for a heading: one that stops mid-phrase ("Hygiene
+    # and", "… reduced the risk of"), starts in lower case, or is a list item ("• Gentle …")
+    return letters >= 0.7 * len(chars) and words >= 1 and not text.rstrip().endswith((",", ":", ";")) \
+        and not not_a_title(text)
 
 
 def key(text: str) -> str:

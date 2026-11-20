@@ -152,17 +152,19 @@ def test_a_big_figure_at_the_top_is_not_the_pages_title():
 
 
 def test_a_title_and_its_subtitle_on_the_same_page_still_join():
-    """The join of a heading-only line with the next heading stays within a page."""
+    """The join of a heading-only line with the next heading stays within a page. (The subtitle
+    starts with a capital: a line starting in lower case carries on the text above it, and is
+    never a heading of its own.)"""
     doc = pymupdf.open()
     p = doc.new_page(width=960, height=540)
     p.insert_text((40, 60), "Creating Multiple Drivers of Growth", fontname="hebo", fontsize=24)
-    p.insert_text((40, 96), "through Responsible Competitiveness", fontname="hebo", fontsize=20)
+    p.insert_text((40, 96), "Through Responsible Competitiveness", fontname="hebo", fontsize=20)
     for i, line in enumerate(BODY):
         p.insert_text((40, 150 + 18 * i), line, fontname="helv", fontsize=12)
     s = extract(doc.tobytes())
     first = s["sections"][0]
     assert first["heading_text"] == "Creating Multiple Drivers of Growth"
-    assert first["subheading_text"] == "through Responsible Competitiveness"
+    assert first["subheading_text"] == "Through Responsible Competitiveness"
 
 
 @pytest.mark.parametrize("text,ok", [("Scaling up presence in Value Added Agriculture", True), ("₹627bn", False),
