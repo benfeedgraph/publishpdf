@@ -131,6 +131,9 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
     return words, total, bad
 
 
+PAGE_SIZED = 0.9      # an image covering this much of the page is the page's background (or a scan)
+
+
 def _image_regions(page: pymupdf.Page) -> list[tuple[float, float, float, float]]:
     area = page.rect.width * page.rect.height
     out = []
@@ -229,11 +232,19 @@ def _classify(page: pymupdf.Page):
         method, reason = "ocr", "text layer nearly empty"
     else:
         method, reason = "text_layer", "usable text layer"
-    # A page-sized image under a usable text layer is a scan with an (invisible) OCR
-    # layer, not a chart. Keep the text layer; re-extraction will check it visually.
+    # A page-sized image under a usable text layer is a scan with an (invisible) OCR layer or a
+    # slide template's full-page background: either way it isn't a picture on the page. Keep
+    # the text layer; re-extraction will check it visually. The smaller pictures set on top of
+    # a page-sized one (a diagram, charts drawn as images) are still pictures, so their labels
+    # stay with them. (A scan cut into strips has no page-sized image: it keeps none, as before.)
     if method == "text_layer" and image_cover > 0.6:
-        reason = "text layer over a full-page image (previously OCR'd scan)"
-        image_regions = []
+        page_sized = [r for r in image_regions if (r[2] - r[0]) * (r[3] - r[1]) >= PAGE_SIZED * area]
+        on_top = [r for r in image_regions if r not in page_sized]
+        if page_sized and on_top:
+            image_regions = on_top
+        else:
+            reason = "text layer over a full-page image (previously OCR'd scan)"
+            image_regions = []
     hidden_numbers = sum(1 for w in hidden if any(ch.isdigit() for ch in w.text))
     return words, method, reason, image_regions, hidden_numbers
 

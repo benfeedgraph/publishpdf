@@ -260,11 +260,16 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
     words = [w for w in p.words if id(w) not in exclude]
     elements: list[Element] = []
 
-    # Charts first: words inside chart/image regions belong to the chart.
-    for region, is_image in [(r, False) for r in _real_chart_regions(p.chart_regions, words)] + \
-            [(r, True) for r in p.image_regions]:
+    # Charts first: words inside chart/image regions belong to the chart. A picture that holds
+    # running text is a text box drawn as an image: its text is the page's text, not a label.
+    vector = _real_chart_regions(p.chart_regions, words)
+    # Overlapping pictures are one picture (a banner set inside a text box): judged together.
+    prose = [g for g in merge_overlapping(p.image_regions) if _holds_prose([w for w in words if _inside(w, g)])]
+    regions = [(r, False) for r in vector] + \
+        [(r, True) for r in p.image_regions if not any(_inside_box(r, g) for g in prose)]
+    for region, is_image in regions:
         inside = [w for w in words if _inside(w, region)]
-        labels = [w for w in inside if is_numeric_cell(w.text.rstrip("%")) or is_numeric_cell(w.text)]
+        labels = [w for w in inside if _is_label(w)]
         axis = [w for w in inside if w not in labels]
         elements.append(ChartEl(region, extracted=bool(labels), labels=labels, axis=axis))
         words = [w for w in words if not _inside(w, region)]
@@ -323,6 +328,37 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
         if len(r.segments) > 1 and _QMARK.match(r.segments[0].text) and all(w.bold for sg in r.segments for w in sg.words):
             r.segments[:] = [Segment([w for sg in r.segments for w in sg.words])]
 
+    # A small figure printed right before a line set larger ("100.00%" in 8 pt beside the 12 pt
+    # "Meeting Details") belongs to the text next to it, not to that line: it is its own piece.
+    for r in rows:
+        k = 0
+        while k < len(r.segments):
+            sg = r.segments[k]
+            rest_sizes = [w.size or w.h for w in sg.words if not is_numeric_cell(w.text)]
+            lead = []
+            for w in sg.words:
+                if rest_sizes and is_numeric_cell(w.text) and (w.size or w.h) < 0.8 * statistics.median(rest_sizes):
+                    lead.append(w)
+                else:
+                    break
+            if lead and len(lead) < len(sg.words) and _letters(" ".join(w.text for w in sg.words[len(lead):])):
+                r.segments[k:k + 1] = [Segment(lead), Segment(sg.words[len(lead):])]
+                k += 1
+            k += 1
+
+    # A line split in two by a wide gap ("Q2 FY26 Highlights (UltraTech existing assets –"
+    # | "166.76 Mtpa)") is one line when its first piece is unfinished and both are set alike.
+    for r in rows:
+        k = 0
+        while k + 1 < len(r.segments):
+            a, b = r.segments[k], r.segments[k + 1]
+            sa = statistics.median(w.size or w.h for w in a.words)
+            sb = statistics.median(w.size or w.h for w in b.words)
+            if unfinished(a.text) and abs(sa - sb) <= 1.0 and b.x0 - a.x1 <= max(sa, sb):
+                r.segments[k:k + 2] = [Segment(a.words + b.words)]
+            else:
+                k += 1
+
     # Remaining rows -> headings and paragraphs, per column.
     blocks: list[TextEl] = []
     open_blocks: list[TextEl] = []
@@ -332,7 +368,8 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
             continue
         for seg in row.segments:
             size = statistics.median(w.size or w.h for w in seg.words)
-            is_heading = (_is_heading(seg, size, body_size, med_h))
+            # a line that starts in lower case carries on the text above it: never a heading
+            is_heading = _is_heading(seg, size, body_size, med_h) and not _starts_lower(seg.text)
             target = None
             if all(w.bold for w in seg.words) and not _QMARK.match(seg.text):
                 # A question that wraps: bold continuation lines join the heading above.
@@ -343,6 +380,10 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
                             and abs(size - b.size) < 1.5:
                         target = b
                         break
+            if target is None and (is_heading or _starts_lower(seg.text)):
+                # A heading set on two lines ("Staples, Convenience Foods and" / "Health &
+                # Hygiene Products", "… build and re-" / "invent …") is one heading, never two.
+                target = next((b for b in open_blocks if b.kind == "heading" and _heading_continues(b, seg, size)), None)
             if target is None and not is_heading:
                 for b in open_blocks:
                     if b.kind != "paragraph":
@@ -358,6 +399,7 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
                 b = TextEl("heading" if is_heading else "paragraph", [seg.words], size)
                 blocks.append(b)
                 open_blocks = [x for x in open_blocks if abs(x.lines[-1][0].bbox[0] - seg.x0) >= 18] + [b]
+    _demote_labels(blocks, elements)
     elements.extend(blocks)
     return _order(elements)
 
@@ -380,6 +422,184 @@ def _is_heading(seg: Segment, size: float, body_size: float, med_h: float) -> bo
     if body_size and size >= body_size * 1.25:
         return True
     return all(w.bold for w in seg.words) and len(seg.words) <= 8 and size >= body_size * 1.1
+
+
+# A heading that stops on one of these is cut off mid-phrase (it continues on the next line).
+# The same words the web page's chapter list already uses to drop such titles (render/site.py).
+DANGLING = re.compile(r"(\b(on|of|and|the|to|for|in|with|by|at|from|a|an)|&)\s*$", re.I)
+_UNFINISHED = re.compile(r"[,、，/+\-–—]\s*$")
+_LIST_MARK = re.compile(r"^[•▪●◦·–\-]\s")   # "• CET1 ratio of 11.6%", "– Net charge-off ratio": list items
+
+
+def unfinished(text: str) -> bool:
+    """A line that doesn't end as a title does: on a connector ("Connect &"), a comma or a dash
+    ("Financial performance—"), or with a bracket still open ("Highlights (UltraTech assets")."""
+    t = text.strip()
+    return bool(DANGLING.search(t) or _UNFINISHED.search(t)) or t.count("(") > t.count(")")
+
+
+def _starts_lower(text: str) -> bool:
+    first = text.split()[0] if text.split() else ""
+    return first.isalpha() and first.islower()
+
+
+def not_a_title(text: str) -> bool:
+    """Text that can't be a heading whatever its type: unfinished, the second half of a line
+    (it starts in lower case, "customers to its franchise…"), a list item, or no words at all."""
+    t = text.strip()
+    return unfinished(t) or _starts_lower(t) or bool(_LIST_MARK.match(t)) or not _letters(t)
+
+
+LABEL_MAX_WORDS = 6        # a heading this short, among several with nothing under them, is a label
+HEADING_MAX_WORDS, HEADING_MAX_CHARS = 16, 120   # longer than this, a heading joined from lines is text
+
+
+def _text(el: TextEl) -> str:
+    return " ".join(w.text for w in el.words)
+
+
+def _letters(text: str) -> bool:
+    return any(sum(ch.isalpha() for ch in t) >= 2 for t in text.split())
+
+
+def _is_label(w: Word) -> bool:
+    """A number printed on a chart (a data label)."""
+    return is_numeric_cell(w.text.rstrip("%")) or is_numeric_cell(w.text)
+
+
+def reads_as_prose(lines: list[list[str]]) -> bool:
+    """Words set on a picture that read as running text — phrases rather than one- or two-word
+    labels (on average 2.5 words a line, or ten words or more), hardly any numbers — rather than
+    a chart's or diagram's short labels: the picture is a text box drawn as an image, and its
+    text is the page's text. Used by the extractor and by the web page builder
+    (render/elements.py), so both treat the picture the same way."""
+    toks = [t for ln in lines for t in ln]
+    alpha = [[t for t in ln if sum(ch.isalpha() for ch in t) >= 2] for ln in lines]
+    n_alpha = sum(len(a) for a in alpha)
+    if n_alpha < 6 or sum(1 for t in toks if is_numeric_cell(t.rstrip("%")) or is_numeric_cell(t)) > 0.25 * len(toks):
+        return False
+    return n_alpha >= 10 or n_alpha / max(1, sum(1 for a in alpha if a)) >= 2.5
+
+
+def merge_overlapping(boxes) -> list[tuple[float, float, float, float]]:
+    """Boxes that overlap by at least 30% of the smaller one, as one box (the rule the web page
+    builder uses for pictures, render/elements._merge)."""
+    out = [list(b) for b in boxes]
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(out)):
+            for j in range(i + 1, len(out)):
+                a, b = out[i], out[j]
+                small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+                ov = max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+                if small and ov >= 0.3 * small:
+                    out[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+                    out.pop(j)
+                    changed = True
+                    break
+            if changed:
+                break
+    return [tuple(b) for b in out]
+
+
+def _inside_box(a, b, pad: float = 1.0) -> bool:
+    return a[0] >= b[0] - pad and a[1] >= b[1] - pad and a[2] <= b[2] + pad and a[3] <= b[3] + pad
+
+
+def _holds_prose(words: list[Word]) -> bool:
+    return bool(words) and reads_as_prose([[w.text for w in ln] for ln in group_lines(words)])
+
+
+def _heading_continues(b: TextEl, seg: Segment, size: float) -> bool:
+    """`seg` is the next line of heading `b`: set the same way, directly under it, in line with it,
+    and `b` is unfinished — it stops on a connector or a comma, `seg` carries on in lower case, or
+    `b` is a one- or two-word line of a title stacked over several identical lines. (Two finished
+    lines, a title over its subtitle, stay two.)"""
+    last = b.lines[-1]
+    so_far = " ".join(w.text for w in last)
+    lh = max(size, b.size, 1.0)
+    gap = seg.y0 - max(w.bbox[3] for w in last)
+    # a title set large over several lines ("Regulatory" / "Developments", "Quarterly" /
+    # "Financial" / "Snapshots"): a one- or two-word line with a line set exactly like it, at
+    # the same left edge, tight under it
+    stacked = len(last) <= 2 and _letters(so_far) and _letters(seg.text) and abs(size - b.size) <= 0.5 \
+        and abs(last[0].bbox[0] - seg.x0) <= 3 and -0.3 * lh <= gap <= 0.3 * lh     # words, never a number ("100.00%")
+    if not (stacked or DANGLING.search(so_far) or _UNFINISHED.search(so_far) or seg.text[:1].islower()):
+        return False
+    if len(b.lines) >= 5 or abs(size - b.size) > 1.5 or all(w.bold for w in last) != all(w.bold for w in seg.words):
+        return False
+    if not (-0.3 * lh <= gap <= 0.6 * lh):
+        return False
+    x0, x1 = last[0].bbox[0], last[-1].bbox[2]
+    overlap = min(x1, seg.x1) - max(x0, seg.x0)
+    return overlap > 0.3 * min(x1 - x0, seg.x1 - seg.x0) or abs(x0 - seg.x0) < 18 \
+        or abs((x0 + x1) / 2 - (seg.x0 + seg.x1) / 2) < 18
+
+
+def _directly_below(h: TextEl, e) -> bool:
+    x0, _, x1, y1 = h.bbox
+    lh = max(h.size, 1.0)
+    ex0, ey0, ex1, _ = e.bbox
+    return y1 - 0.25 * lh <= ey0 <= y1 + 2.5 * lh and min(x1, ex1) - max(x0, ex0) > 0
+
+
+def _introduces(h: TextEl, others: list) -> bool:
+    """Something of its own sits directly under heading `h`: text, a table, a tile or a chart."""
+    x0, y0, x1, y1 = h.bbox
+    lh = max(h.size, 1.0)                    # one line's height (font size, or glyph height on OCR)
+    for e in others:
+        if e is h or (isinstance(e, TextEl) and e.kind == "heading"):
+            continue
+        ex0, ey0, ex1, _ = e.bbox
+        if y1 - 0.25 * lh <= ey0 <= y1 + 2.5 * lh and min(x1, ex1) - max(x0, ex0) > 0:
+            return True
+    return False
+
+
+def _demote_labels(blocks: list[TextEl], others: list) -> None:
+    """Headings that aren't section titles become text: one that stops mid-phrase, a short one
+    printed twice on the page (column or graphic labels), and a group of three or more short
+    ones with nothing of their own under them (the labels of a diagram)."""
+    heads = [b for b in blocks if b.kind == "heading" and not _QMARK.match(b.lines[0][0].text)]
+    for h in heads:
+        t = _text(h)
+        # unfinished, half a line, a list item, no words, or (joined from several lines) running text set large
+        if not_a_title(t) or len(h.words) > HEADING_MAX_WORDS or len(t) > HEADING_MAX_CHARS:
+            h.kind = "paragraph"
+    # The page's title: its top-most heading, with no text above it. Never taken for a label.
+    texts = [b for b in blocks if b.words]
+    first = min(texts, key=lambda b: b.bbox[1], default=None)
+    title = first if first is not None and first.kind == "heading" else None
+    short = [h for h in heads if h.kind == "heading" and len(h.words) <= LABEL_MAX_WORDS]
+    copies: dict[str, list[TextEl]] = {}
+    for h in short:
+        copies.setdefault(re.sub(r"\W+", " ", _text(h).lower()).strip(), []).append(h)
+    for group in copies.values():
+        if len(group) < 2:
+            continue
+        # a title printed again as a label ("Net interest income" over its chart's own
+        # "Net interest income") keeps the larger copy; same-size copies are labels
+        big = max(h.size for h in group)
+        for h in group:
+            if not (h.size >= big and big >= 1.15 * min(x.size for x in group)) and h is not title:
+                h.kind = "paragraph"
+    bare = [h for h in short if h.kind == "heading" and h is not title and not _introduces(h, others + blocks)]
+    if len(bare) >= 3:
+        # the labels share a size; a heading set larger than them stays a heading
+        typical = statistics.median(h.size for h in bare)
+        demoted = [h for h in bare if h.size < 1.15 * typical]
+        for h in demoted:
+            h.kind = "paragraph"
+        # a column heading over its own list ("Value to ITC" over plain items) looked bare only
+        # while those items counted as headings: set apart from the text under it (bold over
+        # plain, or larger), it is a heading after all
+        for h in demoted:
+            below = [e for e in blocks if e is not h and _directly_below(h, e)]
+            if below:
+                e = min(below, key=lambda e: e.bbox[1])
+                if (all(w.bold for w in h.words) and not all(w.bold for w in e.words)) or h.size >= 1.15 * e.size:
+                    h.kind = "heading"
 
 
 def _order(elements: list[Element]) -> list[Element]:
