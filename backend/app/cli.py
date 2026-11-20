@@ -23,7 +23,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("gen-secret", help="print a new APP_SECRET_KEY")
     d = sub.add_parser("seed-demo", help="development: demo workspace with the synthetic sample reports")
     d.add_argument("--admin", default="admin@example.com")
+    sub.add_parser("unfinished-disclaimers",
+                   help="list live pages whose footer disclaimer isn't finished (e.g. a 'DEVELOPMENT PLACEHOLDER')")
     args = parser.parse_args(argv)
+
+    if args.cmd == "unfinished-disclaimers":
+        return _unfinished_disclaimers()
 
     if args.cmd == "seed-demo":
         return _seed_demo(args.admin)
@@ -78,6 +83,32 @@ def main(argv: list[str] | None = None) -> int:
         print(Fernet.generate_key().decode())
         return 0
     return 1
+
+
+def _unfinished_disclaimers() -> int:
+    """Live pages are never changed in place (a published version is permanent): this lists the
+    ones whose footer went out with unfinished disclaimer text, so a new version can be published."""
+    from sqlalchemy import select
+
+    from app import db
+    from app.models import Report, ReportVersion, Tenant
+    from app.reports import unfinished_disclaimer
+    from app.tenancy import system_context
+
+    found = 0
+    with db.session(system_context()) as s:
+        rows = s.execute(select(Tenant.name, Report.company_name, Report.fiscal_year, Report.period, ReportVersion.version_no,
+                                ReportVersion.theme_snapshot)
+                         .join(Report, Report.live_version_id == ReportVersion.id)
+                         .join(Tenant, Tenant.id == Report.tenant_id)
+                         .where(Report.deleted_at.is_(None))).all()
+        for tenant, company, fy, period, no, snap in rows:
+            bad = unfinished_disclaimer((snap or {}).get("disclaimer"))
+            if bad:
+                found += 1
+                print(f"{tenant} · {company} · {period.upper()} FY{fy} · live version {no}: footer says \u201c{bad}\u201d")
+    print(f"{found} live page(s) with an unfinished footer disclaimer.")
+    return 0
 
 
 def laptop_on_live_database() -> bool:

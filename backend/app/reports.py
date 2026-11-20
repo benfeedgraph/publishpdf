@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from app.extraction.schema_builder import PIPELINE_VERSION, period_label, schema
 from app.models import (
     Domain,
     FigureReview,
+    Job,
     Report,
     ReportVersion,
     SourceFile,
@@ -126,7 +128,208 @@ def effective_theme(st: TenantSettings, report: Report | None = None) -> tuple[d
 
 
 def effective_disclaimer(st: TenantSettings) -> str | None:
-    return (st.disclaimer or "").strip() or (get_settings().disclaimer_default_text or "").strip() or None
+    """The footer disclaimer: only the text the workspace saved itself. With none, the footer
+    carries just the page's own line ("The PDF filing is the official document. Download the
+    original PDF."), which is safe to publish. The platform-wide DISCLAIMER_DEFAULT_TEXT is no
+    longer printed on pages: it went out as "DEVELOPMENT PLACEHOLDER. …" (issue #7)."""
+    return (st.disclaimer or "").strip() or None
+
+
+# ------------------------------------------------------------------ design: on the page vs saved
+
+
+def design_key(theme: dict, disclaimer: str | None) -> str:
+    """One fingerprint of everything the design puts on a page: every theme token as the page
+    uses it (after the contrast fixes), the logo and the footer disclaimer. Any design setting,
+    today's or a future one, changes it; nothing else does."""
+    blob = json.dumps({"theme": theme, "disclaimer": (disclaimer or "").strip() or None}, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def built_design(v: ReportVersion) -> str | None:
+    """The design this version's page was built in (None: no page built yet)."""
+    snap = v.theme_snapshot or {}
+    return design_key(snap["theme"], snap.get("disclaimer")) if snap.get("theme") else None
+
+
+def design_for(st: TenantSettings, override: dict | None) -> tuple[str, dict, list[dict]]:
+    """(fingerprint, theme as the page would use it, colours the contrast fixes changed) for a
+    report whose own design is `override`, as a build would make it now."""
+    theme, adjustments = theming.enforce(theming.validate(theming.merge(st.theme or {}, override or {})))
+    return design_key(theme, effective_disclaimer(st)), theme, adjustments
+
+
+def _pending(jobs_: list[Job], *kinds: str) -> list[Job]:
+    return [j for j in jobs_ if j.kind in kinds and j.status in ("queued", "running")]
+
+
+def version_jobs(s: Session, vid: uuid.UUID) -> list[Job]:
+    return list(s.scalars(select(Job).where(Job.version_id == vid).order_by(Job.created_at)))
+
+
+def design_state(st: TenantSettings, report: Report, v: ReportVersion, jobs_: list[Job]) -> dict:
+    """Whether the page on screen is in the design that's saved for the report:
+    applied — it is (the checks may still be running); applying — a build in the saved design is
+    queued or running; not_applied — the page is in another design and nothing is building it
+    (e.g. the workspace design changed since); failed — the build in the saved design failed;
+    not_built — the PDF is still being read. Read from the page itself, so it holds for every
+    design setting, and so leaving the Design step never needs a rebuild to be sure."""
+    saved, _, adjustments = design_for(st, report.theme_override)
+    page = built_design(v)
+    building = _pending(jobs_, "pipeline.render") if v.published_at is None else []
+    renders = [j for j in jobs_ if j.kind == "pipeline.render"]
+    if building and (page != saved or any((j.payload or {}).get("design_only") for j in building)):
+        state = "applying"
+    elif page is None:
+        state = "failed" if v.status == "failed" and renders else "not_built"
+    elif _design_build_failed(v, jobs_):          # its page may be built, but not checked
+        state = "failed"
+    elif page == saved:
+        state = "applied"
+    else:
+        state = "not_applied"
+    job = building[-1] if building else None
+    return {"state": state, "page_design": page, "saved_design": saved, "adjustments": adjustments,
+            "page_adjustments": (v.theme_snapshot or {}).get("contrast_adjustments"),
+            "job": {"id": str(job.id), "status": job.status} if job else None}
+
+
+RUN_STAGES = ("pipeline.extract", "pipeline.render", "pipeline.validate")
+
+
+def _design_build_failed(v: ReportVersion, jobs_: list[Job]) -> bool:
+    """The version failed in a build for a new design (building or checking its page), not while
+    its PDF was read or its figures were re-checked."""
+    finished = [j for j in jobs_ if j.kind in RUN_STAGES and j.status in ("succeeded", "failed")]
+    last = max(finished, key=lambda j: j.finished_at or j.created_at, default=None)
+    return v.status == "failed" and last is not None and last.status == "failed" \
+        and bool((last.payload or {}).get("design_only"))
+
+
+def step_states(v: ReportVersion, jobs_: list[Job], blocking_open: int, design: dict) -> dict:
+    """Where each step of the report wizard really is, from what has run on this version. A
+    rebuild for a new design is the Design step's work: "Extract & verify" keeps the result its
+    checks gave (the figures and their checks didn't change), and only the page is being built.
+    Keyed like the wizard's steps:
+      verify: running | done | blocked | failed
+      design: as design_state
+      review (the page Review shows): building | checking | ready | failed | not_built"""
+    active = _pending(jobs_, *RUN_STAGES)
+    content = [j for j in active if not (j.payload or {}).get("design_only")]   # reading the PDF, re-checking figures
+    design_failed = _design_build_failed(v, jobs_)
+    # A draft made to re-design a live page has that page's figures, checked and with nothing
+    # blocking (it was published); its first build is a design build.
+    carried = bool(v.created_from_version_id) and not content
+    if v.status == "failed" and not design_failed:
+        verify = "failed"
+    elif content or (v.status == "processing" and not active):
+        verify = "running"
+    elif v.validation_summary or carried:
+        verify = "blocked" if blocking_open > 0 else "done"
+    else:
+        verify = "running" if v.status == "processing" else "failed"
+    if v.status == "failed":
+        review = "failed"
+    elif _pending(jobs_, "pipeline.extract", "pipeline.render"):
+        review = "building"
+    elif v.status == "processing":
+        review = "checking" if v.bundle_key else "building"
+    else:
+        review = "ready" if v.bundle_key else "not_built"
+    return {"verify": verify, "design": design["state"], "review": review}
+
+
+def apply_design(s: Session, ctx: Context, report: Report, override: dict | None) -> dict:
+    """Save the report's own design and build its page in it, when that changes the page.
+
+    The latest draft is rebuilt in place (the design alone: the drawn pages, the AI layouts and
+    the figure checks' findings are reused); a live version is never changed — a new draft gets
+    the design. When the page is already in this design (nothing changed, or only to a colour the
+    contrast fix turns into the same one) nothing is rebuilt: going on to Review is instant.
+    Returns {version_id, job_id, rebuilt}."""
+    if override:
+        theming.validate(override)                  # ThemeError: the caller says what's wrong
+    before = report.theme_override
+    report.theme_override = override or None
+    if before != report.theme_override:
+        audit.record(s, ctx, "theme.report_override_changed", target_type="report", target_id=report.id,
+                     before={"theme_override": before}, after={"theme_override": report.theme_override})
+    latest = s.scalars(select(ReportVersion).where(ReportVersion.report_id == report.id)
+                       .order_by(ReportVersion.version_no.desc())).first()
+    if latest is None or not latest.schema_json:
+        return {"version_id": None, "job_id": None, "rebuilt": False}
+    # (Only a fresh read of the PDF has to finish first — it builds the page in the saved design.)
+    if latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued"):
+        return {"version_id": None, "job_id": None, "rebuilt": False}
+    saved = design_for(settings_for(s, ctx), report.theme_override)[0]
+    if latest.published_at is not None:
+        if built_design(latest) == saved:
+            return {"version_id": None, "job_id": None, "rebuilt": False}
+        nv = new_draft_from(s, ctx, latest, design_only=True)
+        job = _pending(version_jobs(s, nv.id), "pipeline.render")[-1]
+        return {"version_id": str(nv.id), "job_id": str(job.id), "rebuilt": True}
+    building = _pending(version_jobs(s, latest.id), "pipeline.render")
+    # (A version whose last build failed is always built again: applying is how a design build is retried.)
+    if not building and built_design(latest) == saved and latest.status != "failed":
+        return {"version_id": str(latest.id), "job_id": None, "rebuilt": False}
+    # A build still waiting to start reads the design when it starts: it builds this one. A
+    # running one may have read an older design, so this design gets its own build after it.
+    # (A draft still being re-checked after review decisions is rebuilt too: the new build
+    # supersedes the running one, so the design is never silently dropped.)
+    waiting = [j for j in building if j.status == "queued"]
+    job = waiting[-1] if waiting else enqueue_stage(s, ctx, latest, "render", force=True, design_only=True)
+    return {"version_id": str(latest.id), "job_id": str(job.id), "rebuilt": True}
+
+
+# Text that says it isn't finished. A small fixed list, agreed for this purpose only.
+_UNFINISHED = re.compile(r"\b(?:placeholder|lorem\s+ipsum|todo|tbd|replace\s+this)\b"
+                         r"|\[[A-Za-z][^\]\n]{0,60}\]|\{\{[^}\n]{0,60}\}\}", re.I)
+
+
+def unfinished_disclaimer(text: str | None) -> str | None:
+    """The part of a disclaimer that shows it isn't the final wording ("PLACEHOLDER",
+    "[Company name]", "{{year}}"), or None."""
+    m = _UNFINISHED.search(text or "")
+    return m.group(0) if m else None
+
+
+def disclaimer_problem(v: ReportVersion, st: TenantSettings) -> str | None:
+    """Why this version's footer disclaimer can't be published, or None. Read from what the page
+    was built with, so a draft made before the disclaimer was fixed is caught too."""
+    snap = v.theme_snapshot or {}
+    if "disclaimer" not in snap:              # not built yet: nothing on a page to check
+        return None
+    built, now = (snap.get("disclaimer") or "").strip() or None, effective_disclaimer(st)
+    if unfinished_disclaimer(built):
+        return (f"The footer disclaimer isn't finished: it says \u201c{_excerpt(built)}\u201d. Save your disclaimer in "
+                "Settings (you can leave it empty) and the page is rebuilt with it.")
+    if built != now:
+        return ("The footer still has an earlier disclaimer, not the one in Settings. Save your disclaimer in "
+                "Settings again and the page is rebuilt with it.")
+    return None
+
+
+def _excerpt(text: str, n: int = 60) -> str:
+    t = " ".join(text.split())
+    return t if len(t) <= n else t[:n - 1].rstrip() + "\u2026"
+
+
+def rebuild_drafts_for_disclaimer(s: Session, ctx: Context) -> int:
+    """Re-render every unpublished draft whose footer has a different disclaimer than the
+    workspace's current one. Drafts still reading their PDF pick it up when they render."""
+    now = effective_disclaimer(settings_for(s, ctx))
+    n = 0
+    for v in s.scalars(select(ReportVersion).join(Report, Report.id == ReportVersion.report_id)
+                       .where(ReportVersion.published_at.is_(None), ReportVersion.bundle_key.is_not(None),
+                              Report.deleted_at.is_(None))):
+        snap = v.theme_snapshot or {}
+        if "disclaimer" not in snap or ((snap.get("disclaimer") or "").strip() or None) == now:
+            continue
+        if v.status == "processing" and (v.stage or "").split(":")[0] in ("extract", "queued"):
+            continue
+        enqueue_stage(s, ctx, v, "render", force=True, design_only=True)      # the footer is design
+        n += 1
+    return n
 
 
 def logo_src(theme: dict) -> str | None:
@@ -330,12 +533,18 @@ def _settings_fingerprint(v: ReportVersion) -> str:
     return hashlib.sha256(json.dumps(v.theme_snapshot or {}, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False) -> None:
-    key = stage_key(v, stage) + (f":rerun:{uuid.uuid4().hex[:8]}" if force else "")
+def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, force: bool = False,
+                  design_only: bool = False) -> Job:
+    """`design_only`: only the design changed (render, then validate): the drawn pages and the
+    findings of the checks that don't read the web page can be reused. It is part of the job's
+    key, since a job seen before is re-run as it was first queued."""
+    key = stage_key(v, stage) + (":design" if design_only else "") + (f":rerun:{uuid.uuid4().hex[:8]}" if force else "")
     v.status, v.stage, v.error_plain = "processing", stage, None
-    payload = {"version_id": str(v.id)}
+    payload: dict[str, Any] = {"version_id": str(v.id)}
     if stage == "render" and v.schema_sha256:
         payload["schema_sha256"] = v.schema_sha256      # a newer edit makes this job a no-op
+    if design_only:
+        payload["design_only"] = True
     job = jobs.enqueue(s, ctx, f"pipeline.{stage}", payload, idempotency_key=key)
     if job.version_id is None:
         job.version_id = v.id
@@ -343,6 +552,7 @@ def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, for
         # Same inputs seen before (e.g. an edit was undone). Stages are idempotent,
         # so run it again rather than leave the version waiting on a finished job.
         jobs.requeue(s, job)
+    return job
 
 
 # ------------------------------------------------------------------ issues & reviews
@@ -552,8 +762,9 @@ def publish(s: Session, ctx: Context, v: ReportVersion, *, confirm_reviewed: boo
             and v.schema_sha256 and v.bundle_sha256):
         raise ReportError("This version changed after it was validated. Wait for validation to finish.", 409)
     st = settings_for(s, ctx)
-    if not effective_disclaimer(st):
-        raise ReportError("Add a disclaimer in Settings before publishing (the PDF must be stated as the official source).", 409)
+    # (The page itself always says the PDF filing is the official document.)
+    if problem := disclaimer_problem(v, st):
+        raise ReportError(problem, 409)
     report = s.get(Report, v.report_id)
     assert report is not None
     previous = report.live_version_id
@@ -608,8 +819,9 @@ def rollback(s: Session, ctx: Context, report: Report, target: ReportVersion) ->
     rebuild_site(s, ctx)
 
 
-def new_draft_from(s: Session, ctx: Context, v: ReportVersion) -> ReportVersion:
-    """Copy a version's schema into a new draft (to edit figures or re-theme after publishing)."""
+def new_draft_from(s: Session, ctx: Context, v: ReportVersion, *, design_only: bool = False) -> ReportVersion:
+    """Copy a version's schema into a new draft (to edit figures or re-theme after publishing).
+    `design_only`: it is made for a new design, so its checks can start from `v`'s findings."""
     if not v.schema_json:
         raise ReportError("This version has no schema to copy.", 409)
     no = (s.scalar(select(func.max(ReportVersion.version_no)).where(ReportVersion.report_id == v.report_id)) or 0) + 1
@@ -624,7 +836,7 @@ def new_draft_from(s: Session, ctx: Context, v: ReportVersion) -> ReportVersion:
     s.flush()
     audit.record(s, ctx, "report.draft_created", target_type="report_version", target_id=nv.id,
                  after={"from_version": v.version_no, "version": no})
-    enqueue_stage(s, ctx, nv, "render")
+    enqueue_stage(s, ctx, nv, "render", design_only=design_only)
     return nv
 
 
@@ -642,6 +854,63 @@ def public_origin(s: Session, ctx: Context) -> tuple[str, bool]:
     return cfg.preview_origin(tenant.slug), False
 
 
+def _live_reports(s: Session) -> list[tuple[Report, ReportVersion]]:
+    """The workspace's published reports with their live version, newest first: the order the
+    public site lists them in (/archive/) and takes "Latest results" from."""
+    live = []
+    for r in s.scalars(select(Report).where(Report.deleted_at.is_(None), Report.live_version_id.is_not(None))).all():
+        v = s.get(ReportVersion, r.live_version_id)
+        if v is not None and v.bundle_key and v.schema_json:
+            live.append((r, v))
+    live.sort(key=lambda rv: _archive_order(rv[1].schema_json["metadata"], rv[1].published_at), reverse=True)
+    return live
+
+
+def _archive_order(m: dict, published_at: datetime | None) -> tuple:
+    return (m["fiscal_year"], _period_order(m["period"]), published_at.isoformat() if published_at else "")
+
+
+def site_nav(s: Session, ctx: Context, report: Report, v: ReportVersion | None = None) -> dict:
+    """What a report's previews show for the site's own navigation: "Latest results" is the
+    report itself (the version `v` being previewed, else its newest), "Archive" lists the
+    company's other published reports, newest first as on the live site (an empty list when
+    there are none)."""
+    origin, _ = public_origin(s, ctx)
+    if v is None:
+        v = s.scalars(select(ReportVersion).where(ReportVersion.report_id == report.id)
+                      .order_by(ReportVersion.version_no.desc())).first()
+    m = (v.schema_json or {}).get("metadata") if v else None
+    latest = {"report_id": str(report.id), "period_label": m["period_label"] if m else None,
+              "type_label": site.REPORT_TYPE_LABEL[m["report_type"]] if m else None,
+              "fiscal_year": m["fiscal_year"] if m else None, "period": m["period"] if m else None,
+              "published": bool(v and v.published_at and report.live_version_id == v.id)}
+    archive = []
+    for r, lv in _live_reports(s):
+        if r.id == report.id:
+            continue
+        lm = lv.schema_json["metadata"]
+        archive.append({"report_id": str(r.id), "period_label": lm["period_label"],
+                        "type_label": site.REPORT_TYPE_LABEL[lm["report_type"]],
+                        "fiscal_year": lm["fiscal_year"], "period": lm["period"],
+                        "url": origin + site.report_base_path(lm),
+                        "published_at": lv.published_at.isoformat() if lv.published_at else None})
+    return {"company": report.company_name, "latest": latest, "archive": archive}
+
+
+def preview_archive(nav: dict, this_href: str) -> dict:
+    """The archive page as it will read once this report is published, for a preview: the
+    company's published reports (opening in a new tab) with this report in its place, marked."""
+    me = nav["latest"]
+    mine = {"path": this_href, "period_label": me["period_label"], "type_label": me["type_label"],
+            "note": "This report" if me["published"] else "This report \u00b7 not published yet",
+            "order": (me["fiscal_year"], _period_order(me["period"]), "~")}      # "~": after any date
+    others = [{"path": a["url"], "period_label": a["period_label"], "type_label": a["type_label"], "new_tab": True,
+               "order": (a["fiscal_year"], _period_order(a["period"]), a["published_at"] or "")} for a in nav["archive"]]
+    reports = sorted(others + [mine], key=lambda e: e["order"], reverse=True)
+    return {"company": nav["company"], "reports": reports,
+            "more_note": None if others else "No earlier reports published yet."}
+
+
 def rebuild_site(s: Session, ctx: Context) -> dict:
     """Write site/manifest.json (path -> storage key) and the tenant index pages."""
     tenant = s.get(Tenant, ctx.require_tenant())
@@ -652,10 +921,7 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
                                              Report.live_version_id.is_not(None))).all()
     entries = []
     paths: dict[str, dict] = {}
-    for r in reports:
-        v = s.get(ReportVersion, r.live_version_id)
-        if v is None or not v.bundle_key or not v.schema_json:
-            continue
+    for r, v in _live_reports(s):
         m = v.schema_json["metadata"]
         base = site.report_base_path(m)
         files = json.loads(storage.get(ctx, v.bundle_key + "_files.json"))
@@ -677,9 +943,8 @@ def rebuild_site(s: Session, ctx: Context) -> dict:
                         "sections": [sec["slug"] for sec in v.schema_json["sections"]],
                         "section_pages": section_pages,
                         "lastmod": v.published_at.date().isoformat() if v.published_at else None,
-                        "sort": (m["fiscal_year"], _period_order(m["period"]), v.published_at.isoformat() if v.published_at else ""),
+                        "sort": _archive_order(m, v.published_at),
                         "report_id": str(r.id)})
-    entries.sort(key=lambda e: e["sort"], reverse=True)
     company = reports[0].company_name if reports else tenant.name
     index_files = site.render_site_index(company, [dict(e) for e in entries], theme=theme,
                                          disclaimer=effective_disclaimer(st), robots_policy=st.robots_policy,

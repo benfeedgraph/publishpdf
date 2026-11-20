@@ -7,6 +7,7 @@ import { IconAlert, IconCheck, IconSparkle } from "../../components/Icons";
 import { Button, Spinner } from "../../components/Spinner";
 import ValidationTab from "./ValidationTab";
 import WizardFooter from "./WizardFooter";
+import { STEP } from "../../steps";
 
 interface Agent { key: string; name: string; description: string; ran: boolean; confirmed: number; blocking: number; warnings: number }
 
@@ -112,7 +113,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
   const next = mustReview ? {
     label: `Review ${open} item${open === 1 ? "" : "s"} ↓`, onClick: toReview,
   } : {
-    label: "Next: Design →", onClick: onContinue,
+    label: `Next: ${STEP.design.title} →`, onClick: onContinue,
     disabled: processing || version.status === "failed" || version.status === "validation_issues", waiting: processing,
     reason: processing ? `${p.label}… the next step unlocks automatically when the checks finish.`
       : version.status === "failed" ? (isAdmin ? "Processing failed — use Try again above." : "Processing failed — ask a workspace admin to try again.")
@@ -183,7 +184,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
                 {allConfirmed ? "Every figure matches the PDF."
                   : notConfirmed ? `${notConfirmed.toLocaleString()} figure${notConfirmed === 1 ? " wasn't" : "s weren't"} confirmed by any check or by you — look at ${notConfirmed === 1 ? "it" : "them"} before publishing.` : ""}
                 {" "}Next, choose how the page should look.</div>
-              <Button className="primary" onClick={onContinue}>Next: Design →</Button>
+              <Button className="primary" onClick={onContinue}>Next: {STEP.design.title} →</Button>
             </div>
           )}
 
@@ -251,7 +252,7 @@ export default function VerifyStep({ tenantId, report, version, onContinue }: { 
           <Button className="link" busy={rerun.isPending} busyLabel="Restarting the checks" onClick={() => rerun.mutate()}>Re-read the PDF and re-run all checks</Button>
         </p>
       )}
-      <WizardFooter next={next} hint={mustReview ? `Decide the ${open} flagged item${open === 1 ? "" : "s"}; Design unlocks once none are left.` : allConfirmed ? "Every figure is checked. Next, choose how the page should look." : "Next, choose how the page should look."} />
+      <WizardFooter next={next} hint={mustReview ? `Decide the ${open} flagged item${open === 1 ? "" : "s"}; ${STEP.design.title} unlocks once none are left.` : allConfirmed ? "Every figure is checked. Next, choose how the page should look." : "Next, choose how the page should look."} />
     </div>
   );
 }

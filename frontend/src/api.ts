@@ -133,6 +133,8 @@ export interface VersionDetail extends Version {
   queue: { waiting: boolean; waiting_seconds: number; workers_alive: number | null; stalled: boolean } | null;
   /** Seconds this version has been processing (server clock); null unless processing has begun. */
   elapsed_seconds?: number | null;
+  /** Why the page's footer disclaimer stops publishing (unfinished, or older than Settings); null when fine. */
+  disclaimer_problem?: string | null;
 }
 
 export interface Report {
@@ -178,6 +180,21 @@ export interface Figure {
 }
 
 export type Run = { t: string } | { f: string };
+
+/** Where one PDF page is on the web page, as the page build recorded it. */
+export interface PageMapEntry {
+  page: number;
+  /** The page's own title as printed, when it has one. */
+  title: string | null;
+  shown: "text" | "picture" | "rearranged" | "cover" | "left_out" | "none";
+  /** A section with the page's own heading opens on it. */
+  own_section: boolean;
+  /** The heading its content sits under, and that heading's page. */
+  heading: string | null;
+  heading_page: number | null;
+  /** The web page (sidebar entry) it is on, for a report split into pages. */
+  chapter: string | null;
+}
 
 export interface SchemaDoc {
   metadata: Record<string, unknown> & { company: string; period_label: string; source_pdf: { sha256: string; page_count: number } };

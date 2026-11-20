@@ -156,7 +156,8 @@ class Settings(BaseSettings):
     # Scheme and port suffix of tenant sites. Production: https and "".
     public_scheme: str = Field(default="https", alias="PUBLIC_SCHEME")
     public_port_suffix: str = Field(default="", alias="PUBLIC_PORT_SUFFIX")
-    # PLAN D11: publishing is blocked until a disclaimer exists (platform default or tenant's own).
+    # No longer printed on pages (issue #7: it went out as "DEVELOPMENT PLACEHOLDER. …"). A page
+    # shows only the disclaimer its workspace saved; still read so an existing setting isn't an error.
     disclaimer_default_text: str | None = Field(default=None, alias="DISCLAIMER_DEFAULT_TEXT")
 
     # --- Custom domains / TLS (PLAN D5) --------------------------------------------

@@ -14,6 +14,7 @@ import hashlib
 import logging
 import json
 import uuid
+from copy import deepcopy
 from typing import Any
 
 from sqlalchemy import insert, select, update
@@ -40,6 +41,7 @@ from app.reports import (
 )
 from app.tenancy import Context
 from app import ai_check, validation
+from app.code_version import code_version
 
 log = logging.getLogger(__name__)
 
@@ -209,14 +211,32 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             last_l["t"] = time.monotonic()
             _set_stage(ctx, vid, f"render: laying out page {done} of {total}")
 
-    try:
-        layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode, progress=on_layout)
-    except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
-        log.exception("AI layouts unavailable")
-        layouts = {}
-    files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page, layouts=layouts, landing=landing)
+    # Drawing the pages is nearly all of a build, and the design plays no part in it: the pages
+    # drawn last time from exactly this data, PDF and layouts are kept with the page files and
+    # reused, so a change to the design only fills the templates again. Nor does a change to the
+    # design ask the AI for layouts again: the ones the kept drawing was made with still fit it.
+    from app import artwork_store
     prefix = bundle_prefix(vid)
+    kept = artwork_store.read(ctx, prefix)
+    layouts, key = None, None
+    if payload.get("design_only") and kept:
+        theirs = artwork_store.layouts_of(kept)
+        if site.artwork_key(schema, pdf, None, theirs) == kept.get("key"):
+            layouts, key = theirs, kept["key"]
+    if layouts is None:
+        # Without a kept drawing (a page built before drawings were kept), a design change still
+        # asks the AI for nothing: the layouts already made for this PDF are the ones the page has.
+        try:
+            layouts = page_layouts.layouts_for(ctx, vid, v_sha, schema, pdf, mode=build_mode, progress=on_layout,
+                                               cached_only=bool(payload.get("design_only")))
+        except Exception:  # noqa: BLE001 - layout help is optional: those pages keep their designed look
+            log.exception("AI layouts unavailable")
+            layouts = {}
+    memo = artwork_store.memo(ctx, prefix, kept, key or site.artwork_key(schema, pdf, None, layouts))
+    reused = bool(memo)
+    page_map: list[dict] = []
+    files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
+                               progress=on_page, layouts=layouts, landing=landing, memo=memo, page_map_sink=page_map)
     with db.session(ctx) as s:
         cur = s.get(ReportVersion, vid)
         if cur is not None and cur.schema_sha256 != rendered_sha:
@@ -239,9 +259,18 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             done["t"] = time.monotonic()
             _set_stage(ctx, vid, f"render: saving file {done['n']} of {len(todo)}")
     storage.put_many(ctx, todo, on_done=saved)
+    # Where each PDF page went (for the page check and the Extracted data tab): kept with the
+    # bundle, but not one of its files, so it is never published.
+    storage.put(ctx, prefix + "_pages.json", json.dumps(page_map).encode(), "application/json")
     # The file list goes last: its presence means the whole bundle is stored.
     storage.put(ctx, prefix + "_hashes.json", json.dumps(hashes).encode(), "application/json")
     storage.put(ctx, prefix + "_files.json", json.dumps(sorted(files)).encode(), "application/json")
+    if not reused and memo.get("artwork"):
+        try:
+            artwork_store.save(ctx, prefix, memo, files, layouts)
+        except Exception:  # noqa: BLE001 - without it the next design change only draws the pages again
+            log.exception("drawn pages not kept")
+    artwork = "reused" if reused else "drawn"
     bsha = site.bundle_sha256(files)
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
@@ -251,13 +280,13 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         v.bundle_key, v.bundle_sha256 = prefix, bsha
         v.theme_snapshot = {"theme": theme, "contrast_adjustments": adjustments, "disclaimer": disclaimer}
         if _review_only_change(s, ctx, v, bsha):
-            return {"files": len(files), "bundle_sha256": bsha, "checks": "reused"}
-        enqueue_stage(s, ctx, v, "validate")
+            return {"files": len(files), "bundle_sha256": bsha, "artwork": artwork, "checks": "reused"}
+        enqueue_stage(s, ctx, v, "validate", design_only=bool(payload.get("design_only")))
         # The review screen's as-printed page images: off the critical path (it renders a
         # page on demand until they're stored).
         jobs.enqueue(s, ctx, "pipeline.page_images", {"version_id": str(vid)},
                      idempotency_key=f"page_images:{v_sha}", max_attempts=2)
-    return {"files": len(files), "bundle_sha256": bsha}
+    return {"files": len(files), "bundle_sha256": bsha, "artwork": artwork}
 
 
 @handler("pipeline.page_images")
@@ -314,7 +343,8 @@ def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
     summary = {**validation.summarize(v.schema_json, found),
                "agents": validation.with_open_counts(prev.get("agents"), validation.figure_states_of(v.schema_json, found)["by_check"]),
                "consensus": prev.get("consensus"), "unconfirmed_fids": prev.get("unconfirmed_fids"),
-               "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha}
+               "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha,
+               "checks_code": prev.get("checks_code")}
     v.validation_summary = summary
     v.validated_schema_sha256, v.validated_bundle_sha256 = v.schema_sha256, bsha
     v.status = "validation_issues" if summary["blocking"] else "needs_review"
@@ -328,6 +358,17 @@ def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
 # ------------------------------------------------------------------ validate
 
 
+def stored_page_map(ctx: Context, bundle_key: str | None) -> list[dict] | None:
+    """Where each PDF page went on the web page, as the page build recorded it; None for a
+    page built before it was recorded."""
+    if not bundle_key:
+        return None
+    try:
+        return json.loads(storage.get(ctx, bundle_key + "_pages.json"))
+    except Exception:  # noqa: BLE001 - not recorded for this build
+        return None
+
+
 @handler("pipeline.validate")
 def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     with db.session(ctx) as s:
@@ -336,21 +377,37 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             return {"skipped": "published"}
         vid, schema, sha, bundle_key, bsha, sch_sha = v.id, v.schema_json, v.source_sha256, v.bundle_key, v.bundle_sha256, v.schema_sha256
         ext_key = v.extraction_key
+        kept = _kept_findings(s, v) if payload.get("design_only") else None
     _set_stage(ctx, vid, "validate")
     first = storage.get_many(ctx, [source_key(sha), ext_key, bundle_key + "_files.json"])
     pdf, artifact = first[source_key(sha)], json.loads(first[ext_key])
     names = json.loads(first[bundle_key + "_files.json"])
     got = storage.get_many(ctx, [bundle_key + n for n in names])
     files = {n: got[bundle_key + n] for n in names}
-    issues, summary = validation.run_all(
-        schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
-        progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
-    validation.apply_reviews(issues, schema)
-    ai_check.apply_confirmations(issues, schema)
+    page_map = stored_page_map(ctx, bundle_key)
+    if kept:
+        found, prior = kept
+        issues, summary = validation.run_page_checks(
+            schema, pdf, artifact, files, kept=found, agents=prior["agents"], page_map=page_map,
+            progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.PAGE_CHECKS)})"))
+        summary["consensus"] = prior["consensus"]
+        # The checks that confirm figures didn't run again, and their data didn't change: the
+        # figures none of them confirmed are the same ones.
+        summary["unconfirmed_fids"] = prior["unconfirmed_fids"]
+        validation.apply_reviews(issues, schema)
+        # (kept findings may already carry the AI's note: never add it twice)
+        ai_check.apply_confirmations([i for i in issues if "AI reading" not in i.message], schema)
+    else:
+        issues, summary = validation.run_all(
+            schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
+            progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"),
+            page_map=page_map)
+        validation.apply_reviews(issues, schema)
+        ai_check.apply_confirmations(issues, schema)
     summary = {**validation.summarize(schema, issues),
                "agents": validation.with_open_counts(summary["agents"], validation.figure_states_of(schema, issues)["by_check"]),
                "consensus": summary["consensus"], "unconfirmed_fids": summary["unconfirmed_fids"],
-               "checked_content_sha": validation.checked_content_sha(schema), "bundle_sha": bsha}
+               "checked_content_sha": validation.checked_content_sha(schema), "bundle_sha": bsha, "checks_code": code_version()}
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None
@@ -377,10 +434,42 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         v.status = "validation_issues" if summary["blocking"] else "needs_review"
         v.stage = "done"
         audit.record(s, ctx, "pipeline.validated", target_type="report_version", target_id=vid,
-                     after={"run": run, **{k: summary[k] for k in ("figures_checked", "passed", "warnings", "blocking")}})
+                     after={"run": run, **({"page_checks_only": True} if kept else {}),
+                            **{k: summary[k] for k in ("figures_checked", "passed", "warnings", "blocking")}})
         if summary["blocking"]:
             _maybe_auto_ai_check(s, ctx, v, issues, schema)
-    return summary
+    return {**summary, "checks": "page checks only"} if kept else summary
+
+
+def _kept_findings(s, v: ReportVersion) -> tuple[list, dict] | None:
+    """After a change to the design alone, the findings of the checks that don't read the web
+    page still hold when nothing they read has changed since they ran: the same data (minus
+    review decisions, which are applied afresh), checked by the same build of the app. They come
+    from this version's last run or, for a new draft made to re-design a live page, from the
+    version it was copied from. None: run every check."""
+    content = validation.checked_content_sha(v.schema_json)
+    source = v
+    if not v.validation_summary and v.created_from_version_id:
+        source = s.get(ReportVersion, v.created_from_version_id)
+        if source is None or not source.schema_json:
+            return None
+        theirs = deepcopy(source.schema_json)      # a copy differs only in its version number
+        theirs["metadata"]["version"] = v.schema_json["metadata"]["version"]
+        if validation.checked_content_sha(theirs) != content:
+            return None
+        content = validation.checked_content_sha(source.schema_json)
+    prior = source.validation_summary or {}
+    if not (prior.get("checks_code") == code_version() and prior.get("checked_content_sha") == content
+            and prior.get("agents") and prior.get("consensus") is not None and "unconfirmed_fids" in prior):
+        return None
+    rows = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == source.id,
+                                                    ValidationIssue.run_no == latest_run_no(s, source.id))).all()
+    # Open again, as a fresh run finds them; people's decisions are then applied as in any run.
+    # Reviewer flags aren't findings of a check: they carry over on their own.
+    found = [validation.Issue(r.check_name, r.severity, r.message, r.fid, r.page, r.section_id, r.bbox,
+                              r.expected, r.actual, "open", None)
+             for r in rows if r.check_name not in validation.PAGE_CHECKS and r.check_name != "reviewer_flag"]
+    return found, prior
 
 
 def _maybe_auto_ai_check(s, ctx: Context, v: ReportVersion, issues: list, schema: dict) -> None:

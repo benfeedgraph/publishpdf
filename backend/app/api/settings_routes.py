@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
@@ -18,7 +20,18 @@ from app.config import get_settings as get_platform_settings
 from app.models import Domain, EdgeHit, Report, ReportVersion, Tenant
 from app.render import analyze, site
 from app.render import theme as theming
-from app.reports import effective_disclaimer, effective_theme, new_draft_from, public_origin, rebuild_site, settings_for
+from app.reports import (
+    effective_disclaimer,
+    effective_theme,
+    new_draft_from,
+    preview_archive,
+    public_origin,
+    rebuild_drafts_for_disclaimer,
+    rebuild_site,
+    settings_for,
+    site_nav,
+    unfinished_disclaimer,
+)
 from app.tenancy import Context
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}", tags=["settings"])
@@ -64,6 +77,9 @@ def put_settings(body: SettingsIn, ctx: Context = Depends(require("theme.manage"
         st = settings_for(s, ctx)
         before = {"disclaimer": st.disclaimer, "robots_policy": st.robots_policy, "llm_assist_enabled": st.llm_assist_enabled}
         if body.disclaimer is not None:
+            if bad := unfinished_disclaimer(body.disclaimer):
+                raise HTTPException(400, f"This disclaimer isn't finished yet: it says \u201c{bad}\u201d. "
+                                         "Write the final wording, or leave it empty.")
             st.disclaimer = body.disclaimer.strip() or None
         if body.robots_policy is not None:
             st.robots_policy = body.robots_policy
@@ -73,6 +89,8 @@ def put_settings(body: SettingsIn, ctx: Context = Depends(require("theme.manage"
         after = {"disclaimer": st.disclaimer, "robots_policy": st.robots_policy, "llm_assist_enabled": st.llm_assist_enabled}
         audit.record(s, ctx, "settings.changed", target_type="tenant_settings", target_id=ctx.tenant_id,
                      before=before, after=after)
+        # Drafts already built carry the old disclaimer in their footer: rebuild them with this one.
+        rebuild_drafts_for_disclaimer(s, ctx)
         rebuild_site(s, ctx)
         return after
 
@@ -270,6 +288,29 @@ PREVIEW_PAGES = 3
 # (so its links can't navigate the frame), and only absolute URLs load from there.
 APP_ORIGIN = "__PPDF_APP_ORIGIN__"
 
+# The preview draws the report's first pages, and the design plays no part in that: the drawing
+# is kept in this process for the last few reports previewed (at most PREVIEW_KEEP_REPORTS, with
+# up to PREVIEW_KEEP_BYTES of pictures), so each further change to the design only fills the
+# templates again.
+PREVIEW_KEEP_REPORTS = 16
+PREVIEW_KEEP_BYTES = 64 * 2 ** 20
+_preview_memos: OrderedDict[tuple, dict] = OrderedDict()
+_preview_lock = threading.Lock()
+
+
+def _preview_memo(key: tuple) -> dict:
+    with _preview_lock:
+        memo = _preview_memos.pop(key, None) or {}
+        _preview_memos[key] = memo                  # most recently used last
+
+        def size(m: dict) -> int:
+            drawing = (m.get("artwork") or (None, {}))[1]
+            return sum(len(b) for part in ("art", "web_crops") for b in (drawing.get(part) or {}).values())
+        while len(_preview_memos) > 1 and (len(_preview_memos) > PREVIEW_KEEP_REPORTS
+                                           or sum(size(m) for m in _preview_memos.values()) > PREVIEW_KEEP_BYTES):
+            _preview_memos.popitem(last=False)
+        return memo
+
 
 @router.post("/theme/preview")
 def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
@@ -293,6 +334,9 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
         stored_base = (f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/reports/{v.report_id}/versions/{v.id}/preview/"
                        if v is not None and v.bundle_key else None)
         bundle_key = v.bundle_key if v is not None else None
+        memo_key = (ctx.tenant_id, v.id) if v is not None else None
+        report = s.get(Report, v.report_id) if v is not None else None
+        nav = site_nav(s, ctx, report, v) if report is not None and v.schema_json else None
         st = settings_for(s, ctx)
         disclaimer = effective_disclaimer(st)
     pdf = None
@@ -304,7 +348,8 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             pdf = None
     # The first few pages are enough to judge a design, and keep the preview instant.
     files = site.render_report(schema, theme=used, disclaimer=disclaimer, pdf_bytes=pdf, max_pages=PREVIEW_PAGES,
-                               logo_src=f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None)
+                               logo_src=f"{APP_ORIGIN}/api/tenants/{ctx.tenant_id}/theme/logo" if used.get("logo") else None,
+                               memo=_preview_memo(memo_key) if memo_key and pdf else None)
     base = site.report_base_path(schema["metadata"]).lstrip("/")
     html = files[base + "index.html"].decode()
     import base64
@@ -322,9 +367,20 @@ def theme_preview(body: dict, ctx: Context = Depends(require("report.view"))):
             else:
                 uri = f"data:{site.content_type(name)};base64,{base64.b64encode(data).decode()}"
                 html = html.replace(target, uri)
-    # A design preview has nowhere to go: its links (Latest results, Archive, Download PDF,
-    # the machine-readable files) would load the dashboard inside the preview frame. Keep
-    # them visible but inert; in-page anchors still scroll.
+    # The site's own navigation works in the preview as it will for visitors: "Latest results"
+    # is this report, "Archive" opens the archive over it (as it will read once this report is
+    # published) and the PDF opens in a new tab. Every other link would load the dashboard
+    # inside the preview frame: those stay visible but inert; in-page anchors still scroll.
+    if nav is not None:
+        origin = re.escape(site.ORIGIN_PLACEHOLDER)
+        html = re.sub(rf'href="{origin}/latest/"', 'href="#"', html)
+        html = re.sub(rf'href="{origin}/archive/"', 'href="#ppdf-archive"', html)
+        if stored_base:
+            pdf_link = f'href="{stored_base}source.pdf" target="_blank" rel="noopener"'
+            html = re.sub(rf'href="{origin}[^"]*/source\.pdf"', lambda _m: pdf_link, html)
+        overlay = site.preview_archive_overlay(preview_archive(nav, "#"), theme=used)
+        footer = '<footer class="site-footer">'
+        html = html.replace(footer, overlay + footer, 1) if footer in html else html.replace("</body>", overlay + "</body>", 1)
     html = re.sub(r'href="' + re.escape(site.ORIGIN_PLACEHOLDER) + r'[^"]*"',
                   'href="#" aria-disabled="true" data-preview-inert="1" title="Links are off in the design preview"', html)
     html = html.replace(site.ORIGIN_PLACEHOLDER, "")

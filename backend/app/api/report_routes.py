@@ -22,18 +22,25 @@ from app.config import get_settings
 from app.extraction.dates import FiscalYearError, parse_fiscal_year
 from app.extraction.schema_builder import period_label, render_page_png
 from app.models import Comment, FigureReview, Job, Report, ReportVersion, SourceFile, User, ValidationIssue
-from app.render.site import ORIGIN_PLACEHOLDER
+from app.render.site import ORIGIN_PLACEHOLDER, preview_archive_page
 from app.reports import (
     ReportError,
     acknowledge_issue,
     apply_bulk_review,
+    apply_design,
     apply_figure_action,
     build_mode_of,
+    built_design,
     create_upload,
     create_version,
     delete_report,
+    design_for,
+    design_state,
+    disclaimer_problem,
+    effective_theme,
     fiscal_year_labels,
     landing_of,
+    logo_src,
     store_source,
     enqueue_stage,
     flag_figure,
@@ -42,10 +49,15 @@ from app.reports import (
     new_draft_from,
     figure_states,
     open_blocking,
+    preview_archive,
     publish,
     report_status,
     rollback,
+    settings_for,
+    site_nav,
     source_key,
+    step_states,
+    version_jobs,
     versions_for,
 )
 from app.tenancy import Context
@@ -326,6 +338,14 @@ def check_fiscal_year(value: str = "", period: str | None = None,
             "shown": period_label(p, fy.year, fy.label) if p in PERIOD_LABELS else fy.label}
 
 
+@router.get("/{report_id}/archive")
+def report_archive(report_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    """The site's own navigation, for this report's previews: "latest" is this report and
+    "archive" the company's other published reports, newest first (empty when there are none)."""
+    with db.session(ctx) as s:
+        return site_nav(s, ctx, _get_report(s, report_id))
+
+
 @router.get("/{report_id}")
 def get_report(report_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
     with db.session(ctx) as s:
@@ -350,37 +370,55 @@ class ThemeOverrideIn(BaseModel):
     theme_override: dict | None = None
 
 
-@router.put("/{report_id}/theme")
-def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+def _apply(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context) -> dict:
     from app.render import theme as theming
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
-        if body.theme_override:
-            try:
+        try:
+            done = apply_design(s, ctx, r, body.theme_override)
+        except theming.ThemeError as e:
+            raise HTTPException(400, str(e)) from e
+        out = {"theme_override": r.theme_override, **done}
+        if done["version_id"]:
+            v = s.get(ReportVersion, uuid.UUID(done["version_id"]))
+            out["design"] = design_state(settings_for(s, ctx), r, v, version_jobs(s, v.id))
+        return out
+
+
+@router.post("/{report_id}/design/apply")
+def apply_report_design(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+    """Apply this design to the report's page — and nothing else: no step changes. The page is
+    built in it only when that changes the page (job_id: that build, which the version's
+    `design` and `steps` follow); applying the design the page already has does nothing."""
+    return _apply(report_id, body, ctx)
+
+
+@router.put("/{report_id}/theme")
+def set_report_theme(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("theme.manage"))) -> dict:
+    """The same as POST .../design/apply (kept for older dashboards)."""
+    return _apply(report_id, body, ctx)
+
+
+@router.post("/{report_id}/design/check")
+def check_report_design(report_id: uuid.UUID, body: ThemeOverrideIn, ctx: Context = Depends(require("report.view"))) -> dict:
+    """What applying these settings would do, without applying them: their design fingerprint,
+    whether the report's page is already in it (applied: nothing to apply) and which colours the
+    contrast fixes change on the page. Cheap — nothing is drawn — so it can follow every edit."""
+    from app.render import theme as theming
+    with db.session(ctx) as s:
+        r = _get_report(s, report_id)
+        try:
+            if body.theme_override:
                 theming.validate(body.theme_override)
-            except theming.ThemeError as e:
-                raise HTTPException(400, str(e)) from e
-        before = r.theme_override
-        r.theme_override = body.theme_override or None
-        audit.record(s, ctx, "theme.report_override_changed", target_type="report", target_id=r.id,
-                     before={"theme_override": before}, after={"theme_override": r.theme_override})
-        # Re-build the page in the new design: the latest draft is re-rendered and
-        # re-validated; a live version stays untouched and gets a new draft instead.
-        latest = s.scalars(select(ReportVersion).where(ReportVersion.report_id == r.id)
-                           .order_by(ReportVersion.version_no.desc())).first()
-        target = None
-        if latest is not None and latest.schema_json:
-            # A draft still being re-checked after review decisions is rebuilt too: the new
-            # render supersedes the running one, so the design is never silently dropped.
-            # (Only a fresh read of the PDF has to finish first — it re-renders on its own
-            # and picks up the new design then.)
-            extracting = latest.status == "processing" and (latest.stage or "").split(":")[0] in ("extract", "queued")
-            if latest.published_at is None and not extracting:
-                enqueue_stage(s, ctx, latest, "render", force=True)
-                target = latest
-            elif latest.published_at is not None:
-                target = new_draft_from(s, ctx, latest)
-        return {"theme_override": r.theme_override, "version_id": str(target.id) if target else None}
+            key, _, adjustments = design_for(settings_for(s, ctx), body.theme_override)
+        except theming.ThemeError as e:
+            raise HTTPException(400, str(e)) from e
+        latest = s.scalars(select(ReportVersion).options(defer(ReportVersion.schema_json))
+                           .where(ReportVersion.report_id == r.id).order_by(ReportVersion.version_no.desc())).first()
+        page = built_design(latest) if latest is not None else None
+        saved = design_for(settings_for(s, ctx), r.theme_override)[0]
+        return {"design": key, "page_design": page, "applied": key == page, "saved": key == saved,
+                "adjustments": adjustments}
 
 
 # ------------------------------------------------------------------ version detail
@@ -442,11 +480,15 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
         v = _get_version(s, report_id, version_id)
-        jobs = s.scalars(select(Job).where(Job.version_id == v.id).order_by(Job.created_at)).all()
+        jobs = version_jobs(s, v.id)
         page_count, pages, sections = _schema_bits(s, v.id)
         out = version_json(v, live_id=r.live_version_id)
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
+        # The design the page is in against the one saved, and where each wizard step really is
+        # (a design build never makes "Extract & verify" look unfinished).
+        out["design"] = design_state(settings_for(s, ctx), r, v, jobs)
+        out["steps"] = step_states(v, jobs, out["open_blocking"], out["design"])
         # Step 1's numbers, all worked out together from the items open now: one status per
         # figure, the items not about one figure, and each check card's open results.
         states = figure_states(s, v)
@@ -459,6 +501,8 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
         out["has_overview"] = _bundle_has_overview(ctx, v.bundle_key)
+        # What the footer disclaimer stops (Approve & publish shows it before the click).
+        out["disclaimer_problem"] = disclaimer_problem(v, settings_for(s, ctx)) if v.published_at is None else None
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
             methods = {p.get("method") for p in pages or []} - {None}
             checks = validation.checks_for("text_layer" in methods, "ocr" in methods) if methods else None
@@ -521,6 +565,17 @@ def get_schema(report_id: uuid.UUID, version_id: uuid.UUID, download: bool = Fal
         body = json.dumps(v.schema_json, ensure_ascii=False, indent=2 if download else None)
         headers = {"Content-Disposition": f'attachment; filename="report-v{v.version_no}.schema.json"'} if download else {}
         return Response(body, media_type="application/json", headers=headers)
+
+
+@router.get("/{report_id}/versions/{version_id}/page-map")
+def get_page_map(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    """Where each PDF page is on the web page, as the page build recorded it (see
+    app.render.site.page_map). ``pages`` is empty for a page built before this was recorded."""
+    from app.pipeline import stored_page_map
+    with db.session(ctx) as s:
+        v = _get_version(s, report_id, version_id)
+        bundle_key = v.bundle_key
+    return {"pages": stored_page_map(ctx, bundle_key) or []}
 
 
 @router.get("/{report_id}/versions/{version_id}/source.pdf")
@@ -987,7 +1042,11 @@ def preview_root(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Dep
 @router.get("/{report_id}/versions/{version_id}/preview/{path:path}")
 def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context = Depends(require("report.view"))) -> Response:
     """Serves the stored bundle exactly as it will publish; only the origin is set to
-    this preview URL and a small scroll-sync script is added (dashboard only)."""
+    this preview URL and a small scroll-sync script is added (dashboard only). The site's own
+    navigation works as for visitors: latest/ is this report, archive/ the site's archive as it
+    will read once this report is published."""
+    root = f"/api/tenants/{ctx.tenant_id}/reports/{report_id}/versions/{version_id}/preview"
+    rel = path.strip("/")
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         if not v.bundle_key:
@@ -997,18 +1056,27 @@ def preview(report_id: uuid.UUID, version_id: uuid.UUID, path: str, ctx: Context
         pdf_name = src.original_filename if src else "report.pdf"
         files = json.loads(storage.get(ctx, bundle + "_files.json"))
         base = min((f for f in files if f.endswith("/index.html")), key=len, default=files[0])   # the landing page
-    root = f"/api/tenants/{ctx.tenant_id}/reports/{report_id}/versions/{version_id}/preview"
-    rel = path.strip("/")
+        archive_page = None
+        if rel.split("/")[0] == "archive":
+            # The site's archive as it will read once this report is published, in this version's
+            # design ("Latest results" is this report: its landing page, below).
+            report = s.get(Report, report_id)
+            snap = v.theme_snapshot or {}
+            theme = snap.get("theme") or effective_theme(settings_for(s, ctx), report)[0]
+            archive_page = preview_archive_page(preview_archive(site_nav(s, ctx, report, v), root + "/"), theme=theme,
+                                                disclaimer=snap.get("disclaimer"), logo_src=logo_src(theme),
+                                                back_href=root + "/")
     if rel.endswith("source.pdf"):
         return _pdf_response(ctx, sha, pdf_name)
     candidates = [rel, rel + "/index.html"] if rel else [base]
-    if rel.startswith(("latest", "archive")) or rel == "":
+    if rel.startswith("latest") or rel == "":
         candidates = [base]
-    name = next((c for c in candidates if c in files), None)
+    name = "archive/index.html" if archive_page else next((c for c in candidates if c in files), None)
     if name is None:
         return Response("<!doctype html><title>Not in this report</title><p>That page isn't part of this report "
                         "preview.</p>", status_code=404, media_type="text/html")
-    data = storage.get(ctx, bundle + name).replace(ORIGIN_PLACEHOLDER.encode(), root.encode())
+    data = (archive_page.encode() if archive_page else storage.get(ctx, bundle + name)).replace(
+        ORIGIN_PLACEHOLDER.encode(), root.encode())
     if name.endswith(".html"):
         html = data.decode()
         html = html.replace("<head>", '<head><meta name="robots" content="noindex">', 1)

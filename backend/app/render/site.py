@@ -14,6 +14,7 @@ import html
 import io
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -289,8 +290,80 @@ DESIGNED_MAX_WORDS = 300           # never a page of prose with a photo on it
 GRAPHIC_FRAGMENT_WORDS = 5   # a "paragraph" this short, among many, is a label inside a graphic
 
 
+def _drop_id(sec: dict, eid: str) -> dict | None:
+    """The layout section without element `eid` (wherever it sits, nested ones included), or
+    None when nothing is left of it."""
+    t = sec["type"]
+    if t in ("heading", "paragraph"):
+        ids = [i for i in sec["ids"] if i != eid]
+        return {**sec, "ids": ids} if ids else None
+    if t in ("list", "chips", "stats"):
+        items = [x for x in ([i for i in it if i != eid] for it in sec["items"]) if x]
+        return {**sec, "items": items} if items else None
+    if t == "cards":
+        cards = []
+        for c in sec["cards"]:
+            c = {**c, "title": [i for i in c["title"] if i != eid], "body": [i for i in c["body"] if i != eid]}
+            if "flow" in c:
+                c["flow"] = [x for x in (_drop_id(f, eid) for f in c["flow"]) if x]
+            if c["title"] or c["body"] or c["picture"] or c.get("flow"):
+                cards.append(c)
+        return {**sec, "cards": cards} if cards else None
+    if t == "gallery":
+        items = [{**it, "caption": [i for i in it["caption"] if i != eid]} for it in sec["items"]]
+        return {**sec, "items": [it for it in items if it["picture"] or it["caption"]]}
+    if t == "picture":
+        return {**sec, "caption": [i for i in sec["caption"] if i != eid]}
+    if t == "media":
+        return {**sec, "body": [x for x in (_drop_id(b, eid) for b in sec["body"]) if x]}
+    return sec
+
+
+def _holds(sec: dict, eid: str) -> bool:
+    """Element `eid` is somewhere in this layout section (an exact id, nested ones included)."""
+    return json.dumps(eid) in json.dumps(sec)
+
+
+def _title_line(els: list, title: str | None):
+    """The page element holding the page's title: the same words, or (a title on two lines)
+    the first line of them."""
+    from app.extraction.page_titles import key
+    tk = key(title or "")
+    if not tk:
+        return None
+    return next((e for e in els if e.kind == "text" and key(e.text) and (
+        key(e.text) == tk or (tk.startswith(key(e.text) + " ") and len(key(e.text)) >= 0.5 * len(tk)))), None)
+
+
+def has_title_heading(secs: list[dict], els: list, title: str | None) -> bool:
+    """The page's own title is one of this layout's headings."""
+    el = _title_line(els, title)
+    return el is not None and any(x["type"] == "heading" and el.id in x["ids"] for x in secs)
+
+
+def title_first(secs: list[dict], els: list, title: str | None) -> list[dict]:
+    """A page rebuilt as web sections keeps its own title as its heading: when the layout set
+    the line holding the page's title as something else (a row of labels, a card title, a
+    paragraph), it becomes the heading where it stood."""
+    el = _title_line(els, title)
+    if el is None or has_title_heading(secs, els, title):
+        return secs
+    out, placed = [], False
+    for x in secs:
+        if not placed and _holds(x, el.id):
+            placed = True
+            out.append({"type": "heading", "level": 1, "ids": [el.id]})
+            rest = _drop_id(x, el.id)
+            if rest:
+                out.append(rest)
+        else:
+            out.append(x)
+    return out
+
+
 def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict[int, dict], base: str,
-               art: dict) -> tuple[dict[int, Markup], dict[str, bytes]]:
+               art: dict, titles: dict[int, str] | None = None,
+               titled: set[int] | None = None) -> tuple[dict[int, Markup], dict[str, bytes]]:
     """Design-led pages rebuilt as web sections. A paid-for AI layout is used when it was
     made for exactly these elements (same fingerprint); every other page gets the built-in
     layout (no AI, no credits). A page that can't be read keeps its designed look.
@@ -326,6 +399,9 @@ def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict
                 secs, drawn = web_layout.auto_layout(els, bands.get(n))
             if not secs:
                 continue
+            secs = title_first(secs, drawn, (titles or {}).get(n))
+            if titled is not None and has_title_heading(secs, drawn, (titles or {}).get(n)):
+                titled.add(n)
             W, H = page.rect.width, page.rect.height
             sheet = Image.open(io.BytesIO(art[printed]))         # the page as printed, at render scale
             sx, sy = sheet.width / W, sheet.height / H
@@ -428,6 +504,15 @@ def _contents_pages(pdf_bytes: bytes) -> set[int]:
         return {n for n in range(1, min(6, doc.page_count + 1)) if _CONTENTS_TITLE.search(doc[n - 1].get_text())}
     finally:
         doc.close()
+
+
+def left_out_pages(schema: dict, pdf_bytes: bytes) -> set[int]:
+    """Pages the web edition leaves out on purpose: the PDF's own contents page(s) near the front
+    ("In this report" does that job on the web). The page check uses the same rule."""
+    page_count = (schema["metadata"].get("source_pdf") or {}).get("page_count")
+    tables = {b["id"]: b for x in schema["sections"] for b in x["blocks"] if b["type"] == "table"}
+    return ({tables[tid]["source"]["page"] for tid in story.index_links(schema, page_count)
+             if tid in tables and tables[tid]["source"]["page"] <= 5} | _contents_pages(pdf_bytes))
 
 
 def _words(b: dict) -> int:
@@ -732,6 +817,7 @@ def _largest_headings(starts: list[tuple[str, str]], pdf_bytes: bytes | None,
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     except Exception:  # noqa: BLE001
         return starts
+    page_count = doc.page_count
     try:
         for sid, _t in starts:
             src = by_id[sid].get("source") or {}
@@ -747,7 +833,15 @@ def _largest_headings(starts: list[tuple[str, str]], pdf_bytes: bytes | None,
         return starts
     top = max(size.values())
     big = [it for it in starts if size.get(it[0], 0) >= top - 1.0]
-    return big if len(big) >= 2 else starts
+    if len(big) < 2:
+        return starts
+    # Chapters split the report into parts. When the largest headings would leave one part
+    # holding more than half of it (two divider slides in a deck, two banner titles), they
+    # aren't the report's chapters: keep every heading that opens a page.
+    opens = sorted({(by_id[sid].get("source") or {}).get("page") or 1 for sid, _t in big})
+    bounds = [1] + opens[1:] + [page_count + 1]
+    longest = max(b - a for a, b in zip(bounds, bounds[1:]))
+    return big if longest <= page_count / 2 else starts
 
 
 def _drop_empty_chapters(chapters: list[dict], sections_by_id: dict, pictures: dict, quiet: set,
@@ -833,7 +927,8 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     contents table (``index_links``), the chapter starts the AI picked at extraction (``ai_starts``,
     section ids only — titles are always the PDF's heading text), else cleaned headings — so the
     sidebar lists real chapters, not every bold line. Sections between two starts (and the junk headings dropped by the cleaner)
-    fold into the preceding chapter, so no content is lost. A report with no contents page and only
+    fold into the preceding chapter, and sections before the first start open the first chapter, so no
+    content is lost (``skip_ids`` — the intro lead and a true cover's title — never start a chapter). A report with no contents page and only
     a handful of plain sections (a results statement, an FAQ) is not split."""
     heads = [s for s in sections if s.get("heading") and s.get("slug") and s["id"] not in skip_ids]
     by_id_all = {s["id"]: s for s in sections}
@@ -875,7 +970,11 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     chapters = []
     for k, (sid, title) in enumerate(starts):
         title = _verified_title(title, by_id[sid])
-        lo = order[sid]
+        # Everything before the first start opens the first chapter. That includes the sections
+        # kept off the chapter starts (``skip_ids``: the intro lead, the cover's title section):
+        # they're never a chapter of their own, but their text — the cover section often runs on
+        # to page 2 (a safe-harbour notice) — must still be on a page.
+        lo = order[sid] if k else 0
         hi = order[starts[k + 1][0]] if k + 1 < len(starts) else len(sections)
         members = [s["id"] for s in sections if lo <= order[s["id"]] < hi]
         chapters.append({"slug": by_id[sid]["slug"], "title": title or SECTION_TYPE_LABEL.get(by_id[sid]["type"], "Section"),
@@ -883,15 +982,102 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
     return chapters
 
 
+def artwork_key(schema: dict, pdf_bytes: bytes, max_pages: int | None, layouts: dict | None) -> str:
+    """Everything a report's page artwork is made from: the report data, the PDF, the page limit,
+    the AI layouts and this build of the app. Not the design — the design only fills templates."""
+    from app.code_version import code_version
+    made_from = [code_version(), hashlib.sha256(pdf_bytes).hexdigest(), max_pages,
+                 {str(k): v for k, v in (layouts or {}).items()}, schema]
+    return hashlib.sha256(json.dumps(made_from, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def page_map(schema: dict, sections: list[dict], chapters: list[dict] | None, *, first: dict[int, str], owner_of,
+             left_out: set[int], cover: int | None, pictures: dict[str, list], ai_pages: dict, hidden_heading: set[str],
+             page_count: int, quiet: set[str] = frozenset(), ai_titled: set[int] = frozenset()) -> list[dict]:
+    """Where each PDF page is on the web page: one entry per page.
+
+    ``shown``: "text" (its words are web text), "picture" (shown as the page itself),
+    "rearranged" (rebuilt as web sections), "cover", "left_out" (the PDF's contents page, on
+    purpose) or "none" (nothing of it is on the web page). ``own_section``: a section with the
+    page's own heading opens on it; otherwise ``heading``/``heading_page`` name the section its
+    content sits under. ``chapter``: the web page (sidebar entry) it is on, for a split report."""
+    by_id = {x["id"]: x for x in sections}
+    order = {x["id"]: i for i, x in enumerate(sections)}
+    pages_info = {pi["page"]: pi for pi in schema.get("pages", [])}
+    drawn = {pg["n"] for ps in pictures.values() for pg in ps}
+    chapter_of: dict[str, dict] = {}
+    for c in chapters or []:
+        for sid in c["section_ids"]:
+            chapter_of.setdefault(sid, c)
+
+    def headed(sid: str | None) -> dict | None:
+        """The section `sid`, or the nearest one before it that has a heading."""
+        if sid not in order:
+            return None
+        for x in reversed(sections[: order[sid] + 1]):
+            if x.get("heading"):
+                return x
+        return None
+
+    opening = {}
+    for x in sections:
+        pg = (x.get("source") or {}).get("page")
+        if pg and x.get("heading"):
+            opening.setdefault(pg, x)
+    out = []
+    for n in range(1, page_count + 1):
+        sec = opening.get(n)
+        at = sec["id"] if sec else first.get(n) or owner_of(n)
+        head = sec or headed(at)
+        if n in left_out:
+            shown = "left_out"
+        elif cover and n == cover:
+            shown = "cover"
+        elif n in ai_pages:
+            shown = "rearranged"
+        elif n in drawn:
+            shown = "picture"
+        elif n in first:
+            shown = "text"
+        else:
+            shown = "none"
+        c = chapter_of.get(at) if at else None
+        if c is None and chapters and at in by_id:
+            c = chapters[0]                       # the intro and the cover's title lead the first page
+        # the opening section's heading is on the web page: as the section's own heading, as the
+        # hidden heading over its page's picture, or (a rebuilt page) as that page's heading
+        heading_shown = sec is not None and (sec["id"] not in quiet or sec["id"] in hidden_heading
+                                             or (shown == "rearranged" and n in ai_titled))
+        out.append({"page": n, "title": (pages_info.get(n) or {}).get("title"), "shown": shown,
+                    "own_section": heading_shown and shown not in ("left_out", "none"),
+                    "section": at, "heading": (head or {}).get("heading_text") or None,
+                    "heading_page": ((head or {}).get("source") or {}).get("page"),
+                    "hidden_heading": bool(sec and sec["id"] in hidden_heading),
+                    "chapter": c["title"] if c else None})
+    return out
+
+
 def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None = None,
                   pdf_bytes: bytes | None = None, progress=None, max_pages: int | None = None,
                   pdf_page_sink=None, layouts: dict[int, dict] | None = None,
-                  landing: bool = False) -> dict[str, bytes]:
+                  landing: bool = False, memo: dict | None = None, page_map_sink: list | None = None) -> dict[str, bytes]:
     """All files for one report version, keyed by path relative to the site root.
+
+    `page_map_sink`, when given, receives one entry per PDF page saying where that page is on
+    the web page (see `page_map`); it isn't one of the published files.
 
     With the PDF (always, in the pipeline) the report page is the page-faithful web
     edition: every PDF page as designed, its text as real HTML on top. Without it (a
-    design preview on sample data) the report's text is laid out as one flowing page."""
+    design preview on sample data) the report's text is laid out as one flowing page.
+
+    Drawing the PDF's pages is nearly all of the work, and the design plays no part in it. With
+    `memo` (a dict the caller keeps between builds) the drawn pages of the last build are reused
+    when they were made from exactly the same things (`artwork_key`), so a change to the design
+    only fills the templates again; otherwise the pages are drawn and left in `memo`
+    (memo["artwork"] = (key, drawing), replaced in one step: a memo may be shared)."""
+    key = artwork_key(schema, pdf_bytes, max_pages, layouts) if memo is not None and pdf_bytes and not pdf_page_sink else None
+    kept = memo.get("artwork") if key else None
+    reuse = kept[1] if kept and kept[0] == key else None
     m = schema["metadata"]
     base = report_base_path(m)
     figures = schema["figures"]
@@ -923,10 +1109,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         page_count = (m.get("source_pdf") or {}).get("page_count")
         index_links = story.index_links(schema, page_count)
         # The PDF's own contents page is left out: "In this report" does that job on the web.
-        tables = {b["id"]: b for x in sections for b in x["blocks"] if b["type"] == "table"}
-        skip = {tables[tid]["source"]["page"] for tid in index_links if tables[tid]["source"]["page"] <= 5}
         contents_pages = _contents_pages(pdf_bytes)
-        skip |= contents_pages
+        skip = left_out_pages(schema, pdf_bytes)
         vis_boxes: dict[int, list] = {}
         words: dict[int, int] = {}
         table_pages: set[int] = set()
@@ -948,7 +1132,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # repeated as text. Other charts are cut out one by one, trimmed so one never
         # shows the top of the next.
         region_at: dict[str, str] = {}      # first block of a graphic -> its cut-out
-        region_members: dict[str, list[str]] = {}
+        region_members: dict[str, list[str]] = {}   # cut-out -> the blocks it shows, in page order
         in_graphic: set[str] = set()
         # Design-led pages (a product spread: many pictures with short captions) read far
         # better as designed than cut into pieces: shown whole — or, with an AI layout,
@@ -996,10 +1180,14 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         # Pages rebuilt as web sections need the page as printed, to cut their pictures from.
         rebuilt = {n for n in wanted if (n != 1 or not p1_cover) and (n in designed or not (words.get(n, 0) >= REFLOW_MIN_WORDS
                                                                                             or n in table_pages))}
-        page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
-                                                   max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
-                                                   skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
-                                                   keep_printed=rebuilt)
+        if reuse:
+            page_list, art = deepcopy(reuse["parts"]), dict(reuse["art"])
+        else:
+            page_list, art, _ = pages_mod.render_pages(schema, pdf_bytes, page_methods=methods, progress=progress,
+                                                       max_pages=max_pages, visuals=vis_boxes, pdf_page_sink=pdf_page_sink,
+                                                       skip_pages=skip | (set(range(1, total_pages + 1)) - wanted),
+                                                       keep_printed=rebuilt)
+            drawn = {"parts": deepcopy(page_list), "art": dict(art)}
         files.update({base.lstrip("/") + k: v for k, v in art.items()})
         files.update({base.lstrip("/") + k: v for k, v in pages_mod.font_files().items()})
         # Charts and graphics: cut from their page's artwork, labels as real text on top.
@@ -1044,15 +1232,56 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 if (b.get("source") or {}).get("page") in picture_pages:
                     in_graphic.add(b["id"])
         lead = sections[0] if sections and not sections[0].get("heading") else None
-        quiet = {x["id"] for x in sections
-                 if x is not lead and ((x.get("source") or {}).get("page") in picture_pages)
-                 and all(b["id"] in in_graphic for b in x["blocks"])}
+        def quiet_sections() -> set[str]:
+            return {x["id"] for x in sections
+                    if x is not lead and ((x.get("source") or {}).get("page") in picture_pages)
+                    and all(b["id"] in in_graphic for b in x["blocks"])}
+        quiet = quiet_sections()
+        # A graphic is drawn where its first block is shown. When that block isn't shown — its
+        # section is quiet (say the cover's title section, on a page shown as a picture), or it
+        # is joined into the paragraph before it — the graphic is drawn at the first of its
+        # blocks that is; a graphic with no cut-out, or none of whose blocks is shown, leaves its
+        # blocks as text: never hidden with nothing in their place.
+        listed = {b["id"] for sid, bl in story.document_order(schema, story.document_layout(schema, {}), in_graphic).items()
+                  if sid not in quiet for b in bl}
+        page_of_block = {b["id"]: (b.get("source") or {}).get("page") for x in sections for b in x["blocks"]}
+        for first_id, rid in list(region_at.items()):
+            members = region_members.get(rid, [first_id])
+            at = next((bid for bid in members if bid in listed), None) if rid in crops else None
+            if at == first_id:
+                continue
+            del region_at[first_id]
+            crops.pop(first_id, None)
+            if at is not None:
+                region_at[at] = rid
+                crops[at] = crops[rid]
+            else:
+                in_graphic.difference_update(bid for bid in members if page_of_block.get(bid) not in picture_pages)
+        quiet = quiet_sections()
         # "#p12" links (from the PDF's own links) land on where page 12's content starts.
         anchors: dict[str, list[int]] = {}
         for pg, sid in sorted(first.items()):
             anchors.setdefault(sid, []).append(pg)
+        # A page shown only as its picture (no section's content is from it) is anchored at
+        # that picture, so "#p30" still lands on page 30.
+        picture_anchors = {p["n"] for ps in pictures.values() for p in ps if p["n"] not in first}
+        # Each page's own title: the heading of the section that opens on it.
+        opening_title: dict[int, str] = {}
+        for x in sections:
+            pg = (x.get("source") or {}).get("page")
+            if pg and x.get("heading_text"):
+                opening_title.setdefault(pg, x["heading_text"])
         # Picture-led pages as web sections, not as pictures of the page.
-        ai_pages, ai_crops = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art)
+        if reuse:
+            ai_pages, ai_crops = dict(reuse["web_pages"]), dict(reuse["web_crops"])
+            ai_titled: set[int] = set(reuse["ai_titled"])
+        else:
+            ai_titled = set()
+            ai_pages, ai_crops = _web_pages(schema, pdf_bytes, [p["n"] for ps in pictures.values() for p in ps], layouts, base, art,
+                                            titles=opening_title, titled=ai_titled)
+            if key:
+                memo["artwork"] = (key, {**drawn, "web_pages": dict(ai_pages), "web_crops": dict(ai_crops),
+                                         "ai_titled": sorted(ai_titled)})
         files.update({base.lstrip("/") + k: v for k, v in ai_crops.items()})
         for n in ai_pages:
             # the page's pictures now ship as their own per-element crops, so the whole-page
@@ -1061,22 +1290,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             files.pop(f"{base.lstrip('/')}pages/p{n:04d}-print.webp", None)
         qparts = {x["id"]: story.question_parts(schema, x) for x in sections}
         front = sections[0] if sections and not sections[0].get("heading") else None
-        front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {})).get(front["id"], [])
+        front_blocks = [b for b in story.document_order(schema, story.document_layout(schema, {}), in_graphic).get(front["id"], [])
                         if (b.get("source") or {}).get("page") not in picture_pages and b["id"] not in in_graphic] \
             if front else []
         doclayout = story.document_layout(schema, {})
-        doc_order = story.document_order(schema, doclayout)
-        # A graphic's cut-out is placed at its first block that is on the page: a block joined
-        # into the paragraph before it (across a page break) is not, and the whole graphic
-        # would otherwise never be shown.
-        placed = {b["id"] for blocks in doc_order.values() for b in blocks}
-        for rid, ids in region_members.items():
-            first = next((i for i in ids if i in placed), None)
-            old = next((k for k, v in region_at.items() if v == rid), None)
-            if first and first != old and rid in crops:
-                region_at.pop(old, None)
-                region_at[first] = rid
-                crops[first] = crops[rid]
+        # (A graphic whose first block isn't shown was already moved to the first of its blocks
+        # that is, above: it is never drawn at a block joined into another paragraph or kept quiet.)
+        doc_order = story.document_order(schema, doclayout, in_graphic)
         css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
         og = {"href": href(page_list[0]["bg"])} if page_list else None
         # Context shared by every web page of the report (the single page, or — for a long report
@@ -1087,10 +1307,16 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             doclayout=doclayout, doc_order=doc_order,
             heading_ids=story.heading_like(schema), index_links=index_links, crops=crops,
             graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
-            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og,
+            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og, picture_anchors=picture_anchors,
             # a page shown as a picture carries its small charts' combined values under it
             page_series={pg: [b for b in bl if b.get("series_table")] for pg, bl in page_blocks.items()
-                         if pg in picture_pages and any(b.get("series_table") for b in bl)})
+                         if pg in picture_pages and any(b.get("series_table") for b in bl)},
+            # a section kept quiet because its page is shown as a picture still has its heading,
+            # for screen readers, search and the page outline (the picture shows it to the eye);
+            # a page rebuilt as web sections carries its title as its own heading instead, unless
+            # the title is only inside one of its pictures
+            hidden_heading={x["id"] for x in sections if x["id"] in quiet and x.get("heading")
+                            and (x.get("source") or {}).get("page") not in ai_titled})
         tmpl = _ENV.get_template("web.html")
         sections_by_id = {s["id"]: s for s in sections}
         # The intro lead and, on a true cover, the page-1 title section stay on the home page
@@ -1098,11 +1324,27 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         skip_ids = {front["id"]} if front else set()
         if p1_cover and owner_of(1):
             skip_ids.add(owner_of(1))
-        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids, bool(contents_pages), page_count,
-                                   ai_starts=schema.get("chapters"))
+
+        # The PDF's own contents page is left out on purpose (the sidebar is the contents). Its
+        # entries can read as headings ("Performance Highlights"): never a chapter start, and a
+        # section that is only that page doesn't join the first chapter with the rest.
+        def pages_of(x: dict) -> set[int]:
+            return ({b["source"]["page"] for b in x["blocks"] if (b.get("source") or {}).get("page")}
+                    | ({x["source"]["page"]} if (x.get("source") or {}).get("page") else set()))
+        on_contents = {x["id"] for x in sections if pages_of(x) and pages_of(x) <= skip}
+        chapters = report_chapters(sections, pdf_bytes, index_links, skip_ids | on_contents, bool(contents_pages),
+                                   page_count, ai_starts=schema.get("chapters"))
+        if chapters:
+            start0 = chapters[0]["start_id"]
+            chapters[0]["section_ids"] = [sid for sid in chapters[0]["section_ids"] if sid == start0 or sid not in on_contents]
         if chapters:
             chapters = _drop_empty_chapters(chapters, sections_by_id, pictures, quiet, in_graphic,
                                             set(region_at), crops, web_ctx["doc_order"])
+        if page_map_sink is not None:
+            page_map_sink.extend(page_map(schema, sections, chapters, first=first, owner_of=owner_of, left_out=skip,
+                                          cover=cover["n"] if cover else None, pictures=pictures, ai_pages=ai_pages,
+                                          hidden_heading=web_ctx["hidden_heading"], page_count=total_pages,
+                                          quiet=quiet, ai_titled=ai_titled))
         if chapters:
             # One page per chapter, with a sidebar navigator. The report opens on its first
             # chapter (no separate contents page): the sidebar is the contents. The intro (the
@@ -1124,7 +1366,8 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 is_first = i == 0
                 path = "index.html" if is_first else c["slug"] + "/index.html"
                 files[base.lstrip("/") + path] = tmpl.render(
-                    **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, start_href=None,
+                    **ctx, mode="section", nav=nav, current=c, sec_href=sec_href, is_home=is_first,
+                    start_href="#start" if is_first else None,
                     prev=(nav[i - 1] if i > 0 else None), next=(nav[i + 1] if i + 1 < len(chapters) else None),
                     page_title=(title if is_first else f"{c['title']} · {title}"),
                     canonical_path=(base if is_first else base + c["slug"] + "/"),
@@ -1306,17 +1549,52 @@ def figures_exports(schema: dict, base: str) -> tuple[str, str]:
 # ------------------------------------------------------------------ tenant site index
 
 
+def _site_index_common(company: str, theme: dict, disclaimer: str | None, logo_src: str | None,
+                       extra_css: str = "") -> dict:
+    return dict(theme=theme, css=Markup(page_css(theme) + extra_css), company=company, origin=ORIGIN_PLACEHOLDER,
+                disclaimer_html=Markup(disclaimer_html(disclaimer)), logo_src=logo_src, pdf_href=None,
+                powered_by=powered_by_html(theme),
+                fonts_href=theming.google_fonts_href(theme), alternates=None, downloads=None, jsonld=None,
+                m={"company": company})
+
+
+# A report's previews show the archive as it will read once the report is published: the report
+# marked in its place, a way back to it, and a line when nothing else has been published yet.
+PREVIEW_ARCHIVE_CSS = (".archive-back{margin:0 0 .8em}.archive-back a{font-weight:600}"
+                       ".archive-note{display:block;margin-top:4px;color:var(--c-muted);font-weight:400;font-size:.88em}"
+                       ".archive-more{color:var(--c-muted)}")
+
+
+def preview_archive_page(archive: dict, *, theme: dict, disclaimer: str | None, logo_src: str | None,
+                         back_href: str) -> str:
+    """The archive page for a report's preview (see reports.preview_archive): the live site's
+    archive page, with this report marked and a link back to it."""
+    company = archive["company"]
+    return _ENV.get_template("index.html").render(
+        **_site_index_common(company, theme, disclaimer, logo_src, PREVIEW_ARCHIVE_CSS),
+        heading=f"{company}: report archive", latest=None, reports=archive["reports"], back_href=back_href,
+        more_note=archive["more_note"], page_title=f"Report archive \u00b7 {company}",
+        description=f"All reports published by {company}.", canonical_path="/archive/")
+
+
+def preview_archive_overlay(archive: dict, *, theme: dict) -> str:
+    """The same archive, for the design preview, which runs no scripts: a section of the previewed
+    page, placed before its footer, that the Archive link (#ppdf-archive) shows in place of the
+    report — between the site's header and footer, as on the real archive page, with the header
+    kept in view — and "Back to the report" or "Latest results" (#) hides again."""
+    page = preview_archive_page(archive, theme=theme, disclaimer=None, logo_src=None, back_href="#")
+    body = page.split('<main id="main">', 1)[1].rsplit("</main>", 1)[0]       # base.html's <main>
+    return ("<style>" + PREVIEW_ARCHIVE_CSS + ".ppdf-archive{display:none;scroll-margin-top:100vh}.ppdf-archive:target{display:block}"
+            "body:has(.ppdf-archive:target) main{display:none}</style>"
+            f'<section id="ppdf-archive" class="ppdf-archive" aria-label="Archive">{body}</section>')
+
+
 def render_site_index(company: str, reports: list[dict], *, theme: dict, disclaimer: str | None,
                       robots_policy: str, logo_src: str | None = None) -> dict[str, bytes]:
     """Tenant-level pages: home, /archive/, /latest/ (served dynamically), sitemap,
     robots.txt, llms.txt. `reports` = live reports, newest first, each
     {path, period_label, type_label, sections: [slug...], lastmod}."""
-    css = page_css(theme)
-    common = dict(theme=theme, css=Markup(css), company=company, origin=ORIGIN_PLACEHOLDER,
-                  disclaimer_html=Markup(disclaimer_html(disclaimer)), logo_src=logo_src, pdf_href=None,
-                  powered_by=powered_by_html(theme),
-                  fonts_href=theming.google_fonts_href(theme), alternates=None, downloads=None, jsonld=None,
-                  m={"company": company})
+    common = _site_index_common(company, theme, disclaimer, logo_src)
     for r in reports:
         r["path"] = f"{ORIGIN_PLACEHOLDER}{r['base']}"
     latest = reports[0] if reports else None

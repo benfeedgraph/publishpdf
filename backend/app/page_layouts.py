@@ -41,8 +41,11 @@ def cache_key(sha: str) -> str:
 
 
 def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: dict, pdf: bytes,
-                *, mode: str | None = None, progress=None) -> dict[int, dict]:
+                *, mode: str | None = None, progress=None, cached_only: bool = False) -> dict[int, dict]:
     """{page: {"fingerprint", "sections"}} for design-led pages that have a layout.
+
+    `cached_only`: use only the layouts already made, never ask the model (a change to the
+    design alone: the page keeps the layouts it was built with, and costs nothing).
 
     `mode` is the report's build option (app.build_modes): "none" uses no AI layout at all
     (not even a cached one: the person chose the built-in layout); "layout"/"full" may
@@ -83,7 +86,7 @@ def layouts_for(ctx: Context, version_id: uuid.UUID | None, sha: str, schema: di
         doc.close()
 
     cap = build_modes.caps(mode, len(schema.get("pages") or []))["layout"]
-    can_call = (cap > 0 and cfg.gemini_api_key and todo
+    can_call = (not cached_only and cap > 0 and cfg.gemini_api_key and todo
                 and time.monotonic() >= _REJECTED_UNTIL[0])
     if can_call:
         budget = cap

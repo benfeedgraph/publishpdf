@@ -747,6 +747,118 @@ def pages_shown_as_printed(bundle_files: dict[str, bytes] | None) -> set[int]:
     return shown
 
 
+_TAGS = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.S)
+
+
+_WORD = re.compile(r"[^\W\d_]{3,}")
+_DRAWN = re.compile(r'(?:src|srcset)="([^"]*)"|url\(([^)]*)\)')      # where a page's artwork is drawn
+_ART_IN_URL = re.compile(r"pages/p(\d{4})\b")
+
+
+def _words_of(text: str) -> set[str]:
+    """Words of three letters or more (any script), lower-cased: what a page says, whatever
+    order the web page lays it out in."""
+    return {w.lower() for w in _WORD.findall(text)}
+
+
+def _page_words(schema: dict) -> dict[int, set[str]]:
+    """Each page's words, as extracted (its section headings and its blocks)."""
+    said: dict[int, set[str]] = defaultdict(set)
+    for sec in schema["sections"]:
+        if (sec.get("source") or {}).get("page"):
+            said[sec["source"]["page"]] |= _words_of(sec.get("heading_text") or "")
+        for b in sec["blocks"]:
+            page = (b.get("source") or {}).get("page")
+            if page:
+                said[page] |= _words_of(" ".join(r.get("t", "") for r in b.get("runs") or []))
+    return said
+
+
+def check_page_coverage(schema: dict, artifact: dict, page_map: list[dict]) -> list[Issue]:
+    """Every PDF page with content is on the web page under a heading of its own, or is
+    reported here (a warning under Completeness: it doesn't stop publishing):
+      - a page with its own title (the extracted data's ``pages[].title``) whose content sits
+        under another page's heading;
+      - a page with pictures and nothing else that isn't on the web page at all (a page with
+        text that is missing is reported by `check_text_on_site`).
+    The PDF's contents page and pages that only repeat other pages (an agenda shown again
+    before each part) are left out on purpose and not reported. ``page_map`` is the build's
+    own account of where each page went (`app.render.site.page_map`)."""
+    titles = {pi["page"]: pi.get("title") for pi in schema.get("pages", [])}
+    pictures = {pg["page"]: len(pg.get("image_regions") or []) for pg in (artifact or {}).get("pages", [])}
+    said = _page_words(schema)
+    pages_with: dict[str, int] = defaultdict(int)
+    for ws in said.values():
+        for w in ws:
+            pages_with[w] += 1
+    issues = []
+    for e in page_map:
+        n = e["page"]
+        if e["shown"] in ("left_out", "cover"):
+            continue
+        if said.get(n) and all(pages_with[w] >= 2 for w in said[n]) and not titles.get(n):
+            continue                                 # every word of it is on another page too: it repeats
+        if titles.get(n) and e["shown"] != "none" and not e["own_section"]:
+            where = (f"is under \u201c{e['heading']}\u201d from page {e['heading_page']}" if e.get("heading") and e.get("heading_page")
+                     else f"is under \u201c{e['heading']}\u201d" if e.get("heading") else "runs on from the page before")
+            issues.append(Issue("completeness", "warning",
+                                f"Page {n} has no section of its own on the web page: its content (\u201c{titles[n]}\u201d) {where}. "
+                                "Compare it with the PDF before publishing.", page=n))
+        elif e["shown"] == "none" and pictures.get(n) and len(said.get(n, ())) < 3:
+            issues.append(Issue("completeness", "warning",
+                                f"Page {n} of the PDF isn't on the web page: neither its text nor its pictures are there. "
+                                "Compare it with the PDF before publishing.", page=n))
+    return issues
+
+
+def check_text_on_site(schema: dict, pdf_bytes: bytes, bundle_files: dict[str, bytes]) -> list[Issue]:
+    """No page of the PDF disappears from the web page: each page with text read from it has
+    its words on the web page, or is shown as printed (a picture of the page). Only the PDF's
+    own contents page is left out, on purpose. A page whose text appears nowhere is noted for
+    the reviewer (a warning, under Completeness: it doesn't stop publishing).
+
+    A page is judged by its own words — the ones on at most two pages of the PDF — so words
+    every page shares ("revenue", "quarter") can't make a missing page look present."""
+    import html as _html
+
+    from app.render.site import left_out_pages
+    left_out = left_out_pages(schema, pdf_bytes)
+    pages_html = " ".join(d.decode("utf-8", "replace") for n, d in bundle_files.items() if n.endswith((".html", ".css")))
+    site = _words_of(_html.unescape(_TAGS.sub(" ", pages_html)))
+    said: dict[int, set[str]] = defaultdict(set)
+    for sec in schema["sections"]:
+        if (sec.get("source") or {}).get("page"):
+            said[sec["source"]["page"]] |= _words_of(sec.get("heading_text") or "")
+        for b in sec["blocks"]:
+            page = (b.get("source") or {}).get("page")
+            if page:
+                said[page] |= _words_of(" ".join(r.get("t", "") for r in b.get("runs") or []))
+    pages_with: dict[str, int] = defaultdict(int)
+    for ws in said.values():
+        for w in ws:
+            pages_with[w] += 1
+    # pages shown as printed: their artwork is drawn on the page (not just named in its metadata);
+    # one pass over the site, not one per page
+    drawn = {int(n) for m in _DRAWN.finditer(pages_html)
+             for n in _ART_IN_URL.findall(m.group(1) or m.group(2) or "")}
+    issues = []
+    for pg, ws in sorted(said.items()):
+        if pg in left_out:
+            continue
+        own = {w for w in ws if pages_with[w] <= 2}
+        pool = own if len(own) >= 3 else ws
+        if len(pool) < 3:                    # too little text on the page to judge
+            continue
+        # (most of a page's words on the site: the page is there, even if a footnote isn't)
+        if pg in drawn or len(pool & site) >= 0.5 * len(pool) or len(ws & site) >= 0.7 * len(ws):
+            continue
+        example = " ".join(sorted(pool - site, key=len, reverse=True)[:4])
+        issues.append(Issue("completeness", "warning",
+                            f"Page {pg} of the PDF isn't on the web page: its words aren't there "
+                            f"(e.g. \u201c{example}\u201d). Compare it with the PDF before publishing.", page=pg))
+    return issues
+
+
 def check_completeness(schema: dict, doc: pymupdf.Document, artifact: dict,
                        bundle_files: dict[str, bytes] | None = None) -> list[Issue]:
     issues = []
@@ -1084,7 +1196,8 @@ def _safe_reads(schema: dict, pdf_bytes: bytes, pool) -> dict[str, list[str]] | 
 
 
 def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes] | None,
-            *, threshold: float, reextract: bool = True, progress=None) -> tuple[list[Issue], dict[str, Any]]:
+            *, threshold: float, reextract: bool = True, progress=None,
+            page_map: list[dict] | None = None) -> tuple[list[Issue], dict[str, Any]]:
     """Runs every validation agent. Each positive confirmation is tallied per figure, so
     the summary can say how many independent agents agreed on each value, and each agent
     records which figures it looked at, so the summary can say how far each one reached."""
@@ -1150,18 +1263,13 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     issues += step("Cross-table consistency", lambda: check_cross_tables(schema, verified["cross_table"],
                                                                          checked["cross_table"]))
     issues += step("Periods & units", lambda: check_period_unit(schema, checked["period_unit"]))
-    if bundle_files is not None:
-        issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
-    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files))
+    issues += _page_checks(schema, doc, pdf_bytes, artifact, bundle_files, step, page_map)
     issues += step("Human review", lambda: check_low_confidence(
         schema, threshold, reread_ok=verified["re_extraction"] if reextract else None, checked=checked["low_confidence"]))
     issues = merge_figure_duplicates(issues)
     summary = summarize(schema, issues)
     has_text_layer = any(p["method"] == "text_layer" for p in artifact["pages"])
-    # Checks that look at pages rather than figures: how many pages they covered.
-    page_counts = {"completeness": ("pdf_pages", len(artifact["pages"])),
-                   "rendered_page": ("web_pages", sum(1 for n in bundle_files or {} if n.endswith((".html", ".md"))))}
-    summary["agents"] = _agent_summary(schema, issues, verified, checked, page_counts, ran={
+    summary["agents"] = _agent_summary(schema, issues, verified, checked, _page_counts(artifact, bundle_files), ran={
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
@@ -1169,6 +1277,55 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
     # figure matches the PDF" once a person has confirmed each of these too.
     summary["unconfirmed_fids"] = sorted(f["id"] for f in _active(schema)
                                          if not any(f["id"] in verified.get(k, ()) for k in CONFIRMING_AGENTS))
+    return issues, summary
+
+
+# The checks that read the generated web page. Every other check reads only the PDF and the data
+# taken from it, so after a change to the design alone these two are the ones with anything new
+# to find (a number in a new header or footer, a page's words still reaching the site).
+PAGE_CHECKS = ("rendered_page", "completeness")
+
+
+def _page_checks(schema: dict, doc: pymupdf.Document, pdf_bytes: bytes, artifact: dict,
+                 bundle_files: dict[str, bytes] | None, step, page_map: list[dict] | None = None) -> list[Issue]:
+    issues: list[Issue] = []
+    if bundle_files is not None:
+        issues += step("Web page check", lambda: check_bundle(schema, bundle_files))
+    issues += step("Completeness", lambda: check_completeness(schema, doc, artifact, bundle_files)
+                   + (check_text_on_site(schema, pdf_bytes, bundle_files) if bundle_files is not None else [])
+                   + (check_page_coverage(schema, artifact, page_map) if page_map else []))
+    return issues
+
+
+def _page_counts(artifact: dict, bundle_files: dict[str, bytes] | None) -> dict[str, tuple[str, int]]:
+    """Checks that look at pages rather than figures: how many pages they covered."""
+    return {"completeness": ("pdf_pages", len(artifact["pages"])),
+            "rendered_page": ("web_pages", sum(1 for n in bundle_files or {} if n.endswith((".html", ".md"))))}
+
+
+def run_page_checks(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[str, bytes], *,
+                    kept: list[Issue], agents: list[dict], progress=None,
+                    page_map: list[dict] | None = None) -> tuple[list[Issue], dict[str, Any]]:
+    """After a change to the design alone: the page checks run again on the new web page, and the
+    other checks' findings stand (`kept`, with their per-check `agents` summary, from the last run
+    on the same data by the same build of the app), since nothing they read has changed."""
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    done: list[str] = []
+
+    def step(name, fn):
+        done.append(name)
+        if progress:
+            progress(name, len(done))
+        return fn()
+    try:
+        fresh = _page_checks(schema, doc, pdf_bytes, artifact, bundle_files, step, page_map)
+    finally:
+        doc.close()
+    issues = [i for i in kept if i.check not in PAGE_CHECKS] + fresh
+    summary = summarize(schema, issues)
+    now = {a["key"]: a for a in _agent_summary(schema, fresh, {}, {}, _page_counts(artifact, bundle_files),
+                                               ran={"rendered_page": True})}
+    summary["agents"] = [now[a["key"]] if a["key"] in PAGE_CHECKS else a for a in agents]
     return issues, summary
 
 

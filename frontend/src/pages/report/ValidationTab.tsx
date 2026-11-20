@@ -6,6 +6,7 @@ import { useMe } from "../../App";
 import PdfCrop from "../../components/PdfCrop";
 import PdfRegion from "../../components/PdfRegion";
 import { Button, Loading, SkeletonRows, Spinner } from "../../components/Spinner";
+import { stepAfter, stepLabel } from "../../steps";
 
 interface FilterOption { value: string; label: string; count: number }
 interface IssuesResp {
@@ -173,7 +174,8 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
       )}
       {processing && <p className="callout info small row" style={{ gap: 8 }}><Spinner label="Re-checking" /> Re-checking after your changes. You can keep deciding — the newest decisions are always included.</p>}
       {!embedded && s && s.blocking === 0 && version.status === "needs_review" && (
-        <p className="callout ok">No blocking issues. Review the page in <strong>Preview & publish</strong>.</p>
+        // Shown on the Review page step, so the way on is the step after it.
+        <p className="callout ok">No blocking issues. Next step: <strong>{stepLabel(stepAfter("review")!.key)}</strong>.</p>
       )}
       {q.isError && <p className="muted small" role="status">Couldn't refresh the list just now — showing the last version; retrying.</p>}
       <div className="filters">

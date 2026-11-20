@@ -24,8 +24,8 @@ cp .env.example .env
 In `.env`, set `APP_SECRET_KEY` (`cd backend && uv run python -m app.cli gen-secret`), point both
 database URLs at `localhost:54329` with the dev passwords (`owner_dev_pw` / `app_dev_pw`), and for
 local use set `APP_ENV=development`, `PUBLIC_SCHEME=http`, `PUBLIC_PORT_SUFFIX=:8080`,
-`TLS_MODE=off`, `PREVIEW_URL_PATTERN={tenant_slug}.preview.localhost` and a placeholder
-`DISCLAIMER_DEFAULT_TEXT`.
+`TLS_MODE=off` and `PREVIEW_URL_PATTERN={tenant_slug}.preview.localhost`. (Each workspace writes
+its own footer disclaimer in Settings; `DISCLAIMER_DEFAULT_TEXT` is no longer printed on pages.)
 
 Then start everything (database, API, worker, public sites, dashboard) with one command:
 
@@ -47,12 +47,15 @@ cd backend && uv run python scripts/make_corpus.py && uv run python -m app.cli s
 
 ## The flow
 
-1. **Sign in** with your email and a 6-digit code (no password). New users name their company and get their own workspace. Two-factor (authenticator app) is optional in Settings.
-2. **Upload**: drop a PDF on the Reports page. Company, report type, fiscal year, period, currency and unit are detected from the PDF; you confirm them.
-3. **Extract & verify**: live progress ("reading page 37 of 120"), then independent validation agents (source trace, a second PDF parser, visual OCR re-read, arithmetic, cross-table consistency, periods & units, the generated web page, completeness, human review). Each figure shows how many agents confirmed it. Anything doubtful must be resolved side by side with the PDF.
-4. **Design**: take the look from your website, a colour palette, or a brand PDF/images; fine-tune; preview your actual report live.
-5. **Review** the generated page next to the PDF (desktop/mobile), plus checks and extracted data.
-6. **Approve & publish**; roll back any time.
+- **Sign in** with your email and a 6-digit code (no password). New users name their company and get their own workspace. Two-factor (authenticator app) is optional in Settings.
+- **Upload**: drop a PDF on the Reports page. Company, report type, fiscal year, period, currency and unit are detected from the PDF; you confirm them.
+
+Each report then goes through four steps (their names and numbers are defined once, in `backend/app/steps.py`):
+
+1. **Extract & verify**: live progress ("reading page 37 of 120"), then independent validation agents (source trace, a second PDF parser, visual OCR re-read, arithmetic, cross-table consistency, periods & units, the generated web page, completeness, human review). Each figure shows how many agents confirmed it. Anything doubtful must be resolved side by side with the PDF.
+2. **Design**: take the look from your website, a colour palette, or a brand PDF/images; fine-tune; preview your actual report live.
+3. **Review page**: the generated page next to the PDF (desktop/mobile), plus checks and extracted data.
+4. **Approve & publish**; roll back any time.
 
 ## What it does
 

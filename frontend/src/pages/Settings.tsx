@@ -38,10 +38,9 @@ export default function Settings() {
       <form className="stack" onSubmit={submit}>
         <div className="card">
           <h2>Disclaimer</h2>
-          <p className="muted small">Shown on every published page, stating that the PDF filing is the official document. Plain text; blank lines make paragraphs, **bold** and [links](https://…) are allowed. Publishing is blocked until a disclaimer exists.</p>
+          <p className="muted small">Shown on every published page, stating that the PDF filing is the official document. Plain text; blank lines make paragraphs, **bold** and [links](https://…) are allowed.</p>
           <textarea rows={5} value={disc} disabled={!isAdmin} onChange={(e) => setDisc(e.target.value)} aria-label="Disclaimer" />
-          {!disc && q.data.effective_disclaimer && <p className="small muted">Currently using the platform default: “{q.data.effective_disclaimer}”</p>}
-          {!disc && !q.data.effective_disclaimer && <p className="small error">No disclaimer set — you can't publish until you add one.</p>}
+          {!disc && <p className="small muted">No disclaimer set. Pages show only “The PDF filing is the official document.”</p>}
         </div>
         <div className="card">
           <h2>AI and search crawlers</h2>

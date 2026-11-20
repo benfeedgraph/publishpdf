@@ -446,6 +446,19 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
     return _order(elements)
 
 
+# A list item, never a heading, and never the second line of one: a bullet mark ("❖Housing",
+# "• Revenue"), or a dash followed by a space ("– Operating leverage"; "-5%" is a number). Not an em
+# dash: some reports set it before their titles ("— Auf einen Blick").
+_BULLET = re.compile(r"^(?:[•▪◦●‣·■□❖➢►✓]|[–-]\s)")
+
+
+def _reads_as_text(b: "TextEl") -> bool:
+    """A multi-line 'heading' that is really running text: longer than any heading, or with a
+    sentence ending inside it. (Used to tell a page's title from a passage set large.)"""
+    text = " ".join(w.text for w in b.words).strip()
+    return len(b.words) > 18 or len(text) > 140 or text.endswith((".", ";")) or bool(re.search(r"[.!?;]\s+\S", text))
+
+
 _URLISH = re.compile(r"https?:|www\.|/|\.(pdf|html?|aspx)\b", re.I)
 _QMARK = re.compile(r"^(Q\s?\d{1,3}[.:)]|\([a-z]\)(\s|$))")
 
@@ -456,6 +469,8 @@ def _is_heading(seg: Segment, size: float, body_size: float, med_h: float) -> bo
     # FAQ documents: a bold numbered question is a heading at body size, whatever its length.
     if bold and _QMARK.match(text) and len(text) <= 320:
         return True
+    if _BULLET.match(text):                    # "• Revenue grew 12%", "– Operating leverage of 5.6%"
+        return False
     if len(text) > 90 or len(seg.words) > 12 or text.endswith((".", ",", ";")):
         return False
     alpha_words = [w for w in seg.words if sum(ch.isalpha() for ch in w.text) >= 2]
