@@ -40,6 +40,7 @@ from app.reports import (
     latest_run_no,
     latest_versions,
     new_draft_from,
+    figure_states,
     open_blocking,
     publish,
     report_status,
@@ -87,12 +88,18 @@ def _get_version(s, report_id: uuid.UUID, version_id: uuid.UUID) -> ReportVersio
     return v
 
 
+def public_summary(summary: dict | None) -> dict | None:
+    """The validation summary as the API shows it: without the run's list of figure ids that
+    no check confirmed (the version's headline says how many of them are still unconfirmed)."""
+    return None if summary is None else {k: val for k, val in summary.items() if k != "unconfirmed_fids"}
+
+
 def version_json(v: ReportVersion, *, live_id: uuid.UUID | None = None) -> dict:
     return {"id": str(v.id), "version_no": v.version_no, "status": v.status, "stage": v.stage,
             "error": v.error_plain, "created_at": _iso(v.created_at), "published_at": _iso(v.published_at),
             "is_live": live_id == v.id, "source_sha256": v.source_sha256,
             "schema_sha256": v.schema_sha256, "bundle_sha256": v.bundle_sha256,
-            "validation": v.validation_summary, "created_from_version_id": str(v.created_from_version_id) if v.created_from_version_id else None,
+            "validation": public_summary(v.validation_summary), "created_from_version_id": str(v.created_from_version_id) if v.created_from_version_id else None,
             "theme_adjustments": (v.theme_snapshot or {}).get("contrast_adjustments"),
             "validated_current": bool(v.schema_sha256 and v.validated_schema_sha256 == v.schema_sha256
                                       and v.validated_bundle_sha256 == v.bundle_sha256)}
@@ -431,6 +438,7 @@ def _bundle_has_overview(ctx: Context, bundle_key: str | None) -> bool:
 
 @router.get("/{report_id}/versions/{version_id}")
 def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depends(require("report.view"))) -> dict:
+    from app import validation
     with db.session(ctx) as s:
         r = _get_report(s, report_id)
         v = _get_version(s, report_id, version_id)
@@ -439,12 +447,19 @@ def get_version(report_id: uuid.UUID, version_id: uuid.UUID, ctx: Context = Depe
         out = version_json(v, live_id=r.live_version_id)
         out["jobs"] = [job_json(j, include_internal=False) for j in jobs]
         out["open_blocking"] = open_blocking(s, v.id)
+        # Step 1's numbers, all worked out together from the items open now: one status per
+        # figure, the items not about one figure, and each check card's open results.
+        states = figure_states(s, v)
+        if states is not None:
+            by_check = states.pop("by_check")
+            out["headline"] = states
+            out["validation"] = {**out["validation"],
+                                 "agents": validation.with_open_counts(out["validation"].get("agents"), by_check)}
         out["page_count"] = page_count
         out["build_mode"] = build_mode_of(s, v.id)
         out["landing"] = landing_of(s, v.id)
         out["has_overview"] = _bundle_has_overview(ctx, v.bundle_key)
         if v.status != "processing" and v.published_at is None:      # for "Rebuild with…"; not on every poll
-            from app import validation
             methods = {p.get("method") for p in pages or []} - {None}
             checks = validation.checks_for("text_layer" in methods, "ocr" in methods) if methods else None
             out["build_options"] = _build_options(ctx, page_count or 0, checks)
@@ -750,7 +765,7 @@ def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = 
              "section": section_id},
             sections=schema.get("sections", []), pages=schema.get("pages", []),
             check_labels={key: name for key, name, _ in AGENTS})
-        return {"run": run, "summary": v.validation_summary, "validated_current": version_json(v)["validated_current"],
+        return {"run": run, "summary": public_summary(v.validation_summary), "validated_current": version_json(v)["validated_current"],
                 "status": v.status, "issues": out["items"], "options": out["options"], "totals": out["totals"]}
 
 
@@ -838,6 +853,17 @@ def resolve_issues_bulk(report_id: uuid.UUID, version_id: uuid.UUID, body: BulkR
         for i in issues:
             i.status, i.resolution, i.resolved_by = "resolved", body.action, ctx.user_id
             i.resolved_at = func.now()
+        # As for one item: other checks' items on the same figures are the same decision, so
+        # they don't stay open (and counted) until the re-check resolves them.
+        fids = {i.fid for i in issues if i.fid}
+        runs = {i.run_no for i in issues}
+        if fids:
+            for other in s.scalars(select(ValidationIssue).where(
+                    ValidationIssue.version_id == v.id, ValidationIssue.run_no.in_(runs),
+                    ValidationIssue.fid.in_(fids), ValidationIssue.status == "open",
+                    ValidationIssue.id.not_in(wanted), ValidationIssue.check_name.not_in(NOT_BULK))):
+                other.status, other.resolution, other.resolved_by = "resolved", body.action, ctx.user_id
+                other.resolved_at = func.now()
         return {"resolved": n, "revalidating": True, "version": version_json(v)}
 
 

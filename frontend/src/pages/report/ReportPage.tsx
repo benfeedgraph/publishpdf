@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, del, put, REPORT_TYPE_LABEL, useTenantRole, VERSION_STATUS_LABEL, type Report, type VersionDetail } from "../../api";
+import { api, del, put, REPORT_TYPE_LABEL, toDecide, useTenantRole, VERSION_STATUS_LABEL, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import DesignPicker, { type DesignDraft, type ThemeT } from "../../components/DesignPicker";
 import PreviewTab, { PublishPanel } from "./PreviewTab";
@@ -82,7 +82,7 @@ export default function ReportPage() {
   const at = STEP_ORDER.indexOf(step);
   // Design is optional: once you've moved past it, the workspace design is the choice.
   const steps: { key: Step; sub: string; state: "done" | "blocked" | "" }[] = [
-    { key: "verify", sub: v?.status === "processing" ? "In progress" : blocked ? (v?.status === "failed" ? "Failed" : `${v?.open_blocking ?? ""} to resolve`) : "All figures checked", state: verifyDone ? "done" : blocked ? "blocked" : "" },
+    { key: "verify", sub: v?.status === "processing" ? "In progress" : blocked ? (v?.status === "failed" ? "Failed" : `${v ? toDecide(v) : ""} to resolve`) : "All figures checked", state: verifyDone ? "done" : blocked ? "blocked" : "" },
     { key: "design", sub: r.theme_override ? "Custom design" : "Workspace design", state: r.theme_override || (verifyDone && at > 1) ? "done" : "" },
     { key: "review", sub: "Check it against the PDF", state: v?.published_at || (verifyDone && at > 2) ? "done" : "" },
     { key: "publish", sub: v?.is_live ? "Live" : r.live_version_id ? "Older version live" : "Not published", state: v?.is_live ? "done" : "" },
@@ -203,13 +203,13 @@ function DesignStep({ tenantId, report, isAdmin, back, onDone }: { tenantId: str
 function ReviewStep({ tenantId, report, version, back, onContinue }: { tenantId: string; report: Report; version: VersionDetail; back: Back; onContinue: () => void }) {
   const [tab, setTab] = useState<"page" | "issues" | "data">("page");
   const rebuilding = version.status === "processing";
-  const open = version.open_blocking;
+  const open = toDecide(version);
   return (
     <div className="stack">
       <div className="toolbar" style={{ justifyContent: "space-between" }}>
         <div className="seg" role="tablist" aria-label="Review">
           <button className={tab === "page" ? "active" : ""} onClick={() => setTab("page")}>Web page</button>
-          <button className={tab === "issues" ? "active" : ""} onClick={() => setTab("issues")}>Checks & issues{version.open_blocking ? ` (${version.open_blocking})` : ""}</button>
+          <button className={tab === "issues" ? "active" : ""} onClick={() => setTab("issues")}>Checks & issues{open ? ` (${open})` : ""}</button>
           <button className={tab === "data" ? "active" : ""} onClick={() => setTab("data")}>Extracted data</button>
         </div>
       </div>
