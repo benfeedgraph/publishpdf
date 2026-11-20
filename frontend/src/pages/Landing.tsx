@@ -6,28 +6,30 @@ import {
   IconChart, IconCheckCircle, IconDesign, IconDocument, IconGlobe, IconList, IconReports, IconShield, IconSparkle, IconUpload, IconUsers,
 } from "../components/Icons";
 import "../landing.css";
+import { STEP } from "../steps";
 
 /* Every claim on this page is something the product does today. Figures in the stats
  * strip are measured results from our own test runs, and are labelled as such. */
 
+// The four steps of the app, named as the app names them (backend/app/steps.py).
 const STEPS = [
   {
-    key: "extract", title: "Extract & verify", icon: <IconUpload size={20} />,
+    key: "extract", title: STEP.verify.title, icon: <IconUpload size={20} />,
     lead: "Upload the PDF. Every figure is read and checked against the page before anything is built.",
     points: ["Text pages and scanned pages both supported", "Nine independent checks on every figure", "Only real disagreements reach a person"],
   },
   {
-    key: "design", title: "Design", icon: <IconDesign size={20} />,
+    key: "design", title: STEP.design.title, icon: <IconDesign size={20} />,
     lead: "Keep your saved look, or take colours, fonts and logo from your website, a palette or a brand PDF.",
     points: ["Live preview of your report as you tweak", "Text contrast kept readable automatically", "Save it as the default for future reports"],
   },
   {
-    key: "review", title: "Review", icon: <IconCheckCircle size={20} />,
+    key: "review", title: STEP.review.title, icon: <IconCheckCircle size={20} />,
     lead: "See the web page side by side with the PDF. Flagged values show a crop of the PDF next to what was read.",
     points: ["Confirm many values at once in a side-by-side grid", "Every decision logged with name and time", "Colleagues can flag anything for an admin"],
   },
   {
-    key: "publish", title: "Publish", icon: <IconGlobe size={20} />,
+    key: "publish", title: STEP.publish.title, icon: <IconGlobe size={20} />,
     lead: "Approve and it goes live on your own domain — one page per report, with the PDF one click away.",
     points: ["Your domain, with a preview host before going live", "Versions kept; roll back in one click", "Markdown, JSON and CSV downloads alongside"],
   },
