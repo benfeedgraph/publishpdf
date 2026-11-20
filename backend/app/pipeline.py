@@ -234,8 +234,9 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             layouts = {}
     memo = artwork_store.memo(ctx, prefix, kept, key or site.artwork_key(schema, pdf, None, layouts))
     reused = bool(memo)
+    page_map: list[dict] = []
     files = site.render_report(schema, theme=theme, disclaimer=disclaimer, logo_src=logo_src(theme), pdf_bytes=pdf,
-                               progress=on_page, layouts=layouts, landing=landing, memo=memo)
+                               progress=on_page, layouts=layouts, landing=landing, memo=memo, page_map_sink=page_map)
     with db.session(ctx) as s:
         cur = s.get(ReportVersion, vid)
         if cur is not None and cur.schema_sha256 != rendered_sha:
@@ -258,6 +259,9 @@ def stage_render(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             done["t"] = time.monotonic()
             _set_stage(ctx, vid, f"render: saving file {done['n']} of {len(todo)}")
     storage.put_many(ctx, todo, on_done=saved)
+    # Where each PDF page went (for the page check and the Extracted data tab): kept with the
+    # bundle, but not one of its files, so it is never published.
+    storage.put(ctx, prefix + "_pages.json", json.dumps(page_map).encode(), "application/json")
     # The file list goes last: its presence means the whole bundle is stored.
     storage.put(ctx, prefix + "_hashes.json", json.dumps(hashes).encode(), "application/json")
     storage.put(ctx, prefix + "_files.json", json.dumps(sorted(files)).encode(), "application/json")
@@ -354,6 +358,17 @@ def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
 # ------------------------------------------------------------------ validate
 
 
+def stored_page_map(ctx: Context, bundle_key: str | None) -> list[dict] | None:
+    """Where each PDF page went on the web page, as the page build recorded it; None for a
+    page built before it was recorded."""
+    if not bundle_key:
+        return None
+    try:
+        return json.loads(storage.get(ctx, bundle_key + "_pages.json"))
+    except Exception:  # noqa: BLE001 - not recorded for this build
+        return None
+
+
 @handler("pipeline.validate")
 def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     with db.session(ctx) as s:
@@ -369,10 +384,11 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     names = json.loads(first[bundle_key + "_files.json"])
     got = storage.get_many(ctx, [bundle_key + n for n in names])
     files = {n: got[bundle_key + n] for n in names}
+    page_map = stored_page_map(ctx, bundle_key)
     if kept:
         found, prior = kept
         issues, summary = validation.run_page_checks(
-            schema, pdf, artifact, files, kept=found, agents=prior["agents"],
+            schema, pdf, artifact, files, kept=found, agents=prior["agents"], page_map=page_map,
             progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.PAGE_CHECKS)})"))
         summary["consensus"] = prior["consensus"]
         # The checks that confirm figures didn't run again, and their data didn't change: the
@@ -384,7 +400,8 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
     else:
         issues, summary = validation.run_all(
             schema, pdf, artifact, files, threshold=get_settings().ocr_confidence_threshold,
-            progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
+            progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"),
+            page_map=page_map)
         validation.apply_reviews(issues, schema)
         ai_check.apply_confirmations(issues, schema)
     summary = {**validation.summarize(schema, issues),

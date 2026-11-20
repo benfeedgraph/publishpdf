@@ -57,6 +57,8 @@
           "method": { "enum": ["text_layer", "ocr"] },
           "method_reason": { "type": "string" },
           "ocr_mean_confidence": { "type": ["number", "null"] },
+          "title": { "type": ["string", "null"], "description": "The page's own title as printed: its top line in its largest type, clearly bigger than the body text. Its section starts on this page. Null when the page has none (it continues the section before)." },
+          "title_on_picture": { "type": "boolean", "description": "The title is printed over one of the page's pictures: its words are part of the picture too." },
           "excluded_header_footer": { "type": "array" }
         }
       }

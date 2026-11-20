@@ -337,6 +337,10 @@ code.big { font-size: 1.2rem; font-weight: 700; }
 .fig.sel { border-color: var(--hl); } .fig.nf { text-decoration: line-through; opacity: .7; }
 table.schema-table td { text-align: right; white-space: nowrap; }
 table.schema-table caption { text-align: left; padding: 8px 12px; color: var(--muted); font-size: .82rem; caption-side: top; }
+/* Extracted data › Pages: words, not figures — left-aligned and wrapping */
+table.page-map-table td { text-align: left; white-space: normal; vertical-align: top; }
+table.page-map-table td:first-child { text-align: right; white-space: nowrap; width: 3.5em; }
+details.page-map > summary { cursor: pointer; font-weight: 600; }
 .schema-block + .schema-block { margin-top: 12px; }
 pre.json, pre.email { background: var(--pp-midnight); color: #E4E6EC; border-radius: var(--radius); padding: 16px; max-height: 70vh; overflow: auto; font-size: .8rem; }
 

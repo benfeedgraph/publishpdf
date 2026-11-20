@@ -452,6 +452,13 @@ def analyse_page(p: PageData, exclude: set[int], body_size: float) -> list[Eleme
 _BULLET = re.compile(r"^(?:[•▪◦●‣·■□❖➢►✓]|[–-]\s)")
 
 
+def _reads_as_text(b: "TextEl") -> bool:
+    """A multi-line 'heading' that is really running text: longer than any heading, or with a
+    sentence ending inside it. (Used to tell a page's title from a passage set large.)"""
+    text = " ".join(w.text for w in b.words).strip()
+    return len(b.words) > 18 or len(text) > 140 or text.endswith((".", ";")) or bool(re.search(r"[.!?;]\s+\S", text))
+
+
 _URLISH = re.compile(r"https?:|www\.|/|\.(pdf|html?|aspx)\b", re.I)
 _QMARK = re.compile(r"^(Q\s?\d{1,3}[.:)]|\([a-z]\)(\s|$))")
 
