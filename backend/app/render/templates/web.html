@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import runs, meta with context %}
-{% from "_document.html" import doc_block, doc_section, rail, sections_menu, breadcrumb, prevnext, contents_nav with context %}
+{% from "_document.html" import doc_block, doc_section, rail, sections_menu, breadcrumb, prevnext, contents_nav, series_values with context %}
 {% set mode = mode|default('full') %}
 
 {#- A PDF page kept as designed (a cover, an infographic spread): its artwork, with its
@@ -19,7 +19,7 @@
 {%- macro section_body(s, hlevel='h2', show_heading=true) -%}
 {%- for n in anchors.get(s.id, []) %}<span class="pa" id="p{{ n }}"></span>{% endfor %}
 {%- if s.id not in quiet %}{{ doc_section(s, figures, hlevel, show_heading) }}{% endif %}
-{%- for p in pictures.get(s.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
+{%- for p in pictures.get(s.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% for b in page_series.get(p.n, []) %}{{ series_values(b, figures) }}{% endfor %}{% endfor %}
 {%- endmacro -%}
 
 {#- The report's intro (the leading section with no heading) plus its pictures — shown at the
@@ -30,7 +30,7 @@
 {%- if front_blocks %}
 <section id="{{ front.slug }}" class="doc-sec sec front" data-section="{{ front.id }}"><div class="doc-body">{% for b in front_blocks %}{{ doc_block(b, figures, front) }}{% endfor %}</div></section>
 {%- endif %}
-{%- for p in pictures.get(front.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% endfor %}
+{%- for p in pictures.get(front.id, []) %}{% if ai_pages.get(p.n) %}{{ ai_pages[p.n] }}{% else %}{{ designed_page(p, 'web-page') }}{% endif %}{% for b in page_series.get(p.n, []) %}{{ series_values(b, figures) }}{% endfor %}{% endfor %}
 {%- endif %}
 {%- endmacro -%}
 

@@ -106,13 +106,98 @@ class Period:
                 "number": self.number, "end_date": self.end_date, "key": self.key}
 
 
-def _fy(s: str) -> int:
-    s = s.strip().replace("’", "'").lstrip("'")
-    if "-" in s or "/" in s:                       # 2025-26, 2024-2025
-        a, b = re.split(r"[-/]", s)[:2]
-        b = b.strip()
-        return int(b) if len(b) == 4 else int(a[:2] + b) if len(a) == 4 else 2000 + int(b)
-    return int(s) if len(s) == 4 else 2000 + int(s)
+# --------------------------------------------------------------------------- fiscal years
+#
+# One convention everywhere (the upload form, stored reports, URLs, table headers, the
+# upload auto-fill): a fiscal year is known by the year it ends. FY2025-26, FY26, FY'26,
+# 2025-26 and 2026 are all 2026. How the company writes it is kept beside it as a label.
+
+YEAR_MIN, YEAR_MAX = 1990, 2100
+_FULL_WIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
+
+
+def end_year(start: str, end: str | None = None) -> int:
+    """The year a fiscal year ends: '2026' -> 2026, '26' -> 2026, ('2025', '26') -> 2026,
+    ('2024', '2025') -> 2025, ('1999', '00') -> 2000."""
+    s = int(start) if len(start) == 4 else 2000 + int(start)
+    if not end:
+        return s
+    if len(end) == 4:
+        return int(end)
+    e = s // 100 * 100 + int(end)
+    return e + 100 if e < s else e
+
+
+def fiscal_year_of(label: str) -> int:
+    """The year in a year label: '26', "'26", '2025', '2025-26', '2024-2025', '24-25'."""
+    s = re.sub(r"\s", "", label.translate(_FULL_WIDTH_DIGITS)).replace("’", "'").lstrip("'")
+    parts = re.split(r"[-–/]", s)
+    return end_year(parts[0], parts[1] if len(parts) > 1 and parts[1] else None)
+
+
+_fy = fiscal_year_of
+
+
+class FiscalYearError(ValueError):
+    """Why some text isn't a fiscal year, in words that can be shown next to the field."""
+
+
+@dataclass(frozen=True)
+class FiscalYear:
+    year: int          # the year it ends
+    label: str         # as the company writes it: "FY2025-26", "FY26", "FY'26", "2025-26", "FY2026"
+
+
+_YEAR_TEXT = re.compile(
+    r"(?P<prefix>F\.?\s?Y\.?|fiscal(?: year)?|financial year)?\s?(?P<apos>')?"
+    r"(?P<a>\d{4}|\d{2})(?:-(?P<b>\d{4}|\d{2}))?", re.I)
+_PERIOD_TYPED = re.compile(r"(?P<p>Q[1-4]|H[12]|9\s?M|[1-4]Q)\s?-?\s?(?P<rest>.*)", re.I)
+_PERIOD_NAME = {"9M": "Nine months"}
+
+
+def parse_fiscal_year(text: object) -> FiscalYear:
+    """Read a fiscal year the way people write it, or say plainly why it can't be read.
+
+    Accepted: 2026, FY2026, FY 2026, fy2026, FY26, FY'26, F.Y. 2025-26, FY2025-26, FY2025–26,
+    FY2025-2026, 2025-26, 2025-2026, fiscal 2025, fiscal year 2025-26 (spaces around it and
+    full-width digits are fine). A bare four-digit year is labelled the way pages always have
+    been: 2026 -> "FY2026". Raises FiscalYearError with a message for the form."""
+    s = "" if text is None or isinstance(text, bool) else str(text)
+    s = s.translate(_FULL_WIDTH_DIGITS).replace("’", "'").replace("‘", "'")
+    s = re.sub(r"\s*[-–—‒−/]\s*", "-", " ".join(s.split()))
+    if not s:
+        raise FiscalYearError("Enter the fiscal year, like 2026 or FY2025-26.")
+    m = _YEAR_TEXT.fullmatch(s)
+    if not m:
+        if p := _PERIOD_TYPED.fullmatch(s):             # "Q3 2025", "Q2 FY26", "3Q25"
+            per = re.sub(r"\s", "", p["p"]).upper()
+            per = "Q" + per[0] if per.endswith("Q") else per
+            rest = p["rest"]
+            try:                                         # "3Q25": a two-digit year is FY25
+                like = parse_fiscal_year(f"FY{rest}" if re.fullmatch(r"'?\d{2}", rest) else rest).label if rest else "FY26"
+            except FiscalYearError:
+                like = "FY26"
+            raise FiscalYearError(f"Enter only the year here, like {like}, and choose {_PERIOD_NAME.get(per, per)} under Period.")
+        raise FiscalYearError("Enter a year like 2026 or FY2025-26.")
+    prefix, apos, a, b = m["prefix"], m["apos"], m["a"], m["b"]
+    if apos and not (prefix and len(a) == 2 and not b):
+        raise FiscalYearError("Enter a year like 2026 or FY2025-26.")
+    if not prefix and len(a) == 2 and not b:
+        raise FiscalYearError(f"Enter the full year, like 20{a}, or write it as FY{a}.")
+    if b and len(a) == 2:
+        raise FiscalYearError(f"Enter it like FY20{a}-{b[-2:]}.")
+    year = end_year(a, b)
+    if b and year != int(a) + 1:
+        raise FiscalYearError(f"{a}-{b} isn't one fiscal year. Enter it like FY{a}-{(int(a) + 1) % 100:02d}.")
+    if not YEAR_MIN <= year <= YEAR_MAX:
+        raise FiscalYearError(f"Enter a year between {YEAR_MIN} and {YEAR_MAX}.")
+    if b:
+        label = f"{'FY' if prefix else ''}{a}-{b[-2:]}"
+    elif len(a) == 2:
+        label = f"FY{apos or ''}{a}"
+    else:
+        label = f"FY{a}"
+    return FiscalYear(year, label)
 
 
 _FYNUM = r"(?:FY|F\.Y\.?)\s?'?(?P<fy>\d{4}\s?[-/]\s?\d{2,4}|\d{2,4})"

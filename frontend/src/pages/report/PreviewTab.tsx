@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, formatDateTime, post, useTenantRole, type Report, type VersionDetail } from "../../api";
+import { api, formatDateTime, post, toDecide, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import RebuildCard from "../../components/RebuildCard";
 import { Button } from "../../components/Spinner";
@@ -167,7 +167,7 @@ export function PublishPanel({ tenantId, report, version, isAdmin, siteOrigin }:
     );
   }
   if (version.published_at) return <p className="callout info">This version was published earlier and has been replaced. You can roll back to it from Version history.</p>;
-  const blocking = version.open_blocking;
+  const blocking = toDecide(version);
   const reasons: string[] = [];
   if (version.status === "processing") reasons.push("Checks are still running.");
   // Step 1 is where the stepper marks them ("! N to resolve") and lists them for a decision.

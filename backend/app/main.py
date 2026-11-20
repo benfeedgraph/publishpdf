@@ -64,6 +64,10 @@ def create_app() -> FastAPI:
     from starlette.middleware.gzip import GZipMiddleware
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)   # report previews are large HTML
 
+    @app.exception_handler(report_routes.FieldError)
+    async def field_failure(request: Request, exc: report_routes.FieldError):
+        return JSONResponse({"detail": exc.detail, "field": exc.field}, status_code=exc.status_code)
+
     @app.exception_handler(Exception)
     async def show_failure(request: Request, exc: Exception):
         if isinstance(exc, HTTPException):

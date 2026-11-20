@@ -16,12 +16,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, defer
 
 from app import audit, jobs, storage
 from app.config import get_settings
-from app.extraction.dates import parse_date
+from app.extraction.dates import FiscalYearError, parse_date, parse_fiscal_year
 from app.extraction.numbers import try_parse_number
 from app.extraction.schema_builder import PIPELINE_VERSION, period_label, schema_sha256
 from app.models import (
@@ -45,12 +45,14 @@ PERIODS = ("q1", "q2", "q3", "q4", "h1", "h2", "9m", "fy")
 
 
 class ReportError(Exception):
-    """Plain-language problem to show the client (HTTP 4xx)."""
+    """Plain-language problem to show the client (HTTP 4xx). `field` names the form field
+    it is about, so the dashboard can show it there."""
 
-    def __init__(self, message: str, status: int = 400):
+    def __init__(self, message: str, status: int = 400, field: str | None = None):
         super().__init__(message)
         self.message = message
         self.status = status
+        self.field = field
 
 
 def _now() -> datetime:
@@ -348,13 +350,11 @@ def validate_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     if meta.get("report_type") not in REPORT_TYPES:
         raise ReportError("Choose a report type.")
     out["report_type"] = meta["report_type"]
-    try:
-        fy = int(meta.get("fiscal_year"))
-    except (TypeError, ValueError):
-        raise ReportError("Enter the fiscal year as a number, e.g. the year it ends.") from None
-    if not 1990 <= fy <= 2100:
-        raise ReportError("That fiscal year doesn't look right.")
-    out["fiscal_year"] = fy
+    try:                       # "FY2025-26", "FY26", "2025-26", 2026 ... -> 2026, as written
+        fy = parse_fiscal_year(meta.get("fiscal_year"))
+    except FiscalYearError as e:
+        raise ReportError(str(e), field="fiscal_year") from None
+    out["fiscal_year"], out["fiscal_year_label"] = fy.year, fy.label
     period = str(meta.get("period", "")).lower()
     if period not in PERIODS:
         raise ReportError("Choose the quarter or period.")
@@ -426,6 +426,37 @@ def build_mode_of(s: Session, version_id: uuid.UUID) -> str | None:
         return None
 
 
+def fiscal_year_labels(s: Session, report_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """How each report's company writes its fiscal year ("FY2025-26", "Q2 FY26" -> "FY26").
+    Missing for reports made before migration 0010 (and while it hasn't been applied):
+    their pages say FY<year>, as they always have."""
+    from sqlalchemy import bindparam
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+    if not report_ids:
+        return {}
+    try:
+        with s.begin_nested():
+            rows = s.execute(sql_text("SELECT id, fiscal_year_label FROM reports WHERE id IN :ids")
+                             .bindparams(bindparam("ids", expanding=True)), {"ids": list(report_ids)}).all()
+    except DBAPIError:
+        return {}
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
+def set_fiscal_year_label(s: Session, report_id: uuid.UUID, label: str | None) -> None:
+    """Keep the label beside the year (the newest upload's, like the company name). Skipped,
+    not a failure, while migration 0010 hasn't been applied yet."""
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+    try:
+        with s.begin_nested():
+            s.execute(sql_text("UPDATE reports SET fiscal_year_label = :label WHERE id = :id"),
+                      {"label": label, "id": report_id})
+    except DBAPIError:
+        pass
+
+
 def landing_of(s: Session, version_id: uuid.UUID) -> bool:
     """Whether this version asks for the extractive landing page (app.build_modes). False,
     not a failure, while migration 0009 hasn't been applied yet."""
@@ -454,6 +485,7 @@ def create_version(s: Session, ctx: Context, src: SourceFile, raw_meta: dict[str
     else:
         for k in ("company_name", "currency", "reporting_unit"):
             setattr(report, k, meta[k])
+    set_fiscal_year_label(s, report.id, meta["fiscal_year_label"])
     version_no = (s.scalar(select(func.max(ReportVersion.version_no)).where(ReportVersion.report_id == report.id)) or 0) + 1
     v = ReportVersion(tenant_id=tenant_id, report_id=report.id, version_no=version_no, source_file_id=src.id,
                       source_sha256=src.sha256, status="processing", stage="queued", created_by=ctx.user_id,
@@ -528,6 +560,34 @@ def enqueue_stage(s: Session, ctx: Context, v: ReportVersion, stage: str, *, for
 
 def latest_run_no(s: Session, vid: uuid.UUID) -> int:
     return s.scalar(select(func.max(ValidationIssue.run_no)).where(ValidationIssue.version_id == vid)) or 0
+
+
+# The ids of the figures still in a version's document, and of those a person confirmed at their
+# current value (validation.reviewer_confirmed), without loading the document.
+_ACTIVE_FIDS = text("""
+    SELECT coalesce(array_agg(f.key), '{}') AS fids,
+           coalesce(array_agg(f.key) FILTER (WHERE f.value -> 'review' ->> 'action' = 'confirm'
+                                             AND f.value -> 'review' ->> 'raw' = f.value ->> 'raw'), '{}') AS confirmed
+    FROM report_versions v, jsonb_each(coalesce(v.schema_json -> 'figures', '{}'::jsonb)) AS f(key, value)
+    WHERE v.id = :id AND coalesce(f.value ->> 'status', 'active') = 'active'
+""")
+
+
+def figure_states(s: Session, v: ReportVersion) -> dict | None:
+    """Step 1's numbers for a version as it is now (see `validation.figure_states`): one status
+    per figure that adds up to the figures in the document, the items not about one figure,
+    how many figures nobody (no check, no person) confirmed, and each check card's open
+    results. None until the first check has finished."""
+    from app import validation
+    summary = v.validation_summary or {}
+    if "figures_checked" not in summary:
+        return None
+    run = latest_run_no(s, v.id)
+    rows = s.execute(select(ValidationIssue.fid, ValidationIssue.check_name, ValidationIssue.severity).where(
+        ValidationIssue.version_id == v.id, ValidationIssue.run_no == run, ValidationIssue.status == "open")).all()
+    figs = s.execute(_ACTIVE_FIDS, {"id": v.id}).one()
+    return validation.figure_states(set(figs.fids), [(r.fid, r.check_name, r.severity) for r in rows],
+                                    summary.get("unconfirmed_fids"), set(figs.confirmed))
 
 
 def open_blocking(s: Session, vid: uuid.UUID) -> int:
@@ -953,4 +1013,5 @@ def decimal_str(v: Decimal) -> str:
 
 
 def default_title(meta: dict) -> str:
-    return f"{period_label(meta['period'], meta['fiscal_year'])} {site.REPORT_TYPE_LABEL[meta['report_type']]}"
+    return (f"{period_label(meta['period'], meta['fiscal_year'], meta.get('fiscal_year_label'))} "
+            f"{site.REPORT_TYPE_LABEL[meta['report_type']]}")

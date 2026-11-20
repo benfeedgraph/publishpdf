@@ -21,6 +21,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+from app.extraction import layout
 from app.render import pages as pages_mod
 from app.render import story
 from app.render import theme as theming
@@ -358,7 +359,8 @@ def design_led_pages(schema: dict) -> set[int]:
                 page_blocks.setdefault(pg, []).append(b)
     out = set()
     for pg, bl in page_blocks.items():
-        if any(b["type"] == "table" for b in bl):
+        # a table — or one shown as it looks in the PDF — makes the page a text page
+        if any(b["type"] == "table" or b.get("from_table") for b in bl):
             continue
         charts = [b for b in bl if b["type"] == "chart" and b["source"].get("bbox")]
         paras = [b for b in bl if b["type"] == "paragraph"]
@@ -406,7 +408,7 @@ def page1_is_cover(schema: dict) -> bool:
             if (b.get("source") or {}).get("page") == 1:
                 if b["type"] == "paragraph":
                     words += _words(b)
-                elif b["type"] == "table":
+                elif b["type"] == "table" or b.get("from_table"):
                     has_table = True
     return not (words >= REFLOW_MIN_WORDS or has_table)
 
@@ -680,8 +682,6 @@ def page_css(theme: dict) -> str:
 
 _JUNK_HEADING = re.compile(r"hyper.?link|^\s*(to\s+)?contents\b|^\s*index\s*$|click\b|refer\s+to\b"
                            r"|relevant\s+pages|return\s+to", re.I)
-# a heading cut off mid-phrase ("Report on") is a wrapped line, not a title
-_DANGLING = re.compile(r"\b(on|of|and|the|to|for|in|with|by|at|from|a|an|&)\s*$", re.I)
 
 
 def _norm_title(t: str) -> str:
@@ -702,7 +702,9 @@ def _is_junk_heading(t: str) -> bool:
         return True
     if t.endswith(".") and len(words) > 4:               # a full sentence
         return True
-    if _DANGLING.search(t):                              # cut off mid-phrase
+    if layout.unfinished(t):                             # cut off mid-phrase
+        return True
+    if not any(sum(ch.isalpha() for ch in w) >= 2 for w in words):   # a number, not a title
         return True
     return False
 
@@ -968,13 +970,16 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 page_blocks.setdefault(pg, []).append(b)
                 if b["type"] == "paragraph":
                     words[pg] = words.get(pg, 0) + _words(b)
-                elif b["type"] == "table":
+                elif b["type"] == "table" or b.get("from_table"):
+                    # a table shown as it looks in the PDF stays on a text page, cut out with its
+                    # words laid over it as real text
                     table_pages.add(pg)
         # A graphic whose words came out as loose fragments ("Ghee & RTE", "#1 in Bridges")
         # is one picture: one cut-out spanning the charts and fragments, which then aren't
         # repeated as text. Other charts are cut out one by one, trimmed so one never
         # shows the top of the next.
         region_at: dict[str, str] = {}      # first block of a graphic -> its cut-out
+        region_members: dict[str, list[str]] = {}
         in_graphic: set[str] = set()
         # Design-led pages (a product spread: many pictures with short captions) read far
         # better as designed than cut into pieces: shown whole — or, with an AI layout,
@@ -989,7 +994,9 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
             charts = [b for b in bl if b["type"] == "chart" and b["source"].get("bbox")]
             paras = [b for b in bl if b["type"] == "paragraph" and b["source"].get("bbox")]
             frags = [b for b in paras if 0 < _words(b) <= GRAPHIC_FRAGMENT_WORDS]
-            if charts and len(frags) >= 4 and len(frags) * 2 >= len(paras):
+            # (a table shown as it looks in the PDF is a table area, not part of a graphic: its
+            # page keeps its text, the table cut out on its own)
+            if charts and not any(c.get("from_table") for c in charts) and len(frags) >= 4 and len(frags) * 2 >= len(paras):
                 members = charts + frags
                 box = [min(b["source"]["bbox"][0] for b in members), min(b["source"]["bbox"][1] for b in members),
                        max(b["source"]["bbox"][2] for b in members), max(b["source"]["bbox"][3] for b in members)]
@@ -998,6 +1005,7 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                 rid = f"graphic-p{pg}"
                 vis_boxes[pg] = [(rid, box)]
                 region_at[next(b["id"] for b in bl if b in members)] = rid
+                region_members[rid] = [b["id"] for b in bl if b in members]
                 in_graphic.update(b["id"] for b in members)
                 continue
             boxes = sorted(([b["id"], list(b["source"]["bbox"])] for b in charts), key=lambda x: x[1][1])
@@ -1097,6 +1105,18 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
                         if (b.get("source") or {}).get("page") not in picture_pages and b["id"] not in in_graphic] \
             if front else []
         doclayout = story.document_layout(schema, {})
+        doc_order = story.document_order(schema, doclayout, in_graphic)
+        # A graphic's cut-out is placed at its first block that is on the page: a block joined
+        # into the paragraph before it (across a page break) is not, and the whole graphic
+        # would otherwise never be shown.
+        placed = {b["id"] for blocks in doc_order.values() for b in blocks}
+        for rid, ids in region_members.items():
+            first = next((i for i in ids if i in placed), None)
+            old = next((k for k, v in region_at.items() if v == rid), None)
+            if first and first != old and rid in crops:
+                region_at.pop(old, None)
+                region_at[first] = rid
+                crops[first] = crops[rid]
         css_all = Markup(css + pages_mod.fonts_css(href) + WEB_CSS)
         og = {"href": href(page_list[0]["bg"])} if page_list else None
         # Context shared by every web page of the report (the single page, or — for a long report
@@ -1104,10 +1124,13 @@ def render_report(schema: dict, *, theme: dict, disclaimer: str | None, logo_src
         web_ctx = dict(
             **{**common, "css": css_all}, qparts=qparts, faq=story.is_faq(schema), front=front,
             front_blocks=front_blocks, first_q=next((x for x in sections if qparts[x["id"]]), None),
-            doclayout=doclayout, doc_order=story.document_order(schema, doclayout, in_graphic),
+            doclayout=doclayout, doc_order=doc_order,
             heading_ids=story.heading_like(schema), index_links=index_links, crops=crops,
             graphic_start=set(region_at), in_graphic=in_graphic, cover=cover, quiet=quiet,
-            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og)
+            ai_pages=ai_pages, pictures=pictures, anchors=anchors, og_cover=og,
+            # a page shown as a picture carries its small charts' combined values under it
+            page_series={pg: [b for b in bl if b.get("series_table")] for pg, bl in page_blocks.items()
+                         if pg in picture_pages and any(b.get("series_table") for b in bl)})
         tmpl = _ENV.get_template("web.html")
         sections_by_id = {s["id"]: s for s in sections}
         # The intro lead and, on a true cover, the page-1 title section stay on the home page

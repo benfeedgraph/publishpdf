@@ -676,6 +676,16 @@ def check_period_unit(schema: dict, checked: set[str] | None = None) -> list[Iss
     mixed = {"crore", "lakh"} <= mentioned
     for sec in schema["sections"]:
         for blk in sec["blocks"]:
+            if blk["type"] == "chart" and blk.get("from_table"):
+                # Its columns couldn't be told apart, so no unit or period could be checked
+                # against them: say so, so a person can look at it on the page.
+                src = blk["source"]
+                issues.append(Issue("period_unit", "warning",
+                                    "This table's numbers don't line up in rows and columns, so the web page "
+                                    "shows it as it looks in the PDF instead of as a table. Each number is still "
+                                    "checked, but its period and unit couldn't be matched to a column.",
+                                    None, src["page"], sec["id"], src["bbox"]))
+                continue
             if blk["type"] != "table":
                 continue
             src = blk["source"]
@@ -1212,6 +1222,10 @@ def run_all(schema: dict, pdf_bytes: bytes, artifact: dict, bundle_files: dict[s
         "re_extraction": reextract, "rendered_page": bundle_files is not None,
         "second_parser": has_text_layer})
     summary["consensus"] = _consensus(schema, verified)
+    # The figures no check confirmed (the bar's "not confirmed"), so Step 1 only says "every
+    # figure matches the PDF" once a person has confirmed each of these too.
+    summary["unconfirmed_fids"] = sorted(f["id"] for f in _active(schema)
+                                         if not any(f["id"] in verified.get(k, ()) for k in CONFIRMING_AGENTS))
     return issues, summary
 
 
@@ -1322,6 +1336,69 @@ def _consensus(schema: dict, verified: dict[str, set[str]]) -> dict:
     return counts
 
 
+def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str, str]],
+                  unconfirmed: list[str] | None = None, person_confirmed: set[str] = frozenset()) -> dict[str, Any]:
+    """Step 1's numbers, all from one place: the items still open in the latest run, as they are
+    now (a person's decision counts at once), and the figures still in the document.
+
+    Each figure gets exactly one status: `need_attention` if any open item on it blocks,
+    else `notes` if it only has open notes, else `passed` (a figure a person confirmed has no
+    open items left, so it passes). The three add up to `figures`, however many checks
+    flagged one figure.
+
+    Items that aren't about a figure still in the document (a table's unit label, a page's
+    number count, the web page, a flag on something marked "not a figure") are counted on
+    their own, one per figure or item, as the review list shows them: `other_need_attention`
+    and `other_notes`. `to_decide` is what the review list holds that blocks publishing:
+    one per figure plus one per other item.
+
+    `by_check` is each check's own open results (blocking / warnings), for the check cards.
+    One figure flagged by two checks is one result on each card, so the cards count results,
+    not figures.
+
+    `not_confirmed` is how many figures still in the document no check confirmed (`unconfirmed`,
+    from the run) and no person has confirmed either (`person_confirmed`): "every figure matches
+    the PDF" is only true when it is 0 (None when the run didn't record it).
+
+    `open_items`: (fid, check, severity) of every open item in the latest run."""
+    blocking: set[str] = set()
+    noted: set[str] = set()
+    other_blocking: set[Any] = set()
+    other_noted: set[Any] = set()
+    by_check: dict[str, dict[str, int]] = {}
+    for n, (fid, check, severity) in enumerate(open_items):
+        c = by_check.setdefault(check, {"blocking": 0, "warnings": 0})
+        c["blocking" if severity == "blocking" else "warnings"] += 1
+        if fid and fid in active_fids:
+            (blocking if severity == "blocking" else noted).add(fid)
+        else:                                   # no figure, or one no longer in the document
+            key = ("fig", fid) if fid else ("item", n)
+            (other_blocking if severity == "blocking" else other_noted).add(key)
+    noted -= blocking
+    other_noted -= other_blocking
+    return {"figures": len(active_fids), "passed": len(active_fids) - len(blocking) - len(noted),
+            "need_attention": len(blocking), "notes": len(noted),
+            "other_need_attention": len(other_blocking), "other_notes": len(other_noted),
+            "to_decide": len(blocking) + len(other_blocking),
+            "not_confirmed": None if unconfirmed is None else
+            sum(1 for fid in unconfirmed if fid in active_fids and fid not in person_confirmed),
+            "by_check": by_check}
+
+
+def with_open_counts(agents: list[dict] | None, by_check: dict[str, dict[str, int]]) -> list[dict] | None:
+    """The check cards with each one's blocking / warning counts taken from the items open
+    now, so a card never still counts something a person has already decided."""
+    if agents is None:
+        return None
+    return [{**a, **by_check.get(a["key"], {"blocking": 0, "warnings": 0})} for a in agents]
+
+
+def figure_states_of(schema: dict, issues: list[Issue]) -> dict[str, Any]:
+    """`figure_states` for a run's findings in memory (the pipeline, right after the checks)."""
+    return figure_states({f["id"] for f in _active(schema)},
+                         [(i.fid, i.check, i.severity) for i in issues if i.status == "open"])
+
+
 def issue_key(check: str, page: int | None, bbox: list | None, message: str) -> str:
     import hashlib
     import json
@@ -1385,9 +1462,14 @@ def apply_reviews(issues: list[Issue], schema: dict) -> None:
                 i.status, i.resolution = "resolved", "acknowledged"
             continue
         f = schema["figures"].get(i.fid)
-        rv = f.get("review") if f else None
-        if rv and rv.get("action") == "confirm" and rv.get("raw") == f["raw"]:
+        if f and reviewer_confirmed(f):
             i.status, i.resolution = "resolved", "confirmed"
+
+
+def reviewer_confirmed(f: dict) -> bool:
+    """A person confirmed (or corrected) this figure at its current value."""
+    rv = f.get("review") or {}
+    return rv.get("action") == "confirm" and rv.get("raw") == f.get("raw")
 
 
 def summarize(schema: dict, issues: list[Issue]) -> dict[str, Any]:

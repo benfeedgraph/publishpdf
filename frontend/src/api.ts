@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public detail: string,
+    /** The form field the problem is about (e.g. "fiscal_year"), when the server says. */
+    public field?: string,
   ) {
     super(detail);
   }
@@ -17,7 +19,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = typeof body.detail === "string" ? body.detail : "Something went wrong. Please try again.";
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, typeof body.field === "string" ? body.field : undefined);
   }
   return body as T;
 }
@@ -108,6 +110,14 @@ export interface Version {
 export interface VersionDetail extends Version {
   jobs: Job[];
   open_blocking: number;
+  /** Step 1's numbers, all worked out from the items open now (absent on an older API, null
+   *  before the first check): one status per figure, so passed + need_attention + notes =
+   *  figures; the items that aren't about one figure; to_decide, what is left to decide
+   *  (one per flagged figure plus one per other blocking item, as the review list groups them);
+   *  and not_confirmed, the figures no check and no person confirmed (null: not recorded). */
+  headline?: { figures: number; passed: number; need_attention: number; notes: number;
+               other_need_attention: number; other_notes: number; to_decide: number;
+               not_confirmed: number | null } | null;
   page_count: number | null;
   pages: { page: number; width: number; height: number; method: "text_layer" | "ocr"; method_reason?: string }[];
   sections: { id: string; slug: string; type: string; heading_text: string; page: number | null }[];
@@ -132,6 +142,8 @@ export interface Report {
   company_name: string;
   report_type: ReportType;
   fiscal_year: number;
+  /** How the company writes the year ("FY2025-26", "FY26"); null for reports made before it was kept. */
+  fiscal_year_label?: string | null;
   period: string;
   period_label: string;
   currency: string;
@@ -199,7 +211,13 @@ export interface Issue {
   status: "open" | "resolved";
   resolution: string | null;
   figure: Partial<Figure> | null;
+  /** From Step 1's list: a value tied to a spot in the PDF, so it can be confirmed side by side. */
+  decidable?: boolean;
 }
+
+/** How many decisions are left before publishing: one per flagged figure, however many checks
+ *  flagged it, plus one per other blocking item. */
+export const toDecide = (v: Pick<VersionDetail, "headline" | "open_blocking">) => v.headline?.to_decide ?? v.open_blocking;
 
 export const CHECK_LABEL: Record<string, string> = {
   traceability: "Source traceability",

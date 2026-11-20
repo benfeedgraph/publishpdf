@@ -170,6 +170,8 @@ class Builder:
             header_rows.append(cells)
         caption = self.runs(tokenize(el.caption_words), page, section_id=section_id, table_id=bid,
                             role="caption") if el.caption_words else []
+        corner = self.runs(tokenize(el.corner_words, header=True), page, section_id=section_id, table_id=bid,
+                           role="header") if el.corner_words else []
         rows = []
         for label_words, cells in el.rows:
             label_text = " ".join(w.text for w in label_words)
@@ -195,7 +197,7 @@ class Builder:
             "id": bid, "type": "table", "caption": caption, "unit": unit, "unit_source": unit_source,
             "currency": currency, "columns": [{"label": col_labels[c], "period": col_periods[c].as_json() if col_periods[c] else None,
                                                 "change": _change_kind(col_labels[c])} for c in range(ncols)],
-            "header_rows": header_rows, "rows": rows,
+            "header_rows": header_rows, "rows": rows, **({"corner": corner} if corner else {}),
             "source": {"page": page, "bbox": _bbox(el.bbox)},
         }
 
@@ -212,6 +214,17 @@ class Builder:
             return {"id": bid, "type": "chart", "extracted": False,
                     "note": "image only, not extracted",
                     "source": {"page": page, "bbox": _bbox(el.bbox)}}
+        if el.from_table:
+            # Read as a table, but its numbers don't line up in rows and columns: shown as it
+            # looks in the PDF. Each number is still a figure (checked like any other); no
+            # label is guessed for it.
+            points = [{"label": [], "value": self.runs(tokenize([w], table_cell=True), page, section_id=section_id,
+                                                       table_id=bid, unit=self.meta["reporting_unit_canonical"],
+                                                       currency=self.meta["currency"], role="chart_label")}
+                      for w in sorted(el.labels, key=lambda w: (round(w.yc), w.xc))]
+            return {"id": bid, "type": "chart", "extracted": True, "from_table": True, "points": points,
+                    "note": "a table whose numbers don't line up in rows and columns; shown as in the PDF",
+                    "source": {"page": page, "bbox": _bbox(el.bbox)}}
         points = []
         for w in sorted(el.labels, key=lambda w: w.xc):
             axis = [a for a in el.axis if abs(a.xc - w.xc) < 40 and a.yc > w.yc]
@@ -222,12 +235,20 @@ class Builder:
                                    table_id=bid, role="chart_axis") if axis_words else []
             val_runs = self.runs(tokenize([w], table_cell=True), page, section_id=section_id, table_id=bid,
                                  col_label=axis_label or None, period=period,
+                                 row_label=" ".join(t.text for t in el.title) or None,
                                  unit=self.meta["reporting_unit_canonical"], currency=self.meta["currency"],
                                  role="chart_label")
-            points.append({"label": label_runs, "value": val_runs})
-        return {"id": bid, "type": "chart", "extracted": True, "points": points,
-                "note": "values read from the chart's data labels",
-                "source": {"page": page, "bbox": _bbox(el.bbox)}}
+            points.append({"label": label_runs, "label_text": axis_label, "value": val_runs})
+        out = {"id": bid, "type": "chart", "extracted": True, "points": points,
+               "note": "values read from the chart's data labels",
+               "source": {"page": page, "bbox": _bbox(el.bbox)}}
+        if el.from_image:
+            out["from_image"] = True
+        if el.title:
+            out["title"] = self.runs(tokenize(el.title, header=True), page, section_id=section_id, table_id=bid,
+                                     role="chart_axis")
+            out["title_text"] = " ".join(w.text for w in el.title)
+        return out
 
 
 def _period_from_label(label: str) -> Period | None:
@@ -305,7 +326,11 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
         sections.append(s)
         return s
 
+    page_charts: list[dict] = []
+
     for p in pages:
+        _combine_small_charts(page_charts)
+        page_charts = []
         page_body = body_size if p.method == "text_layer" and body_size else \
             (statistics.median(w.h for w in p.words) if p.words else 0.0)
         els = layout.analyse_page(p, exclude[p.number], page_body)
@@ -341,8 +366,11 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
                 current["blocks"].append(b.stat_block(el, p.number, current["id"], bid))
             elif isinstance(el, layout.ChartEl):
                 current["blocks"].append(b.chart_block(el, p.number, current["id"], bid))
+                page_charts.append(current["blocks"][-1])
             else:
                 current["blocks"].append(b.text_block(el, p.number, current["id"], bid))
+
+    _combine_small_charts(page_charts)
 
     # Merge empty heading-only sections into the following one (e.g. a title line).
     merged: list[dict] = []
@@ -387,8 +415,8 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
             "report_type": metadata["report_type"],
             "fiscal_year": metadata["fiscal_year"],
             "period": metadata["period"],
-            "period_label": period_label(metadata["period"], metadata["fiscal_year"]),
-            "fiscal_year_label": f"FY{metadata['fiscal_year']}",
+            "period_label": period_label(metadata["period"], metadata["fiscal_year"], metadata.get("fiscal_year_label")),
+            "fiscal_year_label": metadata.get("fiscal_year_label") or f"FY{metadata['fiscal_year']}",
             "period_start": metadata.get("period_start"),
             "period_end": metadata.get("period_end"),
             "currency": metadata["currency"],
@@ -416,6 +444,33 @@ def extract(pdf_bytes: bytes, metadata: dict[str, Any], *, llm: classify.LlmCall
                    "chart_regions": [_bbox(r) for r in p.chart_regions]} for p in pages],
     }
     return schema, artifact
+
+
+def _combine_small_charts(charts: list[dict]) -> None:
+    """Small charts on one page that share the same axis ("Snacks", "Spices", … each over
+    2020 2025 2030 2035) read as one table: a row per chart (its name), a column per axis label.
+    The first chart carries it as `series_table`; the others point to it (`series_of`). Nothing
+    is re-read: the cells are the charts' own value runs. Charts without a name, or whose
+    values don't each sit over one distinct axis label, are left as they are."""
+    def axis_of(c: dict) -> tuple | None:
+        labels = [p.get("label_text") or "" for p in c.get("points") or []]
+        if len(labels) < 2 or "" in labels or len(set(labels)) != len(labels):
+            return None
+        return tuple(labels)
+    groups: dict[tuple, list[dict]] = {}
+    for c in charts:
+        if c.get("extracted") and c.get("title") and not c.get("from_table") and axis_of(c):
+            groups.setdefault(axis_of(c), []).append(c)
+    for axis, members in groups.items():
+        if len(members) < 2:
+            continue
+        first = members[0]
+        first["series_table"] = {
+            "columns": [p["label"] for p in first["points"]],
+            "rows": [{"label": c["title"], "cells": [p["value"] for p in c["points"]]} for c in members],
+        }
+        for c in members[1:]:
+            c["series_of"] = first["id"]
 
 
 def _excluded(w: Word, reason: str | None) -> dict:
@@ -462,9 +517,10 @@ def _dedupe_slugs(sections: list[dict]) -> None:
 PERIOD_LABELS = {"q1": "Q1", "q2": "Q2", "q3": "Q3", "q4": "Q4", "h1": "H1", "h2": "H2", "9m": "9M", "fy": ""}
 
 
-def period_label(period: str, fy: int) -> str:
+def period_label(period: str, fy: int, fy_label: str | None = None) -> str:
+    """'Q2 FY2026', or with the company's own way of writing the year: 'Q2 FY26', 'FY2025-26'."""
     p = PERIOD_LABELS[period]
-    return f"{p} FY{fy}".strip()
+    return f"{p} {fy_label or f'FY{fy}'}".strip()
 
 
 def schema_sha256(schema: dict) -> str:

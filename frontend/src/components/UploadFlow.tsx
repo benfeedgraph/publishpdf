@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useState, type DragEvent, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { PERIOD_OPTIONS, post, REPORT_TYPE_LABEL, upload, type ReportType } from "../api";
+import { api, ApiError, PERIOD_OPTIONS, post, REPORT_TYPE_LABEL, upload, type ReportType } from "../api";
 import { IconCheck, IconClose, IconUpload } from "./Icons";
 import { Button, Spinner } from "./Spinner";
 import BuildModePicker, { LandingOption, type BuildMode, type BuildOptions } from "./BuildModePicker";
@@ -11,7 +11,7 @@ interface Inspected {
   filename: string;
   page_count: number;
   size_bytes: number;
-  detected: Partial<{ company_name: string; report_type: ReportType; fiscal_year: number; period: string; currency: string; reporting_unit: string; confidence: Record<string, string> }>;
+  detected: Partial<{ company_name: string; report_type: ReportType; fiscal_year: number; fiscal_year_label: string; period: string; currency: string; reporting_unit: string; confidence: Record<string, string> }>;
   build_options?: BuildOptions;
 }
 
@@ -96,7 +96,8 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
   // Anything the PDF doesn't give starts blank for the person to fill in. A default (this
   // year, Q1, "Quarterly results") looked like a detected value and got published by mistake.
   const [type, setType] = useState<ReportType | "">(d.report_type ?? "");
-  const [fy, setFy] = useState(d.fiscal_year != null ? String(d.fiscal_year) : "");
+  // The year as the PDF writes it ("FY2025-26", "FY26"), else the year itself.
+  const [fy, setFy] = useState(d.fiscal_year_label ?? (d.fiscal_year != null ? String(d.fiscal_year) : ""));
   const [period, setPeriod] = useState(d.period ?? "");
   // Same for currency and unit: "INR" / "₹ crore" as defaults showed on a US dollar report.
   const [currency, setCurrency] = useState(d.currency ?? "");
@@ -110,6 +111,25 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const found = (k: string) => (d as Record<string, unknown>)[k] !== undefined;
+  // The server reads the Year box (one reader for the form, the auto-fill and the checks):
+  // how the page will write it, or why it can't be read, shown under the box as you type.
+  // A result is shown only for the text and period it was worked out for, never a moment
+  // later under a different value.
+  const shownPeriod = type === "annual_report" ? "fy" : period;
+  const fyKey = `${fy}\u0000${shownPeriod}`;
+  const [checked, setFyCheck] = useState<{ key: string; shown?: string; error?: string } | null>(null);
+  const fyCheck = checked?.key === fyKey ? checked : null;
+  useEffect(() => {
+    if (!fy.trim()) return;
+    let live = true;
+    const t = setTimeout(() => {
+      const q = new URLSearchParams({ value: fy, ...(shownPeriod ? { period: shownPeriod } : {}) });
+      api<{ shown: string }>(`/api/tenants/${tenantId}/reports/fiscal-year?${q}`)
+        .then((r) => { if (live) setFyCheck({ key: fyKey, shown: r.shown }); })
+        .catch((e: Error) => { if (live && e instanceof ApiError && e.field === "fiscal_year") setFyCheck({ key: fyKey, error: e.message }); });
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [fy, shownPeriod, fyKey, tenantId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -117,7 +137,7 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
     setError(null);
     try {
       const r = await post<{ report_id: string; version: { id: string } }>(`/api/tenants/${tenantId}/reports/create`, {
-        source_file_id: data.source_file_id, company_name: company, report_type: type, fiscal_year: Number(fy),
+        source_file_id: data.source_file_id, company_name: company, report_type: type, fiscal_year: fy,
         period: type === "annual_report" ? "fy" : period, currency, reporting_unit: unit,
         build_mode: mode, credits_shown: bo?.options.find((o) => o.mode === mode)?.max_credits ?? 0,
         landing: landing && !!bo?.landing?.available,
@@ -125,7 +145,8 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
       await qc.invalidateQueries({ queryKey: ["reports", tenantId] });
       navigate(`/t/${tenantId}/reports/${r.report_id}?v=${r.version.id}`);
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof ApiError && err.field === "fiscal_year") setFyCheck({ key: fyKey, error: err.message });
+      else setError((err as Error).message);
       setBusy(false);
     }
   }
@@ -151,7 +172,11 @@ function ConfirmModal({ tenantId, data, onClose }: { tenantId: string; data: Ins
             {!company && <span className="hint">We couldn't find the company name in this PDF — please type it.</span>}</label>
           <label className="field"><span className="label">Report type <Tag k="report_type" /></span>
             <select required value={type} onChange={(e) => setType(e.target.value as ReportType)}><option value="" disabled hidden />{Object.entries(REPORT_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-          <label className="field"><span className="label">Fiscal year (year it ends) <Tag k="fiscal_year" /></span><input required inputMode="numeric" pattern="[0-9]{4}" value={fy} onChange={(e) => setFy(e.target.value)} /></label>
+          <label className="field"><span className="label">Fiscal year (year it ends) <Tag k="fiscal_year" /></span>
+            <input value={fy} placeholder="e.g. 2026 or FY2025-26" aria-invalid={!!fyCheck?.error || undefined}
+              aria-describedby="fy-note" onChange={(e) => setFy(e.target.value)} />
+            {fyCheck?.error ? <span className="error small" id="fy-note" role="alert">{fyCheck.error}</span>
+              : fyCheck?.shown ? <span className="hint" id="fy-note">Shown as {fyCheck.shown}</span> : null}</label>
           <label className="field"><span className="label">Period <Tag k="period" /></span>
             <select required value={type === "annual_report" ? "fy" : period} disabled={type === "annual_report"} onChange={(e) => setPeriod(e.target.value)}><option value="" disabled hidden />{PERIOD_OPTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="field"><span className="label">Currency <Tag k="currency" /></span><input required maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} /></label>

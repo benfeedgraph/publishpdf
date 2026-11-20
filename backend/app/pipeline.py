@@ -33,6 +33,7 @@ from app.reports import (
     effective_theme,
     enqueue_stage,
     extraction_key,
+    fiscal_year_labels,
     latest_run_no,
     logo_src,
     settings_for,
@@ -124,7 +125,8 @@ def stage_extract(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         vid, sha, version_no = v.id, v.source_sha256, v.version_no
         meta = {"company_name": report.company_name, "report_type": report.report_type,
                 "fiscal_year": report.fiscal_year, "period": report.period, "currency": report.currency,
-                "reporting_unit": report.reporting_unit, "version": version_no}
+                "reporting_unit": report.reporting_unit, "version": version_no,
+                "fiscal_year_label": fiscal_year_labels(s, [report.id]).get(report.id)}
         from app.models import SourceFile
         src = s.get(SourceFile, v.source_file_id)
         meta["filename"] = src.original_filename if src else None
@@ -332,8 +334,12 @@ def _review_only_change(s, ctx: Context, v: ReportVersion, bsha: str) -> bool:
             r.status, r.resolution = i.status, i.resolution
         if (r.severity, r.message) != (i.severity, i.message):
             r.severity, r.message = i.severity, i.message
-    summary = {**validation.summarize(v.schema_json, found), "agents": prev.get("agents"),
-               "consensus": prev.get("consensus"), "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha,
+    # The checks' own results (what each confirmed, the agent bar) are unchanged; what is still
+    # open on each check card is not, after the decisions just applied.
+    summary = {**validation.summarize(v.schema_json, found),
+               "agents": validation.with_open_counts(prev.get("agents"), validation.figure_states_of(v.schema_json, found)["by_check"]),
+               "consensus": prev.get("consensus"), "unconfirmed_fids": prev.get("unconfirmed_fids"),
+               "checked_content_sha": prev["checked_content_sha"], "bundle_sha": bsha,
                "checks_code": prev.get("checks_code")}
     v.validation_summary = summary
     v.validated_schema_sha256, v.validated_bundle_sha256 = v.schema_sha256, bsha
@@ -369,6 +375,9 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             schema, pdf, artifact, files, kept=found, agents=prior["agents"],
             progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.PAGE_CHECKS)})"))
         summary["consensus"] = prior["consensus"]
+        # The checks that confirm figures didn't run again, and their data didn't change: the
+        # figures none of them confirmed are the same ones.
+        summary["unconfirmed_fids"] = prior["unconfirmed_fids"]
         validation.apply_reviews(issues, schema)
         # (kept findings may already carry the AI's note: never add it twice)
         ai_check.apply_confirmations([i for i in issues if "AI reading" not in i.message], schema)
@@ -378,7 +387,9 @@ def stage_validate(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
             progress=lambda name, n: _set_stage(ctx, vid, f"validate: {name} ({n} of {len(validation.AGENTS) - 1})"))
         validation.apply_reviews(issues, schema)
         ai_check.apply_confirmations(issues, schema)
-    summary = {**validation.summarize(schema, issues), "agents": summary["agents"], "consensus": summary["consensus"],
+    summary = {**validation.summarize(schema, issues),
+               "agents": validation.with_open_counts(summary["agents"], validation.figure_states_of(schema, issues)["by_check"]),
+               "consensus": summary["consensus"], "unconfirmed_fids": summary["unconfirmed_fids"],
                "checked_content_sha": validation.checked_content_sha(schema), "bundle_sha": bsha, "checks_code": code_version()}
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
@@ -432,7 +443,7 @@ def _kept_findings(s, v: ReportVersion) -> tuple[list, dict] | None:
         content = validation.checked_content_sha(source.schema_json)
     prior = source.validation_summary or {}
     if not (prior.get("checks_code") == code_version() and prior.get("checked_content_sha") == content
-            and prior.get("agents") and prior.get("consensus") is not None):
+            and prior.get("agents") and prior.get("consensus") is not None and "unconfirmed_fids" in prior):
         return None
     rows = s.scalars(select(ValidationIssue).where(ValidationIssue.version_id == source.id,
                                                     ValidationIssue.run_no == latest_run_no(s, source.id))).all()

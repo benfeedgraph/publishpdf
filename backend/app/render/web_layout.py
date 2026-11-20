@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from statistics import median
 
+from app.extraction.layout import not_a_title
 from app.render.elements import Element, is_bullet
 
 ROW_GAP = 5.0            # points of white space that separate two rows
@@ -42,6 +43,10 @@ def heading_level(e: Element, body: float) -> int | None:
     """1-3 for a heading, None for running text."""
     if e.kind != "text" or not e.text.strip() or is_bullet(e):
         return None
+    # a number ("315.5", "(997)") is never a title, nor a line that stops mid-phrase ("R&D and"),
+    # the second half of a line, or a list item (layout.not_a_title)
+    if not_a_title(e.text):
+        return None
     w = _words(e)
     if w > 16 or e.lines > 3:
         return None
@@ -51,7 +56,8 @@ def heading_level(e: Element, body: float) -> int | None:
         return 1
     if e.size >= body * 1.3:
         return 2
-    if (e.bold and e.size >= body * 0.98 and w <= 10) or (e.text.isupper() and w <= 6 and e.size >= body * 0.9):
+    if (e.bold and not e.meta.get("mixed") and e.size >= body * 0.98 and w <= 10) \
+            or (e.text.isupper() and w <= 6 and e.size >= body * 0.9):
         return 3
     return None
 

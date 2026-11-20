@@ -8,13 +8,31 @@ import PdfRegion from "../../components/PdfRegion";
 import { Button, Loading, SkeletonRows, Spinner } from "../../components/Spinner";
 import { stepAfter, stepLabel } from "../../steps";
 
+interface FilterOption { value: string; label: string; count: number }
 interface IssuesResp {
   run: number;
   summary: VersionDetail["validation"];
   validated_current: boolean;
   status: string;
-  issues: Issue[];
+  issues: Issue[];             // the items under the filters asked for
+  // Each filter's values that have items under the other filters, with how many (the API
+  // works the list and these out together, so a choice never leads to an empty list).
+  options: Record<"severity" | "status" | "check" | "page" | "section", FilterOption[]>;
+  totals: { rows: number; figures: number; notes: number; all_rows: number };
 }
+
+/** The review filters, per version. ReportPage fetches the list for a version's next state
+ *  before showing it, and needs the same filters to fetch the same list. `severity` null means
+ *  not picked yet (it then follows the version, see effectiveSeverity). */
+export interface IssueFilters { severity: string | null; status: string; page: string; section: string; check: string }
+const NO_FILTERS: IssueFilters = { severity: null, status: "open", page: "", section: "", check: "" };
+const filtersByVersion = new Map<string, IssueFilters>();
+
+/** Open on what blocks publishing; warnings are one filter away. Until the reviewer picks a
+ *  severity, that default follows the last finished run (not a re-check that's under way),
+ *  so once nothing blocks any more the notes show instead of an empty "Blocking" filter. */
+export const effectiveSeverity = (f: IssueFilters, v: Pick<VersionDetail, "status" | "validation" | "open_blocking">) =>
+  f.severity ?? ((v.status === "processing" ? v.validation?.blocking ?? 0 : v.open_blocking) > 0 ? "blocking" : "");
 
 /** Decisions are refused only while the PDF itself is being re-read (that would overwrite
  *  them). During a page rebuild or re-check they're saved and the newest one wins. */
@@ -23,10 +41,17 @@ export const decisionsLocked = (v: VersionDetail) =>
 
 /** The review list for one state of a version. The version query fetches it before it
  *  shows a new state (see ReportPage), so the numbers and the list always change together. */
-export const issuesQuery = (tenantId: string, reportId: string, v: Pick<VersionDetail, "id" | "status" | "schema_sha256">) => ({
-  queryKey: ["issues", v.id, v.status, v.schema_sha256],
-  queryFn: () => api<IssuesResp>(`/api/tenants/${tenantId}/reports/${reportId}/versions/${v.id}/issues`),
-});
+export const issuesQuery = (tenantId: string, reportId: string,
+  v: Pick<VersionDetail, "id" | "status" | "schema_sha256" | "validation" | "open_blocking">,
+  f: IssueFilters = filtersByVersion.get(v.id) ?? NO_FILTERS) => {
+  const severity = effectiveSeverity(f, v);
+  const qs = new URLSearchParams(Object.entries({ severity, status: f.status, page: f.page, section_id: f.section, check: f.check })
+    .filter(([, x]) => x) as [string, string][]);
+  return {
+    queryKey: ["issues", v.id, v.status, v.schema_sha256, severity, f.status, f.page, f.section, f.check],
+    queryFn: () => api<IssuesResp>(`/api/tenants/${tenantId}/reports/${reportId}/versions/${v.id}/issues?${qs}`),
+  };
+};
 
 /** One figure can be flagged by several checks ("Needs a person" and "Independent re-reading"
  *  for the same misread value). It's one decision, so it's shown once. */
@@ -58,29 +83,6 @@ export function groupByFigure(items: Issue[]): IssueGroup[] {
   return out;
 }
 
-/** OCR'd headings can be noise ("gtaaliyy", "MM ENA"): only offer real-looking ones by name. */
-export function plausibleHeading(text: string | null | undefined): boolean {
-  const t = (text ?? "").trim();
-  if (t.length < 4) return false;
-  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
-  if (letters / t.length < 0.6) return false;
-  const words = t.split(/\s+/).filter((w) => /[A-Za-z]/.test(w));
-  if (!words.length) return false;
-  // a run of short all-caps fragments ("MM ENA") reads as noise
-  if (words.every((w) => w.length <= 3 && w === w.toUpperCase())) return false;
-  const ok = (w: string) => {
-    const x = w.toLowerCase().replace(/[^a-z]/g, "");
-    if (x.length < 2) return true;
-    const vowels = (x.match(/[aeiou]/g) ?? []).length;
-    if (x.length >= 4 && (vowels / x.length < 0.2 || vowels / x.length > 0.75)) return false;
-    if (/([a-z])\1\1/.test(x) || /(yy|ii|uu|qq|jj|vv|ww|xx|hh)$/.test(x)) return false;
-    if (/[bcdfghjklmnpqrstvwxz]{5,}/.test(x)) return false;
-    if (/^[bcdfghjklmnpqrstvwxz]{2}/.test(x) && !/^(bl|br|ch|cl|cr|dr|fl|fr|gl|gr|kn|ph|pl|pr|sc|sh|sk|sl|sm|sn|sp|st|sw|th|tr|tw|wh|wr|sch|scr|shr|spl|spr|str|thr)/.test(x)) return false;
-    return true;
-  };
-  return words.filter(ok).length / words.length >= 0.75;
-}
-
 export default function ValidationTab({ tenantId, report, version, embedded = false }: { tenantId: string; report: Report; version: VersionDetail; embedded?: boolean }) {
   const me = useMe().data;
   const { isAdmin } = useTenantRole(me, tenantId);
@@ -88,49 +90,57 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   const [params, setParams] = useSearchParams();
   const base = `/api/tenants/${tenantId}/reports/${report.id}/versions/${version.id}`;
   const processing = version.status === "processing";
-  // Open on what blocks publishing; warnings are one filter away. Until the reviewer picks a
-  // severity, that default follows the last finished run (not a re-check that's under way),
-  // so once nothing blocks any more the notes show instead of an empty "Blocking" filter.
   const [severityPick, setSeverity] = useState<string | null>(null);
-  const severity = severityPick ?? ((processing ? version.validation?.blocking ?? 0 : version.open_blocking) > 0 ? "blocking" : "");
   const [status, setStatus] = useState("open");
   const [page, setPage] = useState("");
   const [section, setSection] = useState("");
   const [check, setCheck] = useState("");
+  const filters: IssueFilters = { severity: severityPick, status, page, section, check };
+  filtersByVersion.set(version.id, filters);
+  const severity = effectiveSeverity(filters, version);
   // What the last decision did, kept here so it stays on screen after the item leaves the list.
   const [notice, setNotice] = useState<string | null>(null);
+  // The API filters the list and works out each filter's options from the same rows.
   const q = useQuery({
-    ...issuesQuery(tenantId, report.id, version),
+    ...issuesQuery(tenantId, report.id, version, filters),
     refetchInterval: processing ? 2500 : false,
     placeholderData: keepPreviousData,
   });
-  const issues = useMemo(() => (q.data?.issues ?? []).filter((i) =>
-    (!severity || i.severity === severity) && (!status || i.status === status) && (!page || String(i.page) === page)
-    && (!section || i.section_id === section) && (!check || i.check === check)), [q.data, severity, status, page, section, check]);
+  const issues = useMemo(() => q.data?.issues ?? [], [q.data]);
   const groups = useMemo(() => groupByFigure(issues), [issues]);
+  // A choice whose last item was just decided has nothing left: go back to "All" rather than
+  // show an empty list (only on a fresh answer, not the previous one kept on screen meanwhile).
+  useEffect(() => {
+    if (!q.data || q.isPlaceholderData) return;
+    const gone = (facet: "page" | "section" | "check", value: string) =>
+      !!value && !(q.data.options?.[facet] ?? []).some((o) => o.value === value && o.count > 0);
+    if (gone("page", page)) setPage("");
+    if (gone("section", section)) setSection("");
+    if (gone("check", check)) setCheck("");
+  }, [q.data, q.isPlaceholderData, page, section, check]);
   const selectedId = params.get("issue");
   const selected = groups.find((g) => g.all.some((i) => i.id === selectedId)) ?? groups[0] ?? null;
   const select = (id: string) => { const n = new URLSearchParams(params); n.set("issue", id); setParams(n, { replace: true }); };
 
   // Items a person can decide in bulk: a value tied to a spot in the PDF. Not a page-build
   // fault or a colleague's flag (those need their own answer), and not a completeness note
-  // ("1 of 17 numbers here weren't captured") — there is no value in it to confirm.
-  const bulkable = useMemo(() => groupByFigure(issues.filter((i) => i.status === "open" && i.page && i.bbox
-    && !["rendered_page", "schema", "reviewer_flag", "completeness"].includes(i.check))), [issues]);
+  // ("1 of 17 numbers here weren't captured") — there is no value in it to confirm. The API
+  // marks these, so the list, its count and the notes follow one rule.
+  const bulkable = useMemo(() => groupByFigure(issues.filter((i) => i.decidable)), [issues]);
   const [view, setView] = useState<"grid" | "list" | null>(null);
   const mode = view ?? "grid";                    // Side by side is the default
 
-  const all = q.data?.issues ?? [];
-  const pagesWithIssues = [...new Set(all.map((i) => i.page).filter(Boolean))].sort((a, b) => a! - b!);
-  const checks = [...new Set(all.map((i) => i.check))];
-  // Only sections that actually have items, labelled so OCR noise can't pass for a heading.
-  const sectionIds = new Set(all.map((i) => i.section_id).filter(Boolean));
-  const sectionOptions = version.sections.filter((x) => sectionIds.has(x.id)).map((x) => ({
-    id: x.id,
-    label: plausibleHeading(x.heading_text)
-      ? `${x.page ? `p${x.page} · ` : ""}${x.heading_text.length > 60 ? `${x.heading_text.slice(0, 57)}…` : x.heading_text}`
-      : `Section on page ${x.page ?? "?"}`,
-  }));
+  // Notes: items that aren't a value to confirm side by side (a page's "3 of 17 numbers weren't
+  // captured", a page-build fault, a colleague's flag). They're listed under the tiles.
+  const notes = useMemo(() => {
+    const decidable = new Set(bulkable.flatMap((g) => g.all.map((i) => i.id)));
+    return groups.filter((g) => !g.all.some((i) => decidable.has(i.id)));
+  }, [groups, bulkable]);
+  // Each option says how many items it has; an option with none isn't offered.
+  const options = (facet: "check" | "page" | "section") => (q.data?.options?.[facet] ?? [])
+    .filter((o) => o.count > 0 || o.value === { check, page, section }[facet]);
+  const optionLabel = (facet: "check" | "page" | "section", o: FilterOption) =>
+    `${facet === "check" ? CHECK_LABEL[o.value] ?? o.label : o.label} (${o.count})`;
   // After a decision, wait for the version's new state (the version query fetches the list
   // that goes with it first): the page then goes into its re-check state all at once, instead
   // of the list dropping the item while the numbers above still look final.
@@ -142,11 +152,15 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
   };
   const starting = () => setNotice(null);
 
-  if (processing && !q.data?.issues.length) return <Loading label="Checks are running">Checks are running — this page updates automatically.</Loading>;
+  if (processing && !q.data?.totals?.all_rows) return <Loading label="Checks are running">Checks are running — this page updates automatically.</Loading>;
   if (q.isPending) return <SkeletonRows label="Loading issues" />;
   if (!q.data) return <p className="error">{q.error?.message ?? "The issues couldn't be loaded."}</p>;
   const s = q.data.summary;
-  const shownCount = mode === "grid" && bulkable.length > 0 ? bulkable.length : groups.length;
+  const grid = mode === "grid" && bulkable.length > 0;
+  const shownCount = groups.length;
+  const countLabel = grid && notes.length > 0
+    ? `${bulkable.length} item${bulkable.length === 1 ? "" : "s"} · ${notes.length} note${notes.length === 1 ? "" : "s"}`
+    : `${shownCount} item${shownCount === 1 ? "" : "s"}`;
 
   return (
     <div className="stack">
@@ -167,12 +181,12 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
       <div className="filters">
         <select aria-label="Severity" value={severity} onChange={(e) => setSeverity(e.target.value)}><option value="">All severities</option><option value="blocking">Blocking</option><option value="warning">Warnings</option></select>
         <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}><option value="open">Open</option><option value="resolved">Resolved</option><option value="">All</option></select>
-        <select aria-label="Check" value={check} onChange={(e) => setCheck(e.target.value)}><option value="">All checks</option>{checks.map((c) => <option key={c} value={c}>{CHECK_LABEL[c] ?? c}</option>)}</select>
-        <select aria-label="Page" value={page} onChange={(e) => setPage(e.target.value)}><option value="">All pages</option>{pagesWithIssues.map((p) => <option key={p} value={String(p)}>Page {p}</option>)}</select>
-        {sectionOptions.length > 0 && (
-          <select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)}><option value="">All sections</option>{sectionOptions.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+        <select aria-label="Check" value={check} onChange={(e) => setCheck(e.target.value)}><option value="">All checks</option>{options("check").map((o) => <option key={o.value} value={o.value}>{optionLabel("check", o)}</option>)}</select>
+        <select aria-label="Page" value={page} onChange={(e) => setPage(e.target.value)}><option value="">All pages</option>{options("page").map((o) => <option key={o.value} value={o.value}>{optionLabel("page", o)}</option>)}</select>
+        {options("section").length > 0 && (
+          <select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)}><option value="">All sections</option>{options("section").map((o) => <option key={o.value} value={o.value}>{optionLabel("section", o)}</option>)}</select>
         )}
-        {!(processing && shownCount === 0) && <span className="muted small">{shownCount} item{shownCount === 1 ? "" : "s"}</span>}
+        {!(processing && shownCount === 0) && <span className="muted small">{countLabel}</span>}
         {bulkable.length > 0 && (
           <span className="seg" role="group" aria-label="Review mode">
             <button className={mode === "grid" ? "on" : ""} onClick={() => setView("grid")}>Side by side</button>
@@ -181,10 +195,25 @@ export default function ValidationTab({ tenantId, report, version, embedded = fa
         )}
       </div>
       {notice && <p className="ok-text small" role="status">{notice}</p>}
-      {mode === "grid" && bulkable.length > 0 ? (
-        <ReviewGrid key={`${page}|${check}|${section}|${severity}`} groups={bulkable} base={base} version={version}
-          canDecide={isAdmin && version.published_at === null} onDone={refresh} onStart={starting}
-          onOpen={(id) => { select(id); setView("list"); }} />
+      {grid ? (
+        <>
+          <ReviewGrid key={`${page}|${check}|${section}|${severity}`} groups={bulkable} base={base} version={version}
+            canDecide={isAdmin && version.published_at === null} onDone={refresh} onStart={starting}
+            onOpen={(id) => { select(id); setView("list"); }} />
+          {notes.length > 0 && (
+            <ul className="issue-list" aria-label="Notes">
+              {notes.map(({ key, lead: i, all: dup }) => (
+                <li key={key}>
+                  <button className={`issue ${i.status}`} onClick={() => { select(i.id); setView("list"); }}>
+                    <span className={`badge ${i.severity === "blocking" ? "bad" : "warn"}`}>{i.severity}</span>{" "}
+                    <span className="small muted">{[...new Set(dup.map((d) => CHECK_LABEL[d.check] ?? d.check))].join(" + ")}{i.page ? ` · p${i.page}` : ""}</span>
+                    <div className="issue-msg">{i.figure?.raw ? <code>{i.figure.raw}</code> : null} {i.message}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : groups.length === 0 ? (
         // Mid re-check an empty list only means every item here has been decided: the
         // re-check may still find something, so don't say there's nothing.

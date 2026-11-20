@@ -32,6 +32,14 @@
 {%- endif %}
 {%- endmacro -%}
 
+{#- Small charts that share one axis ("Snacks", "Spices", … over 2020 2025 2030 2035) as one
+    table: a row per chart, a column per axis label — the charts' own values, in the same
+    "Chart values" fold-out a single chart gets. -#}
+{%- macro series_values(b, figures) -%}
+{%- set st = b.series_table -%}
+<details class="chart-data"><summary>Chart values</summary><div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-note">Values read from the charts' data labels in the PDF.</span></caption><thead><tr><th scope="col"></th>{% for c in st.columns %}<th scope="col">{{ runs(c, figures) }}</th>{% endfor %}</tr></thead><tbody>{% for r in st.rows %}<tr><th scope="row">{{ runs(r.label, figures) }}</th>{% for c in r.cells %}<td>{{ runs(c, figures) }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></details>
+{%- endmacro -%}
+
 {%- macro vis_crop(c) -%}
 <figure class="web-vis" style="--vw:{{ (c.w * 1.6)|round|int }}px">
   <div class="rf-vis" style="aspect-ratio:{{ c.w }}/{{ c.h }}"><img src="{{ base_path }}{{ c.bg }}" alt="" loading="lazy" decoding="async" style="width:{{ c.img_w }}%;left:-{{ c.left }}%;top:-{{ c.top }}%"><div class="rf-vis-t">{{ c.html|safe }}</div></div>
@@ -50,10 +58,14 @@
   {%- else -%}<p>{{ runs(b.runs, figures) }}</p>{%- endif -%}
 {%- elif b.type == 'chart' and crops is defined and crops.get(b.id) -%}
 {{ vis_crop(crops[b.id]) }}
-{%- if b.extracted and b.points|length > 1 %}
+{%- if b.series_table %}{{ series_values(b, figures) }}
+{%- elif b.series_of or b.from_table %}
+{%- elif b.extracted and b.points|length > 1 %}
 <details class="chart-data"><summary>Chart values</summary><div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div></details>
 {%- endif %}
-{%- elif b.type == 'chart' and b.extracted -%}
+{%- elif b.type == 'chart' and b.series_table -%}{{ series_values(b, figures) }}
+{%- elif b.type == 'chart' and (b.series_of or b.from_table) and crops is defined -%}
+{%- elif b.type == 'chart' and b.extracted and not b.series_of -%}
 <div class="table-wrap" role="region" aria-labelledby="{{ b.id }}-cap" tabindex="0"><table id="{{ b.id }}" class="chart-data"><caption id="{{ b.id }}-cap"><span class="cap-title">Chart data</span><span class="cap-note">Values read from the chart's data labels in the PDF.</span></caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{% for p in b.points %}<tr><th scope="row">{{ runs(p.label, figures) }}</th><td>{{ runs(p.value, figures) }}</td></tr>{% endfor %}</tbody></table></div>
 {%- elif b.type == 'chart' and crops is defined -%}
 {#- web edition: a chart with no cut-out sits on a page shown as designed -#}
