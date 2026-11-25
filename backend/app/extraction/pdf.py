@@ -91,6 +91,12 @@ def _bad_char(ch: str) -> bool:
     return ch == "�" or cp == 0 or 0xE000 <= cp <= 0xF8FF or unicodedata.category(ch) == "Cc"
 
 
+def private_use(ch: str) -> bool:
+    """A private-use code point (Unicode category Co): an icon font's glyph (an envelope, a
+    phone, a tick) that stands for no letter or digit and that no other font can show."""
+    return unicodedata.category(ch) == "Co"
+
+
 MIN_VISIBLE_PT = 2.5   # text smaller than this can't be read by a person (hidden layers behind images)
 
 
@@ -134,7 +140,9 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                     total += 1
                     if _bad_char(c):
                         bad += 1
-                    if c.isspace():
+                    # an icon glyph set against a number ("✉19700") is not part of the word:
+                    # it ends the word as a space would (it still counts as unreadable above)
+                    if c.isspace() or private_use(c):
                         flush()
                         continue
                     cur_size, cur_bold, cur_font = span["size"], bold, span["font"]

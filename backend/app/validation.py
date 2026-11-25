@@ -27,6 +27,7 @@ import pymupdf
 from app.extraction import ocr
 from app.extraction.jsonschema_check import schema_errors
 from app.extraction.numbers import NIL_TOKENS, has_digit, try_parse_number
+from app.extraction.pdf import private_use
 from app.extraction.tokens import _split_punct
 from app.issue_filters import about_figure
 
@@ -435,8 +436,11 @@ _HYPHENS = str.maketrans({"\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013":
 
 def _same_glyphs(s: str) -> str:
     """Two parsers can report the same printed glyph as different code points: a
-    non-breaking hyphen vs a hyphen, or an invisible control byte. Neither changes a digit."""
-    return re.sub(r"[\x00-\x1f\x7f]", "", s.translate(_HYPHENS))
+    non-breaking hyphen vs a hyphen, or an invisible control byte. Neither changes a digit,
+    and neither does an icon font's private-use glyph next to a number (the extractor leaves
+    those out of words, extraction.pdf.private_use; pdfminer keeps them)."""
+    s = re.sub(r"[\x00-\x1f\x7f]", "", s.translate(_HYPHENS))
+    return "".join(c for c in s if not private_use(c))
 
 
 def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None,
@@ -462,7 +466,8 @@ def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified
         checked.update(f["id"] for f in figs)
     issues = []
     for f in figs:
-        found = [_same_glyphs(w) for w in _words_in(words.get(f["source"]["page"], []), f["source"]["bbox"], pad=2.5)]
+        found = [g for g in (_same_glyphs(w) for w in _words_in(words.get(f["source"]["page"], []),
+                                                                 f["source"]["bbox"], pad=2.5)) if g]
         joined = " ".join(found)
         cores = {joined, _split_punct(joined)[1]} | {_split_punct(w)[1] for w in found}
         raw = _same_glyphs(f["raw"])
