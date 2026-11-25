@@ -984,10 +984,13 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
 
 def artwork_key(schema: dict, pdf_bytes: bytes, max_pages: int | None, layouts: dict | None) -> str:
     """Everything a report's page artwork is made from: the report data, the PDF, the page limit,
-    the AI layouts and this build of the app. Not the design — the design only fills templates."""
+    the AI layouts and this build of the app. Not the design — the design only fills templates —
+    nor the AI double-check's readings, which are never on the page (a check that only records
+    them leaves the page as it was built, so its drawing stays the one to reuse)."""
+    from app.ai_check import without_readings
     from app.code_version import code_version
     made_from = [code_version(), hashlib.sha256(pdf_bytes).hexdigest(), max_pages,
-                 {str(k): v for k, v in (layouts or {}).items()}, schema]
+                 {str(k): v for k, v in (layouts or {}).items()}, without_readings(schema)]
     return hashlib.sha256(json.dumps(made_from, sort_keys=True, default=str).encode()).hexdigest()
 
 

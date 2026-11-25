@@ -151,3 +151,62 @@ def test_a_refusal_shows_googles_reason_without_the_key():
     out = _google_reason(R(), "AQ.secret")
     assert "PERMISSION_DENIED" in out and "SERVICE_DISABLED" in out and "has not been used in project" in out
     assert "AQ.secret" not in out
+
+
+
+def test_ai_readings_alone_do_not_build_the_page_again(admin_client, monkeypatch):
+    """The AI only records its reading on each figure, which the page never shows: the
+    findings are updated and the version is ready again without a second page build."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app import db
+    from app.models import Job, ReportVersion
+    from app.render import site
+    from app.render import theme as theming
+    from app.tenancy import system_context
+    from tests.test_pipeline_e2e import CORPUS
+
+    client, t, _ = admin_client
+    up = upload(client, t, "acme_q2fy26_results_scanned.pdf", period="q4")
+    rid, vid = up["report_id"], up["version"]["id"]
+    drain()
+    url = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}/ai-check"
+    base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}"
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key-not-real")
+    est = client.get(url).json()["estimate"]
+    schema = client.get(f"{base}/schema").json()
+    fids = ai_check.eligible(client.get(f"{base}/issues", params={"status": "open"}).json()["issues"], schema)
+    assert fids
+    blocking_before = _version(client, t, rid, vid)["validation"]["blocking"]
+
+    def state():
+        with db.session(system_context()) as s:
+            v = s.get(ReportVersion, uuid.UUID(vid))
+            kinds = [j.kind for j in s.scalars(select(Job).where(Job.version_id == v.id).order_by(Job.created_at))]
+            return (kinds, v.status, v.stage, v.schema_sha256, v.validated_schema_sha256, v.bundle_sha256,
+                    v.validated_bundle_sha256, v.schema_json)
+
+    kinds_before, *_, bundle_before, _, _ = state()
+    fake_gemini.queue = [schema["figures"][f]["raw"] for f in fids]
+    ai_check._OVERRIDE.append(fake_gemini(set()))
+    assert client.post(url, json={"credits_shown": est["credits"]}).status_code == 202
+    drain()
+    done = client.get(url).json()["last"]
+    kinds, status, stage, sha, vsha, bsha, vbsha, stored = state()
+    assert kinds[len(kinds_before):] == ["pipeline.ai_check"]            # no render, no validate
+    assert done["status"] == "succeeded" and done["result"]["page_rebuilt"] is False, done
+    assert status in ("needs_review", "validation_issues") and stage == "done"
+    # publish() needs the validated hashes to be those of the stored schema and page
+    assert vsha == sha and vbsha == bsha == bundle_before
+    assert all(stored["figures"][f]["ai_check"]["match"] for f in fids)
+    assert _version(client, t, rid, vid)["validation"]["blocking"] < blocking_before
+
+    # ...and a full build of the schema with the readings is the very page built without them
+    plain, _ = theming.enforce(theming.validate({}))
+    pdf = (CORPUS / "acme_q2fy26_results_scanned.pdf").read_bytes()
+    with_readings = site.render_report(stored, theme=plain, disclaimer="D.", pdf_bytes=pdf)
+    without = site.render_report(ai_check.without_readings(stored), theme=plain, disclaimer="D.", pdf_bytes=pdf)
+    assert site.bundle_sha256(with_readings) == site.bundle_sha256(without)
+    assert site.artwork_key(stored, pdf, None, None) == site.artwork_key(ai_check.without_readings(stored), pdf, None, None)
