@@ -14,10 +14,12 @@ headers, and no text is written here.
 
 from __future__ import annotations
 
+import html
 import re
 from statistics import median
 
 from app.extraction.layout import not_a_title
+from app.extraction.numbers import has_digit
 from app.render.elements import Element, is_bullet
 
 ROW_GAP = 5.0            # points of white space that separate two rows
@@ -60,6 +62,86 @@ def heading_level(e: Element, body: float) -> int | None:
             or (e.text.isupper() and w <= 6 and e.size >= body * 0.9):
         return 3
     return None
+
+
+LABELS_MIN = 3           # this many headings with nothing under them on one page: a graphic's labels
+
+
+def title_like(els: list[Element]) -> bool:
+    """Text elements that can stand as a heading on the web page: words (by the extractor's rule,
+    layout.not_a_title — not a number, a currency sign or a quote mark), text a reader can see,
+    and text the page gives as text. A line shown as a picture of itself, because it holds a
+    number not yet verified, can't give its words to a screen reader or a search engine: it
+    isn't a heading. Judged on the PDF's words and on what the page would show of them."""
+    text = " ".join(e.text for e in els)
+    shown = " ".join(_plain(e.html) if e.safe else e.text for e in els)     # what the heading would read
+    return bool(els) and all(e.kind == "text" for e in els) and not not_a_title(text) and not not_a_title(shown) \
+        and not any(e.meta.get("unseen") for e in els) and not any(not e.safe and has_digit(e.text) for e in els)
+
+
+def _plain(h: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", " ", h))
+
+
+def _as_text(c: dict) -> None:
+    """A card's title, kept on the page as the first line of its text instead."""
+    c["body"] = c["title"] + c["body"]
+    if "flow" in c:
+        c["flow"] = [{"type": "paragraph", "ids": c["title"]}] + c["flow"]
+    c["title"] = []
+
+
+def checked_headings(secs: list[dict], els: list[Element]) -> list[dict]:
+    """The headings of a page rebuilt as web sections, whichever layout made them (built-in or
+    AI), held to one rule before they are drawn: a heading or card title that isn't
+    `title_like` is kept as text. And headings with nothing of their own under them — nothing
+    before the next heading of the same or a higher level, or before the end of their column (not
+    beside a picture); a card with only a title — are the labels of a diagram, map or list when the page has
+    LABELS_MIN or more of them: they stay on the page as text, not as headings. Nothing is
+    dropped."""
+    by_id = {e.id: e for e in els}
+
+    def ok(ids: list[str]) -> bool:
+        return title_like([by_id[i] for i in ids if i in by_id]) and all(i in by_id for i in ids)
+
+    empty: list[tuple[str, dict]] = []
+
+    def visit(flow: list[dict], beside_picture: bool = False) -> list[dict]:
+        out = []
+        for s in flow:
+            s = dict(s)
+            t = s["type"]
+            if t == "heading" and not ok(s["ids"]):
+                s = {"type": "paragraph", "ids": s["ids"]}
+            elif t == "cards":
+                s["cards"] = [dict(c) for c in s["cards"]]
+                for c in s["cards"]:
+                    if c["title"] and not ok(c["title"]):
+                        _as_text(c)
+                    if "flow" in c:
+                        c["flow"] = visit(c["flow"])
+                    if c["title"] and not c["body"] and not c["picture"]:
+                        empty.append(("card", c))
+            elif t == "media":
+                s["body"] = visit(s["body"], beside_picture=True)
+            out.append(s)
+        for k, s in enumerate(out):
+            if s["type"] == "heading":
+                nxt = out[k + 1] if k + 1 < len(out) else None
+                # (text set beside a picture: the picture is what its last heading is about)
+                if (nxt is None and not beside_picture) or (nxt is not None and nxt["type"] == "heading" and nxt["level"] <= s["level"]):
+                    empty.append(("heading", s))
+        return out
+
+    out = visit(secs)
+    if len(empty) >= LABELS_MIN:
+        for kind, x in empty:
+            if kind == "card":
+                _as_text(x)
+            else:
+                x["type"] = "paragraph"
+                x.pop("level", None)
+    return out
 
 
 # ------------------------------------------------------------------ geometry

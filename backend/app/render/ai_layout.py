@@ -19,6 +19,7 @@ import json
 import re
 from typing import Any
 
+from app.extraction.numbers import has_digit
 from app.render.elements import Element, is_bullet
 
 _LEAD_BULLET = re.compile(r"^(\s*)(?:[•▪●◦‣■□➢➤►▶✓✔]|[-–](?=\s))\s*")
@@ -267,24 +268,31 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
         return (f'<div class="{cls}" style="aspect-ratio:{w:.1f}/{h:.1f};--vw:{round(w * 1.6)}px">'
                 f'<img src="{html_mod.escape(crop_url(e))}" alt="" loading="lazy" decoding="async"></div>')
 
-    def text(ids: list[str], sep: str = " ") -> str:
+    def text(ids: list[str], sep: str = " ", alt: str | None = None, pictured: bool = False) -> str:
         out = []
         for i in ids:
             e = by_id[i]
-            out.append(e.html if e.safe else textcrop(e))
+            out.append(e.html if e.safe and not pictured else textcrop(e, alt if len(ids) == 1 else None))
         return sep.join(out)
 
     sized = sorted(e.size for e in elements if e.kind == "text" and e.size)
     body = sized[len(sized) // 2] if sized else 10.0
 
-    def textcrop(e: Element) -> str:
-        """A line kept as printed (it holds a number not yet verified): shown at the size of
-        the text around it — the page's body size maps to ~16px."""
+    def textcrop(e: Element, alt: str | None = None) -> str:
+        """A line kept as printed (it holds a number not yet verified, or text the extractor
+        left out): shown at the size of the text around it — the page's body size maps to
+        ~16px. Its words, read from the PDF, are the picture's alt text, so screen readers and
+        search still get them — unless it holds a number: an unverified number is never typed
+        into the page, not even in an attribute (a heading can't be such a line:
+        web_layout.title_like). `alt` is given for the page's own title (site.title_first):
+        the section heading the extractor read, which the page may say."""
         x0, y0, x1, y1 = e.bbox
         w, h = max(1.0, x1 - x0), max(1.0, y1 - y0)
         px = 15.5 / body                                                   # px per point
+        if alt is None:
+            alt = "" if has_digit(e.text) else " ".join(e.text.split())
         return (f'<span class="ai-pic ai-textcrop" style="aspect-ratio:{w:.1f}/{h:.1f};width:min(100%,{w * px:.0f}px)">'
-                f'<img src="{html_mod.escape(crop_url(e))}" alt="" loading="lazy" decoding="async"></span>')
+                f'<img src="{html_mod.escape(crop_url(e))}" alt="{html_mod.escape(alt)}" loading="lazy" decoding="async"></span>')
 
     def look(ids: list[str], heading: bool = False) -> tuple[str, str]:
         """(extra classes, inline style) that keep the PDF's structure — which lines sit on a
@@ -330,7 +338,7 @@ def render(sections: list[dict], elements: list[Element], *, crop_url, W: float,
             t = sec["type"]
             if t == "heading":
                 tag = {1: "h2", 2: "h3", 3: "h4"}[sec["level"]]
-                parts.append(f'<{tag}{attrs("ai-h ai-h-" + "abc"[sec["level"] - 1], sec["ids"], True)}>{text(sec["ids"])}</{tag}>')
+                parts.append(f'<{tag}{attrs("ai-h ai-h-" + "abc"[sec["level"] - 1], sec["ids"], True)}>{text(sec["ids"], alt=sec.get("alt"), pictured=bool(sec.get("pictured")))}</{tag}>')
             elif t == "paragraph":
                 parts.append(f'<p{attrs("ai-p", sec["ids"])}>{text(sec["ids"])}</p>')
             elif t == "list":

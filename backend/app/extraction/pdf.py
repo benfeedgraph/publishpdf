@@ -23,6 +23,7 @@ class Word:
     bold: bool = False
     src: tuple[float, float, float, float] | None = None   # original-page bbox if bbox was deskewed
     font: str = ""             # font name (text layer only); icon fonts are never figures
+    invisible: bool = False    # text layer drawn neither filled nor stroked: nobody sees it (an OCR layer over a scan)
 
     @property
     def source_bbox(self) -> tuple[float, float, float, float]:
@@ -97,6 +98,15 @@ def private_use(ch: str) -> bool:
     return unicodedata.category(ch) == "Co"
 
 
+_DRAWN = 16 | 32      # MuPDF's character flags: filled, stroked
+
+
+def unseen_span(span: dict) -> bool:
+    """Text drawn neither filled nor stroked (PDF text render mode 3): it is on the page for
+    search or copying (an OCR layer over a scan, text behind artwork), but nobody sees it."""
+    return "char_flags" in span and not span["char_flags"] & _DRAWN
+
+
 MIN_VISIBLE_PT = 2.5   # text smaller than this can't be read by a person (hidden layers behind images)
 
 
@@ -116,25 +126,28 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                 continue
             cur: list[tuple[str, tuple]] = []
             cur_size, cur_bold, cur_font = 0.0, False, ""
+            cur_unseen = True
 
             def flush() -> None:
-                nonlocal cur
+                nonlocal cur, cur_unseen
                 if cur:
                     text = "".join(c for c, _ in cur)
                     xs0 = min(b[0] for _, b in cur)
                     ys0 = min(b[1] for _, b in cur)
                     xs1 = max(b[2] for _, b in cur)
                     ys1 = max(b[3] for _, b in cur)
-                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold, font=cur_font)
+                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold, font=cur_font, invisible=cur_unseen)
                     if cur_size < MIN_VISIBLE_PT:
                         if hidden is not None:
                             hidden.append(w)
                     else:
                         words.append(w)
                 cur = []
+                cur_unseen = True
 
             for span in line["spans"]:
                 bold = bool(span["flags"] & 16) or "bold" in span["font"].lower()
+                unseen = unseen_span(span)
                 for ch in span["chars"]:
                     c = ch["c"]
                     total += 1
@@ -146,6 +159,7 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                         flush()
                         continue
                     cur_size, cur_bold, cur_font = span["size"], bold, span["font"]
+                    cur_unseen = cur_unseen and unseen
                     cur.append((c, tuple(ch["bbox"])))
             flush()
     return words, total, bad

@@ -202,7 +202,9 @@ def _join_across_pages(blocks: list[dict], apart: set[str] | frozenset[str] = fr
 
 
 def heading_like(schema: dict) -> set[str]:
-    """Short title lines the PDF sets above a table or chart ("Index") — shown as headings."""
+    """Short title lines the PDF sets above a table or chart ("Index") — shown as headings. Only
+    lines that can be titles at all (layout.not_a_title): never a lone mark or a number."""
+    from app.extraction.layout import not_a_title
     ids = set()
     for s in schema["sections"]:
         bl = s["blocks"]
@@ -210,7 +212,8 @@ def heading_like(schema: dict) -> set[str]:
             if b["type"] != "paragraph" or bl[i + 1]["type"] not in ("table", "chart"):
                 continue
             text = "".join(r.get("t", "") for r in b["runs"]).strip()
-            if text and len(text.split()) <= 6 and all("t" in r for r in b["runs"]) and text[-1] not in ".,;:!?":
+            if text and len(text.split()) <= 6 and all("t" in r for r in b["runs"]) and text[-1] not in ".,;:!?" \
+                    and not not_a_title(text):
                 ids.add(b["id"])
     return ids
 

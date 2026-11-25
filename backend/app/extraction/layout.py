@@ -501,11 +501,14 @@ def _starts_lower(text: str) -> bool:
     return first.isalpha() and first.islower()
 
 
-def not_a_title(text: str) -> bool:
+def not_a_title(text: str, words: list[Word] | None = None) -> bool:
     """Text that can't be a heading whatever its type: unfinished, the second half of a line
-    (it starts in lower case, "customers to its franchise…"), a list item, or no words at all."""
+    (it starts in lower case, "customers to its franchise…"), a list item, no words at all (a
+    number, a currency sign, a quote mark), or — given its words — text nobody can see on the
+    page (an invisible text layer, such as an OCR layer over a scanned page or a stamp)."""
     t = text.strip()
-    return unfinished(t) or _starts_lower(t) or bool(_LIST_MARK.match(t)) or not _letters(t)
+    return unfinished(t) or _starts_lower(t) or bool(_LIST_MARK.match(t)) or not _letters(t) \
+        or bool(words) and all(w.invisible for w in words)
 
 
 LABEL_MAX_WORDS = 6        # a heading this short, among several with nothing under them, is a label
@@ -647,7 +650,7 @@ def _demote_labels(blocks: list[TextEl], others: list) -> None:
     for h in heads:
         t = _text(h)
         # unfinished, half a line, a list item, no words, or (joined from several lines) running text set large
-        if not_a_title(t) or len(h.words) > HEADING_MAX_WORDS or len(t) > HEADING_MAX_CHARS:
+        if not_a_title(t, h.words) or len(h.words) > HEADING_MAX_WORDS or len(t) > HEADING_MAX_CHARS:
             h.kind = "paragraph"
     # The page's title: its top-most heading, with no text above it. Never taken for a label.
     texts = [b for b in blocks if b.words]

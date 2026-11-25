@@ -305,9 +305,9 @@ def test_a_page_that_continues_the_section_before_is_fine():
 
 
 # ------------------------------------------------------------------ the title as a re-arranged page's heading
-class El:
-    def __init__(self, id_, text, kind="text"):
-        self.id, self.text, self.kind = id_, text, kind
+def El(id_, text, kind="text"):
+    from app.render.elements import Element
+    return Element(id_, kind, (0, 0, 100, 12), text=text, html=text)
 
 
 def test_a_title_laid_out_as_a_label_becomes_the_heading_where_it_stood():
