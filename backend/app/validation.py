@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html.parser
 import re
+import unicodedata
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -443,6 +444,14 @@ def _same_glyphs(s: str) -> str:
     return "".join(c for c in s if not private_use(c))
 
 
+def _visible(s: str) -> str:
+    """The characters a reader sees, in order: no spaces and no invisible format marks (Unicode
+    category Cf, e.g. a zero-width space after "2)"). Where one parser starts a new word is its
+    own guess from the gaps between letters ("Q 3 F Y2 5" for a letter-spaced "Q3FY25", "25 %"
+    for "25%"); the second parser is there to catch different characters, not a different guess."""
+    return "".join(c for c in _same_glyphs(s) if not c.isspace() and unicodedata.category(c) != "Cf")
+
+
 def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None,
                         pool=None, checked: set[str] | None = None) -> list[Issue]:
     text_pages = {p["page"] for p in artifact["pages"] if p["method"] == "text_layer"}
@@ -471,7 +480,8 @@ def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified
         joined = " ".join(found)
         cores = {joined, _split_punct(joined)[1]} | {_split_punct(w)[1] for w in found}
         raw = _same_glyphs(f["raw"])
-        if raw in cores or raw in joined:
+        seen = _visible(raw)
+        if raw in cores or raw in joined or (seen and seen in _visible(joined)):
             if verified is not None:
                 verified.add(f["id"])
             continue

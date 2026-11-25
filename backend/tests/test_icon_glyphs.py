@@ -58,3 +58,12 @@ def test_second_parser_still_flags_different_digits_next_to_an_icon():
     found = _check("19700", [ENVELOPE, "19800"])
     assert [(i.check, i.severity) for i in found] == [("second_parser", "blocking")]
     assert found[0].actual == "19800"
+
+
+def test_the_second_parser_compares_what_a_reader_sees_not_where_words_break():
+    # pdfminer guesses word breaks from the gaps between letters; a zero-width space is invisible
+    for raw, other in (("Q3FY25", "Q 3 F Y2 5"), ("25%", "25 %"), ("c.65%", "c.65 %"), ("2)​", "2)")):
+        assert validation._visible(raw) == validation._visible(other)
+    # a different character is still a different reading
+    assert validation._visible("46.20") != validation._visible("48.20")
+    assert validation._visible("Q3FY25") != validation._visible("Q 3 F Y2 6")
