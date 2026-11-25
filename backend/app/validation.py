@@ -28,6 +28,7 @@ from app.extraction import ocr
 from app.extraction.jsonschema_check import schema_errors
 from app.extraction.numbers import NIL_TOKENS, has_digit, try_parse_number
 from app.extraction.tokens import _split_punct
+from app.issue_filters import about_figure
 
 NUMERIC_KINDS = {"number", "percent", "bps", "multiple", "nil"}
 REEXTRACT_KINDS = NUMERIC_KINDS | {"date"}
@@ -55,6 +56,12 @@ def _fig_issue(check: str, severity: str, f: dict, message: str, expected=None, 
 
 def _active(schema: dict) -> list[dict]:
     return [f for f in schema["figures"].values() if f.get("status", "active") == "active"]
+
+
+def fids_in_document(schema: dict) -> set[str]:
+    """The figures still in the document (not marked "not a figure"), by id: the set Step 1's
+    headline counts against (see reports.figure_states)."""
+    return {k for k, f in (schema.get("figures") or {}).items() if f.get("status", "active") == "active"}
 
 
 # ------------------------------------------------------------------ 1. traceability
@@ -1422,7 +1429,7 @@ def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str,
     for n, (fid, check, severity) in enumerate(open_items):
         c = by_check.setdefault(check, {"blocking": 0, "warnings": 0})
         c["blocking" if severity == "blocking" else "warnings"] += 1
-        if fid and fid in active_fids:
+        if about_figure(fid, active_fids):
             (blocking if severity == "blocking" else noted).add(fid)
         else:                                   # no figure, or one no longer in the document
             key = ("fig", fid) if fid else ("item", n)

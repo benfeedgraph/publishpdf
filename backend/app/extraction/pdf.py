@@ -63,14 +63,26 @@ class PdfError(Exception):
 def open_pdf(data: bytes) -> pymupdf.Document:
     if not data.startswith(b"%PDF-"):
         raise PdfError("This file isn't a PDF. Upload the report as a PDF file.")
+    damaged = "This PDF is damaged and can't be opened. Try exporting it again."
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception as e:  # noqa: BLE001
-        raise PdfError("This PDF is damaged and can't be opened. Try exporting it again.") from e
-    if doc.needs_pass or doc.is_encrypted:
+        raise PdfError(damaged) from e
+    try:
+        locked = doc.needs_pass or doc.is_encrypted
+        # A cut-off file can open (MuPDF repairs what it can) and still fail here ("Invalid
+        # number of pages" when its page tree is missing), or come out with no pages at all.
+        pages = 0 if locked else doc.page_count
+        cut_off = not locked and pages == 0 and doc.is_repaired
+    except Exception as e:  # noqa: BLE001
+        doc.close()
+        raise PdfError(damaged) from e
+    if locked:
+        doc.close()
         raise PdfError("This PDF is password-protected. Upload an unlocked copy.")
-    if doc.page_count == 0:
-        raise PdfError("This PDF has no pages.")
+    if pages == 0:
+        doc.close()
+        raise PdfError(damaged if cut_off else "This PDF has no pages.")
     return doc
 
 

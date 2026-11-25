@@ -7,14 +7,26 @@ from pathlib import Path
 
 import pytest
 
-from app.issue_filters import build, section_labels, usable_heading
+from app import issue_filters
+from app.issue_filters import section_labels, usable_heading
+from app.validation import figure_states
 
 CORPUS = Path(__file__).resolve().parents[2] / "corpus" / "synthetic"
 
 
-def _i(n, check, severity, page, *, fid=None, bbox=True, status="open", section=None):
+def _i(n, check, severity, page, *, fid=None, bbox=None, status="open", section=None):
+    """bbox: None means "at its figure" (a spot when there is a figure, none otherwise)."""
+    spot = bool(fid) if bbox is None else bbox
     return {"id": f"i{n}", "check": check, "severity": severity, "page": page, "fid": fid,
-            "bbox": [1, 2, 3, 4] if bbox and fid else None, "status": status, "section_id": section}
+            "bbox": [1, 2, 3, 4] if spot else None, "status": status, "section_id": section}
+
+
+def build(issues, filters, *, figure_ids=None, **kw):
+    """issue_filters.build with every figure the items name still in the document, unless
+    the test says which are."""
+    if figure_ids is None:
+        figure_ids = {i["fid"] for i in issues if i["fid"]}
+    return issue_filters.build(issues, filters, figure_ids=figure_ids, **kw)
 
 
 # ITC JP Morgan, as on main: 2 blocking figures (p8, p25), 33 Period & unit notes on figures
@@ -49,15 +61,59 @@ def test_all_checks_includes_page_notes_so_it_matches_the_headline():
     assert {i["check"]: i["decidable"] for i in out["items"]} == {"period_unit": True, "completeness": False}
 
 
-def test_only_an_open_value_at_a_spot_in_the_pdf_is_decidable_side_by_side():
+def test_only_an_open_item_on_a_figure_in_the_document_is_decidable_side_by_side():
     issues = [_i(1, "re_extraction", "blocking", 4, fid="f1"),
               _i(2, "re_extraction", "blocking", 4, fid="f2", status="resolved"),   # already decided
-              _i(3, "re_extraction", "blocking", 4, fid="f3", bbox=False),          # no spot to show
+              _i(3, "re_extraction", "blocking", 4, fid="f3", bbox=False),          # a figure, even without a box
               _i(4, "reviewer_flag", "blocking", 4, fid="f4"),                      # a colleague's flag
               _i(5, "rendered_page", "blocking", None, fid="f5"),                   # a page-build fault
-              _i(6, "completeness", "warning", 4)]                                  # a page note
-    out = build(issues, {})
-    assert [i["id"] for i in out["items"] if i["decidable"]] == ["i1"]
+              _i(6, "completeness", "warning", 4),                                  # a page note
+              _i(7, "period_unit", "warning", 4, bbox=True),                        # a whole table's note
+              _i(8, "re_extraction", "warning", 4, fid="gone")]                     # marked "not a figure"
+    out = build(issues, {}, figure_ids={"f1", "f2", "f3", "f4", "f5"})
+    assert [i["id"] for i in out["items"] if i["decidable"]] == ["i1", "i3"]
+
+
+def test_a_tables_unit_note_is_a_note_not_a_figure():
+    """A Period & unit note about a whole table ("This table's numbers don't line up in rows
+    and columns…") has a page and a box but no figure: nothing to confirm side by side, and
+    the headline counts it as another item, not a figure."""
+    issues = [_i(1, "period_unit", "warning", 3, fid="f1"),
+              _i(2, "period_unit", "warning", 3, bbox=True), _i(3, "period_unit", "warning", 7, bbox=True)]
+    out = build(issues, {"status": "open"})
+    assert out["totals"] == {"rows": 3, "figures": 1, "notes": 2, "all_rows": 3}
+    assert {i["id"]: i["decidable"] for i in out["items"]} == {"i1": True, "i2": False, "i3": False}
+
+
+# Every kind of item Step 1 can hold: figures flagged once and twice, blocking and notes, a
+# figure since marked "not a figure", table and page notes, a colleague's flag, a page fault,
+# and items already decided.
+MIXED = [_i(1, "re_extraction", "blocking", 2, fid="f1"), _i(2, "low_confidence", "warning", 2, fid="f1"),
+         _i(3, "period_unit", "warning", 2, fid="f2"), _i(4, "second_parser", "blocking", 3, fid="f3", bbox=False),
+         _i(5, "reviewer_flag", "blocking", 3, fid="f4"), _i(6, "rendered_page", "blocking", None, fid="f5"),
+         _i(7, "re_extraction", "blocking", 4, fid="gone1"), _i(8, "period_unit", "warning", 4, fid="gone2"),
+         _i(9, "period_unit", "warning", 5, bbox=True), _i(10, "period_unit", "blocking", 5, bbox=True),
+         _i(11, "completeness", "warning", 6), _i(12, "rendered_page", "blocking", None),
+         _i(13, "re_extraction", "blocking", 2, fid="f6", status="resolved"),
+         _i(14, "completeness", "warning", 6, status="resolved")]
+IN_DOCUMENT = {"f1", "f2", "f3", "f4", "f5", "f6", "f7"}
+
+
+@pytest.mark.parametrize("severity", [None, "blocking", "warning"])
+def test_the_lists_figures_and_notes_add_up_to_the_headline(severity):
+    """The same items, counted by the list and by the headline: the list's figures are the
+    figures that need attention or have notes, and its notes are the other items."""
+    mine = [i for i in MIXED if not severity or i["severity"] == severity]
+    h = figure_states(IN_DOCUMENT, [(i["fid"], i["check"], i["severity"]) for i in mine if i["status"] == "open"])
+    out = build(MIXED, {"status": "open", "severity": severity}, figure_ids=IN_DOCUMENT)
+    assert out["totals"]["figures"] == h["need_attention"] + h["notes"]
+    assert out["totals"]["notes"] == h["other_need_attention"] + h["other_notes"]
+    assert out["totals"]["rows"] == out["totals"]["figures"] + out["totals"]["notes"]
+    # every item the screen shows side by side is on one of the headline's figures
+    assert {i["fid"] for i in out["items"] if i["decidable"]} <= IN_DOCUMENT
+    if severity is None:
+        assert (h["need_attention"], h["notes"], h["other_need_attention"], h["other_notes"]) == (4, 1, 3, 3)
+        assert out["totals"] == {"rows": 11, "figures": 5, "notes": 6, "all_rows": 13}
 
 
 def test_a_decided_item_stops_feeding_the_filters():

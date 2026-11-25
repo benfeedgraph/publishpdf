@@ -142,9 +142,9 @@ async def upload(file: UploadFile = File(...), company_name: str = Form(...), re
                  period_end: str | None = Form(None), ctx: Context = Depends(require("report.upload"))) -> dict:
     limit = get_settings().max_upload_mb * 1024 * 1024
     data = await file.read(limit + 1)
-    if not (file.filename or "").lower().endswith(".pdf") and not data.startswith(b"%PDF-"):
-        raise HTTPException(400, "Only PDF files can be uploaded.")
     try:
+        # create_upload checks the file (store_source): an empty file, a renamed text file, a
+        # damaged or locked PDF each get their own message from there.
         with db.session(ctx) as s:
             v = create_upload(s, ctx, data, file.filename or "report.pdf", {
                 "company_name": company_name, "report_type": report_type, "fiscal_year": fiscal_year,
@@ -209,11 +209,9 @@ async def inspect(file: UploadFile | None = File(None), incoming: str | None = F
     data, name, key = await _pdf_from_request(file, incoming)
     if key:
         data, name = _read_incoming(ctx, key), filename or name
-    if not data.startswith(b"%PDF-"):
-        raise HTTPException(400, "Only PDF files can be uploaded.")
     try:
         with db.session(ctx) as s:
-            src = store_source(s, ctx, data, name)
+            src = store_source(s, ctx, data, name)      # says why a file isn't a usable PDF
             out = {"source_file_id": str(src.id), "filename": src.original_filename, "page_count": src.page_count,
                    "size_bytes": src.size_bytes}
     except ReportError as e:
@@ -806,7 +804,7 @@ def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = 
     has at least one item under the other filters, and how many) and the totals, all from the
     one set of rows loaded here, so the list and its filters can't disagree."""
     from app import issue_filters
-    from app.validation import AGENTS
+    from app.validation import AGENTS, fids_in_document
     with db.session(ctx) as s:
         v = _get_version(s, report_id, version_id)
         run = latest_run_no(s, v.id)
@@ -818,7 +816,7 @@ def list_issues(report_id: uuid.UUID, version_id: uuid.UUID, page: int | None = 
             [issue_json(i, figures) for i in issues],
             {"severity": severity, "status": status, "check": check, "page": str(page) if page is not None else None,
              "section": section_id},
-            sections=schema.get("sections", []), pages=schema.get("pages", []),
+            figure_ids=fids_in_document(schema), sections=schema.get("sections", []), pages=schema.get("pages", []),
             check_labels={key: name for key, name, _ in AGENTS})
         return {"run": run, "summary": public_summary(v.validation_summary), "validated_current": version_json(v)["validated_current"],
                 "status": v.status, "issues": out["items"], "options": out["options"], "totals": out["totals"]}

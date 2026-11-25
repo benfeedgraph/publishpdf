@@ -4,18 +4,21 @@ The list shows the items that match every filter. Each filter's options are the 
 have at least one item under the *other* filters, with how many, so picking an option never
 leads to an empty list ("Page 5" isn't offered under "Blocking" when page 5 only has notes).
 A row is what the list shows: one per open figure (a figure flagged by several checks is one
-decision) and one per other item. Rows that can't be decided side by side (a page note such
-as "3 of 17 numbers here weren't captured", a page-build fault, a colleague's flag) are
-counted as notes, so the list's count adds up to what the headline counts.
+decision) and one per other item. A row is a figure only when it is about a figure still in
+the document, the same test the headline uses (validation.figure_states); everything else (a
+table's unit note, a page's "3 of 17 numbers here weren't captured", a flag on something
+marked "not a figure") is a note, so the list's figures and notes add up to what the headline
+counts.
 """
 
 from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Any, Collection, Iterable
 
-# Items that aren't a value at a spot in the PDF, so they can't be confirmed side by side.
+# Items that can't be confirmed side by side even on a figure: a page-build or data fault, a
+# colleague's flag (it deserves its own answer) and a page's number count.
 NOT_FIGURE_CHECKS = frozenset({"rendered_page", "schema", "reviewer_flag", "completeness"})
 FACETS = ("severity", "status", "check", "page", "section")
 _FIELD = {"severity": "severity", "status": "status", "check": "check", "page": "page", "section": "section_id"}
@@ -25,9 +28,21 @@ def row_key(i: dict) -> str:
     return f"fig:{i['fid']}" if i.get("fid") and i.get("status") == "open" else f"issue:{i['id']}"
 
 
-def is_figure_row(i: dict) -> bool:
-    """Decidable side by side: an open value tied to a spot in the PDF."""
-    return bool(i.get("status") == "open" and i.get("page") and i.get("bbox") and i.get("check") not in NOT_FIGURE_CHECKS)
+def about_figure(fid: str | None, figure_ids: Collection[str]) -> bool:
+    """The one test for "this item is about a figure": its figure is still in the document.
+    Step 1's headline (validation.figure_states) and its review list both use it."""
+    return bool(fid) and fid in figure_ids
+
+
+def is_figure_row(i: dict, figure_ids: Collection[str]) -> bool:
+    """An open item about a figure still in the document: the list shows it as a figure."""
+    return i.get("status") == "open" and about_figure(i.get("fid"), figure_ids)
+
+
+def is_decidable(i: dict, figure_ids: Collection[str]) -> bool:
+    """Decidable side by side: an item on a figure row, other than a page-build fault or a
+    colleague's flag (those need their own answer and can't be decided in bulk)."""
+    return is_figure_row(i, figure_ids) and i.get("check") not in NOT_FIGURE_CHECKS
 
 
 def _value(i: dict, facet: str) -> str:
@@ -107,14 +122,16 @@ def section_labels(sections: Iterable[dict], pages: Iterable[dict] = ()) -> dict
 
 # ------------------------------------------------------------------ the list and its filters
 
-def build(issues: list[dict], filters: dict[str, str | None], *, sections: Iterable[dict] = (),
-          pages: Iterable[dict] = (), check_labels: dict[str, str] | None = None) -> dict[str, Any]:
+def build(issues: list[dict], filters: dict[str, str | None], *, figure_ids: Collection[str],
+          sections: Iterable[dict] = (), pages: Iterable[dict] = (),
+          check_labels: dict[str, str] | None = None) -> dict[str, Any]:
     """{"items": issues matching every filter, each marked `decidable` (a value to confirm side by
-    side, see is_figure_row: the screen uses this rather than its own copy of the rule),
+    side, see is_decidable: the screen uses this rather than its own copy of the rule),
     "options": {facet: [{value, label, count}]}, "totals": {"rows", "figures", "notes",
-    "all_rows"}}. One pass per facet over the rows the request already loaded: no extra queries."""
+    "all_rows"}}. `figure_ids`: the figures still in the document. One pass per facet over the
+    rows the request already loaded: no extra queries."""
     want = {f: (filters.get(f) or "") for f in FACETS}
-    items = [{**i, "decidable": is_figure_row(i)} for i in issues if _matches(i, want)]
+    items = [{**i, "decidable": is_decidable(i, figure_ids)} for i in issues if _matches(i, want)]
     sections = list(sections)
     labels = section_labels(sections, pages)
     sec_page = {s["id"]: (s.get("source") or {}).get("page") or s.get("page") or 0 for s in sections}
@@ -139,7 +156,7 @@ def build(issues: list[dict], filters: dict[str, str | None], *, sections: Itera
                  "check": lambda o: o["label"].lower()}.get(facet, lambda o: o["value"])
         options[facet] = sorted(opts, key=order)
 
-    figure_rows = {row_key(i) for i in items if is_figure_row(i)}
+    figure_rows = {row_key(i) for i in items if is_figure_row(i, figure_ids)}
     all_rows = {row_key(i) for i in items}
     return {"items": items, "options": options,
             "totals": {"rows": len(all_rows), "figures": len(figure_rows), "notes": len(all_rows - figure_rows),
