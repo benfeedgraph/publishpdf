@@ -393,6 +393,54 @@ def test_upload_rejects_non_pdf_and_bad_metadata(admin_client):
     assert r.status_code == 400 and "3-letter" in r.json()["detail"]
 
 
+def _cut_off_pdf() -> bytes:
+    """The first 2 KB of a 30-page PDF, as a broken download leaves it: its page tree lists 30
+    pages the file no longer has, so MuPDF opens it and then can't count its pages ("Invalid
+    number of pages")."""
+    text = b"BT /F1 12 Tf 72 720 Td (Revenue 1,234 crore) Tj ET\n" * 60
+    kids = " ".join(f"{3 + 2 * k} 0 R" for k in range(30))
+    pdf = (b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+           + f"2 0 obj\n<< /Type /Pages /Count 30 /Kids [{kids}] >>\nendobj\n".encode()
+           + b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
+           + f"4 0 obj\n<< /Length {len(text)} >>\nstream\n".encode() + text + b"endstream\nendobj\n")
+    assert len(pdf) > 2048
+    return pdf[:2048]
+
+
+def test_upload_says_why_a_file_is_not_a_usable_pdf(admin_client):
+    """An empty file, a text file renamed to .pdf, a cut-off PDF and a locked PDF each get the
+    message that says what is wrong, on both upload routes, and a damaged file fails fast."""
+    import time
+
+    import pymupdf
+
+    from app.extraction.pdf import PdfError, open_pdf
+    client, t, _ = admin_client
+    locked = pymupdf.open()
+    locked.new_page().insert_text((72, 72), "Revenue 1,234")
+    locked = locked.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="o", user_pw="u")
+    not_pdf = "This file isn't a PDF. Upload the report as a PDF file."
+    damaged = "This PDF is damaged and can't be opened. Try exporting it again."
+    full = (CORPUS / "acme_q2fy26_results.pdf").read_bytes()
+    cases = [("empty.pdf", b"", not_pdf), ("notes.pdf", b"Revenue 1,234 crore\n" * 50, not_pdf),
+             ("notes.txt", b"Revenue 1,234 crore\n", not_pdf),
+             ("cut.pdf", _cut_off_pdf(), damaged), ("half.pdf", full[:len(full) // 2], damaged),
+             ("locked.pdf", locked, "This PDF is password-protected. Upload an unlocked copy.")]
+    for name, data, message in cases:
+        with pytest.raises(PdfError, match=re.escape(message)):
+            open_pdf(data)
+        started = time.monotonic()
+        r = client.post(f"/api/tenants/{t.id}/reports/inspect", files={"file": (name, data, "application/pdf")})
+        assert (r.status_code, r.json()["detail"]) == (400, message), name
+        r = client.post(f"/api/tenants/{t.id}/reports", files={"file": (name, data, "application/pdf")}, data=META)
+        assert (r.status_code, r.json()["detail"]) == (400, message), name
+        assert time.monotonic() - started < 10, name
+    # the cut-off file really is the "can't count its pages" kind, not one MuPDF can't open
+    doc = pymupdf.open(stream=_cut_off_pdf(), filetype="pdf")
+    with pytest.raises(RuntimeError):
+        doc.page_count
+
+
 def test_ga4_only_on_that_tenants_published_pages(admin_client, client):
     admin, t, _ = admin_client
     up = upload(admin, t, "acme_q2fy26_results.pdf", period="q4")

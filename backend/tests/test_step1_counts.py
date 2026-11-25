@@ -99,7 +99,8 @@ def _check_counts(client, t, rid, vid, when: str) -> dict:
     base = f"/api/tenants/{t.id}/reports/{rid}/versions/{vid}"
     v = _version(client, t, rid, vid)
     h, s = v["headline"], v["validation"]
-    items = client.get(f"{base}/issues", params={"status": "open"}).json()["issues"]
+    listed = client.get(f"{base}/issues", params={"status": "open"}).json()
+    items = listed["issues"]
     figures = client.get(f"{base}/schema").json()["figures"]
     active = {k for k, f in figures.items() if f.get("status", "active") == "active"}
     on_fig = {}
@@ -117,6 +118,11 @@ def _check_counts(client, t, rid, vid, when: str) -> dict:
     assert h["other_notes"] == len({i["fid"] or i["id"] for i in others} - other_blocking), where
     # "Your turn": one decision per figure plus one per other item, as the review list groups them
     assert h["to_decide"] == len(blocking) + len(other_blocking), where
+    # the review list counts the same items the same way: its figures are the headline's
+    # figures with open items, its notes the other items, and only those figures show side by side
+    assert listed["totals"]["figures"] == h["need_attention"] + h["notes"], where
+    assert listed["totals"]["notes"] == h["other_need_attention"] + h["other_notes"], where
+    assert {i["fid"] for i in items if i["decidable"]} <= active, where
     assert (h["to_decide"] > 0) == (v["open_blocking"] > 0), where
     # every card counts that check's open results, so all cards together are the open items
     for a in s["agents"]:

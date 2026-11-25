@@ -536,7 +536,7 @@ def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         fids = ai_check.eligible(issues, schema)
         if payload.get("max_items"):
             fids = fids[:int(payload["max_items"])]
-        sha, vid = v.source_sha256, v.id
+        sha, vid, read_sha = v.source_sha256, v.id, v.schema_sha256
     if not fids:
         return {"items": 0}
     from app import ai_usage
@@ -551,16 +551,40 @@ def stage_ai_check(ctx: Context, payload: dict[str, Any]) -> dict[str, Any]:
         ai_usage.record(ctx, feature="ai_check", provider="gemini", model=model,
                         input_tokens=tin, output_tokens=tout, version_id=vid)
 
+    page_before = json.loads(json.dumps(ai_check.without_readings(schema)))    # a copy the run can't touch
     try:
         out = ai_check.run(schema, pdf, fids, ai_check.transport(), on_usage=spent)
     except ai_check.ProviderRejected as e:
         raise UserFacingError(str(e)) from e
+    page_changed = ai_check.without_readings(schema) != page_before
     with db.session(ctx) as s:
         v = s.get(ReportVersion, vid)
         assert v is not None
-        _save_schema(s, ctx, v, schema)
+        rebuilt = page_changed or not _ai_readings_only(s, ctx, v, schema, read_sha)
+        if rebuilt:
+            _save_schema(s, ctx, v, schema)
         result = {"items": len(fids), "confirmed": out.confirmed, "disagreed": out.disagreed,
                   "input_tokens": out.input_tokens, "output_tokens": out.output_tokens,
-                  "usd": out.usd, "credits": out.credits, "model": get_settings().gemini_model}
+                  "usd": out.usd, "credits": out.credits, "model": get_settings().gemini_model,
+                  "page_rebuilt": rebuilt}
         audit.record(s, ctx, "report.ai_check", target_type="report_version", target_id=vid, after=result)
     return result
+
+
+def _ai_readings_only(s, ctx: Context, v: ReportVersion, schema: dict, read_sha: str | None) -> bool:
+    """Records AI readings that left the web page as it was, without building the page again
+    (minutes on a long report): the page already built is the page of this schema, and the
+    last run's findings get the AI's confirmations exactly as after a rebuild with unchanged
+    files (_review_only_change). Only when the version is settled — not processing, and still
+    the schema the readings were made on, checked against the page now stored. Otherwise
+    nothing is changed and the caller rebuilds as before."""
+    if (v.published_at is not None or v.status == "processing" or v.schema_sha256 != read_sha
+            or not v.bundle_sha256 or v.validated_schema_sha256 != read_sha
+            or v.validated_bundle_sha256 != v.bundle_sha256):
+        return False
+    old_json, old_sha = v.schema_json, v.schema_sha256
+    v.schema_json, v.schema_sha256 = schema, schema_sha256(schema)
+    if _review_only_change(s, ctx, v, v.bundle_sha256):
+        return True
+    v.schema_json, v.schema_sha256 = old_json, old_sha
+    return False

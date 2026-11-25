@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import pymupdf
 
 from app.extraction import layout
-from app.extraction.pdf import PAGE_SIZED, vector_paths
+from app.extraction.pdf import PAGE_SIZED, unseen_span, vector_paths
 from app.render import pages as pages_mod
 
 # Pictures smaller than this share of the page are decoration (bullets, dots, rules). A brand
@@ -223,6 +223,7 @@ def page_elements(page: pymupdf.Page, schema: dict, n: int, chart_boxes: list | 
         out.append(Element(f"t{len(out) + 1}", "text", bx, text=text, html=html_, size=size, bold=bold,
                            color=_hex(color), safe=safe, lines=len(blk["lines"]),
                            meta={k: v for k, v in (("bullet", bullet), ("bg", label), ("mixed", mixed),
+                                                   ("unseen", all(unseen_span(s) for s in spans)),
                                                    ("bg_box", tuple(panel[0]) if panel else None),
                                                    ("face", pages_mod.face_class(fam, fw, fit))) if v}))
     # Many design-tool PDFs store each wrapped line of a paragraph as its own text object, so a
@@ -303,7 +304,9 @@ def _combine_text(a: Element, b: Element) -> Element:
                    size=a.size, bold=a.bold, color=a.color, safe=True,
                    lines=a.lines + b.lines,
                    # a bold line joined with a plain one is a sentence with emphasis, not a heading
-                   meta={**a.meta, **({"mixed": True} if a.bold != b.bold or b.meta.get("mixed") else {})})
+                   meta={**{k: v for k, v in a.meta.items() if k != "unseen"},
+                         **({"unseen": True} if a.meta.get("unseen") and b.meta.get("unseen") else {}),
+                         **({"mixed": True} if a.bold != b.bold or b.meta.get("mixed") else {})})
 
 
 def _trim(pic: tuple, texts: list[tuple]) -> tuple:

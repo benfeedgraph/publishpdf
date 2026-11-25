@@ -23,6 +23,7 @@ class Word:
     bold: bool = False
     src: tuple[float, float, float, float] | None = None   # original-page bbox if bbox was deskewed
     font: str = ""             # font name (text layer only); icon fonts are never figures
+    invisible: bool = False    # text layer drawn neither filled nor stroked: nobody sees it (an OCR layer over a scan)
 
     @property
     def source_bbox(self) -> tuple[float, float, float, float]:
@@ -63,20 +64,47 @@ class PdfError(Exception):
 def open_pdf(data: bytes) -> pymupdf.Document:
     if not data.startswith(b"%PDF-"):
         raise PdfError("This file isn't a PDF. Upload the report as a PDF file.")
+    damaged = "This PDF is damaged and can't be opened. Try exporting it again."
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception as e:  # noqa: BLE001
-        raise PdfError("This PDF is damaged and can't be opened. Try exporting it again.") from e
-    if doc.needs_pass or doc.is_encrypted:
+        raise PdfError(damaged) from e
+    try:
+        locked = doc.needs_pass or doc.is_encrypted
+        # A cut-off file can open (MuPDF repairs what it can) and still fail here ("Invalid
+        # number of pages" when its page tree is missing), or come out with no pages at all.
+        pages = 0 if locked else doc.page_count
+        cut_off = not locked and pages == 0 and doc.is_repaired
+    except Exception as e:  # noqa: BLE001
+        doc.close()
+        raise PdfError(damaged) from e
+    if locked:
+        doc.close()
         raise PdfError("This PDF is password-protected. Upload an unlocked copy.")
-    if doc.page_count == 0:
-        raise PdfError("This PDF has no pages.")
+    if pages == 0:
+        doc.close()
+        raise PdfError(damaged if cut_off else "This PDF has no pages.")
     return doc
 
 
 def _bad_char(ch: str) -> bool:
     cp = ord(ch)
     return ch == "�" or cp == 0 or 0xE000 <= cp <= 0xF8FF or unicodedata.category(ch) == "Cc"
+
+
+def private_use(ch: str) -> bool:
+    """A private-use code point (Unicode category Co): an icon font's glyph (an envelope, a
+    phone, a tick) that stands for no letter or digit and that no other font can show."""
+    return unicodedata.category(ch) == "Co"
+
+
+_DRAWN = 16 | 32      # MuPDF's character flags: filled, stroked
+
+
+def unseen_span(span: dict) -> bool:
+    """Text drawn neither filled nor stroked (PDF text render mode 3): it is on the page for
+    search or copying (an OCR layer over a scan, text behind artwork), but nobody sees it."""
+    return "char_flags" in span and not span["char_flags"] & _DRAWN
 
 
 MIN_VISIBLE_PT = 2.5   # text smaller than this can't be read by a person (hidden layers behind images)
@@ -98,34 +126,40 @@ def text_layer_words(page: pymupdf.Page, *, hidden: list | None = None) -> tuple
                 continue
             cur: list[tuple[str, tuple]] = []
             cur_size, cur_bold, cur_font = 0.0, False, ""
+            cur_unseen = True
 
             def flush() -> None:
-                nonlocal cur
+                nonlocal cur, cur_unseen
                 if cur:
                     text = "".join(c for c, _ in cur)
                     xs0 = min(b[0] for _, b in cur)
                     ys0 = min(b[1] for _, b in cur)
                     xs1 = max(b[2] for _, b in cur)
                     ys1 = max(b[3] for _, b in cur)
-                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold, font=cur_font)
+                    w = Word(text, (xs0, ys0, xs1, ys1), 1.0, cur_size, cur_bold, font=cur_font, invisible=cur_unseen)
                     if cur_size < MIN_VISIBLE_PT:
                         if hidden is not None:
                             hidden.append(w)
                     else:
                         words.append(w)
                 cur = []
+                cur_unseen = True
 
             for span in line["spans"]:
                 bold = bool(span["flags"] & 16) or "bold" in span["font"].lower()
+                unseen = unseen_span(span)
                 for ch in span["chars"]:
                     c = ch["c"]
                     total += 1
                     if _bad_char(c):
                         bad += 1
-                    if c.isspace():
+                    # an icon glyph set against a number ("✉19700") is not part of the word:
+                    # it ends the word as a space would (it still counts as unreadable above)
+                    if c.isspace() or private_use(c):
                         flush()
                         continue
                     cur_size, cur_bold, cur_font = span["size"], bold, span["font"]
+                    cur_unseen = cur_unseen and unseen
                     cur.append((c, tuple(ch["bbox"])))
             flush()
     return words, total, bad

@@ -352,7 +352,11 @@ def title_first(secs: list[dict], els: list, title: str | None) -> list[dict]:
     for x in secs:
         if not placed and _holds(x, el.id):
             placed = True
-            out.append({"type": "heading", "level": 1, "ids": [el.id]})
+            # a title that can't be shown as text (a picture of itself, or text that would read as a
+            # lone mark) is shown as printed, and still says its words: the section heading
+            from app.render.web_layout import title_like
+            out.append({"type": "heading", "level": 1, "ids": [el.id],
+                        **({} if title_like([el]) else {"alt": title, "pictured": True})})
             rest = _drop_id(x, el.id)
             if rest:
                 out.append(rest)
@@ -399,7 +403,8 @@ def _web_pages(schema: dict, pdf_bytes: bytes, numbers: list[int], layouts: dict
                 secs, drawn = web_layout.auto_layout(els, bands.get(n))
             if not secs:
                 continue
-            secs = title_first(secs, drawn, (titles or {}).get(n))
+            # one heading rule for both layouts; the page's own title then stays its heading
+            secs = title_first(web_layout.checked_headings(secs, drawn), drawn, (titles or {}).get(n))
             if titled is not None and has_title_heading(secs, drawn, (titles or {}).get(n)):
                 titled.add(n)
             W, H = page.rect.width, page.rect.height
@@ -496,12 +501,35 @@ def chart_boxes(schema: dict, page: int) -> list:
 _CONTENTS_TITLE = re.compile(r"^\s*(table of )?contents\s*$", re.I | re.M)
 
 
+def _contents_title_sizes(page) -> list[float]:
+    """The type size of each line on the page that reads as a contents title."""
+    if not _CONTENTS_TITLE.search(page.get_text()):
+        return []
+    return [max(s["size"] for s in ln["spans"]) for blk in page.get_text("dict")["blocks"]
+            for ln in blk.get("lines", []) if ln["spans"]
+            and _CONTENTS_TITLE.search("".join(s["text"] for s in ln["spans"]))]
+
+
 def _contents_pages(pdf_bytes: bytes) -> set[int]:
-    """The PDF's own contents page(s) near the front: page numbers mean nothing on the web."""
+    """The PDF's own contents page(s) near the front: page numbers mean nothing on the web.
+
+    A contents title set the same size on many pages is a navigation tab or running header
+    (a small "Contents" link printed on every page), not that page's own title: it doesn't
+    make the page a contents page. The same rule as a page's title (page_titles.RUNNING_PAGES)."""
     import pymupdf
+
+    from app.extraction.page_titles import RUNNING_PAGES
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
-        return {n for n in range(1, min(6, doc.page_count + 1)) if _CONTENTS_TITLE.search(doc[n - 1].get_text())}
+        front = range(1, min(6, doc.page_count + 1))
+        sizes = {n: _contents_title_sizes(doc[n - 1]) for n in front}
+        if not any(sizes.values()):
+            return set()
+        sizes |= {n: _contents_title_sizes(doc[n - 1]) for n in range(len(front) + 1, doc.page_count + 1)}
+
+        def running(size: float) -> bool:
+            return sum(1 for ss in sizes.values() if any(abs(s - size) <= 0.5 for s in ss)) >= RUNNING_PAGES
+        return {n for n in front if any(not running(s) for s in sizes[n])}
     finally:
         doc.close()
 
@@ -984,10 +1012,13 @@ def report_chapters(sections: list[dict], pdf_bytes: bytes | None, index_links: 
 
 def artwork_key(schema: dict, pdf_bytes: bytes, max_pages: int | None, layouts: dict | None) -> str:
     """Everything a report's page artwork is made from: the report data, the PDF, the page limit,
-    the AI layouts and this build of the app. Not the design — the design only fills templates."""
+    the AI layouts and this build of the app. Not the design — the design only fills templates —
+    nor the AI double-check's readings, which are never on the page (a check that only records
+    them leaves the page as it was built, so its drawing stays the one to reuse)."""
+    from app.ai_check import without_readings
     from app.code_version import code_version
     made_from = [code_version(), hashlib.sha256(pdf_bytes).hexdigest(), max_pages,
-                 {str(k): v for k, v in (layouts or {}).items()}, schema]
+                 {str(k): v for k, v in (layouts or {}).items()}, without_readings(schema)]
     return hashlib.sha256(json.dumps(made_from, sort_keys=True, default=str).encode()).hexdigest()
 
 

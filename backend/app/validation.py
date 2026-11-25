@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html.parser
 import re
+import unicodedata
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -27,7 +28,9 @@ import pymupdf
 from app.extraction import ocr
 from app.extraction.jsonschema_check import schema_errors
 from app.extraction.numbers import NIL_TOKENS, has_digit, try_parse_number
+from app.extraction.pdf import private_use
 from app.extraction.tokens import _split_punct
+from app.issue_filters import about_figure
 
 NUMERIC_KINDS = {"number", "percent", "bps", "multiple", "nil"}
 REEXTRACT_KINDS = NUMERIC_KINDS | {"date"}
@@ -55,6 +58,12 @@ def _fig_issue(check: str, severity: str, f: dict, message: str, expected=None, 
 
 def _active(schema: dict) -> list[dict]:
     return [f for f in schema["figures"].values() if f.get("status", "active") == "active"]
+
+
+def fids_in_document(schema: dict) -> set[str]:
+    """The figures still in the document (not marked "not a figure"), by id: the set Step 1's
+    headline counts against (see reports.figure_states)."""
+    return {k for k, f in (schema.get("figures") or {}).items() if f.get("status", "active") == "active"}
 
 
 # ------------------------------------------------------------------ 1. traceability
@@ -428,8 +437,19 @@ _HYPHENS = str.maketrans({"\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013":
 
 def _same_glyphs(s: str) -> str:
     """Two parsers can report the same printed glyph as different code points: a
-    non-breaking hyphen vs a hyphen, or an invisible control byte. Neither changes a digit."""
-    return re.sub(r"[\x00-\x1f\x7f]", "", s.translate(_HYPHENS))
+    non-breaking hyphen vs a hyphen, or an invisible control byte. Neither changes a digit,
+    and neither does an icon font's private-use glyph next to a number (the extractor leaves
+    those out of words, extraction.pdf.private_use; pdfminer keeps them)."""
+    s = re.sub(r"[\x00-\x1f\x7f]", "", s.translate(_HYPHENS))
+    return "".join(c for c in s if not private_use(c))
+
+
+def _visible(s: str) -> str:
+    """The characters a reader sees, in order: no spaces and no invisible format marks (Unicode
+    category Cf, e.g. a zero-width space after "2)"). Where one parser starts a new word is its
+    own guess from the gaps between letters ("Q 3 F Y2 5" for a letter-spaced "Q3FY25", "25 %"
+    for "25%"); the second parser is there to catch different characters, not a different guess."""
+    return "".join(c for c in _same_glyphs(s) if not c.isspace() and unicodedata.category(c) != "Cf")
 
 
 def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified: set[str] | None = None,
@@ -455,11 +475,13 @@ def check_second_parser(schema: dict, pdf_bytes: bytes, artifact: dict, verified
         checked.update(f["id"] for f in figs)
     issues = []
     for f in figs:
-        found = [_same_glyphs(w) for w in _words_in(words.get(f["source"]["page"], []), f["source"]["bbox"], pad=2.5)]
+        found = [g for g in (_same_glyphs(w) for w in _words_in(words.get(f["source"]["page"], []),
+                                                                 f["source"]["bbox"], pad=2.5)) if g]
         joined = " ".join(found)
         cores = {joined, _split_punct(joined)[1]} | {_split_punct(w)[1] for w in found}
         raw = _same_glyphs(f["raw"])
-        if raw in cores or raw in joined:
+        seen = _visible(raw)
+        if raw in cores or raw in joined or (seen and seen in _visible(joined)):
             if verified is not None:
                 verified.add(f["id"])
             continue
@@ -1422,7 +1444,7 @@ def figure_states(active_fids: set[str], open_items: list[tuple[str | None, str,
     for n, (fid, check, severity) in enumerate(open_items):
         c = by_check.setdefault(check, {"blocking": 0, "warnings": 0})
         c["blocking" if severity == "blocking" else "warnings"] += 1
-        if fid and fid in active_fids:
+        if about_figure(fid, active_fids):
             (blocking if severity == "blocking" else noted).add(fid)
         else:                                   # no figure, or one no longer in the document
             key = ("fig", fid) if fid else ("item", n)

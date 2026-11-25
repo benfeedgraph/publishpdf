@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, del, put, REPORT_TYPE_LABEL, toDecide, useTenantRole, VERSION_STATUS_LABEL, type Report, type VersionDetail } from "../../api";
+import { api, del, put, REPORT_TYPE_LABEL, toDecide, useTenantRole, type Report, type VersionDetail } from "../../api";
 import { useMe } from "../../App";
 import DesignPicker, { type DesignDraft, type ThemeT } from "../../components/DesignPicker";
 import PreviewTab, { PublishPanel } from "./PreviewTab";
@@ -94,14 +94,6 @@ export default function ReportPage() {
           <p className="muted small">{r.company_name} · {r.currency} · {r.reporting_unit}{v?.page_count ? ` · ${v.page_count} pages` : ""}</p>
         </div>
         <div className="btn-row">
-          {r.versions && r.versions.length > 1 && (
-            <label className="field inline">
-              <span className="label">Version</span>
-              <select value={versionId} onChange={(e) => { const n = new URLSearchParams(params); n.set("v", e.target.value); n.delete("step"); setParams(n); }}>
-                {r.versions.map((x) => <option key={x.id} value={x.id}>v{x.version_no} · {x.is_live ? "Live" : x.status === "published" ? "Published earlier" : VERSION_STATUS_LABEL[x.status]}</option>)}
-              </select>
-            </label>
-          )}
           {isAdmin && (
             <Button className="secondary danger" type="button" busy={remove.isPending} busyLabel="Deleting" onClick={() => {
               const name = `${r.period_label} ${REPORT_TYPE_LABEL[r.report_type]}`;

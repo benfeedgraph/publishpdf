@@ -27,10 +27,11 @@ RUNNING_PAGES = 3        # the same "title" on this many pages is a running titl
 _NUMBER = re.compile(r"[\d.,:%+\-–—()/\s]+", re.UNICODE)   # a token that is only a number
 
 
-def is_wordy(text: str) -> bool:
+def is_wordy(text: str, boxes: list | None = None) -> bool:
     """Words, not a figure set large ("₹627bn", "15,2") or a phrase cut off mid-sentence. Letters
     are weighed against digits only: brackets and other marks (common in titles set in Japanese
-    or Chinese) don't count either way."""
+    or Chinese) don't count either way. Given its words (`boxes`), text nobody can see is no
+    title either (layout.not_a_title)."""
     chars = [c for c in text if c.isalnum()]
     if not chars:
         return False
@@ -44,7 +45,7 @@ def is_wordy(text: str) -> bool:
     # nor a line the page reader never takes for a heading: one that stops mid-phrase ("Hygiene
     # and", "… reduced the risk of"), starts in lower case, or is a list item ("• Gentle …")
     return letters >= 0.7 * len(chars) and words >= 1 and not text.rstrip().endswith((",", ":", ";")) \
-        and not not_a_title(text)
+        and not not_a_title(text, boxes)
 
 
 def key(text: str) -> str:
@@ -62,7 +63,7 @@ def title_element(els: list, body: float, page_height: float) -> TextEl | None:
     cands = [e for e in els if isinstance(e, TextEl) and e.lines
              and e.size >= body * TITLE_SIZE and e.bbox[1] < TOP_SHARE * page_height
              and len(e.lines) <= MAX_LINES and len(e.words) <= MAX_WORDS
-             and is_wordy(" ".join(w.text for w in e.words))
+             and is_wordy(" ".join(w.text for w in e.words), e.words)
              # set over several lines, it must not read as running text (a pull quote in large
              # type), by the same rule the page reader uses for headings; one line may be a sentence
              and not (len(e.lines) > 1 and _reads_as_text(e))]
@@ -84,7 +85,7 @@ def title_on_picture(els: list, body: float, page_height: float) -> list | None:
              for seg in split_segments(ln, max(14.0, 2.2 * statistics.median(w.h for w in ln)))]
     cands = [ln for ln in lines if ln and max(w.size for w in ln) >= body * TITLE_SIZE
              and min(w.bbox[1] for w in ln) < TOP_SHARE * page_height and len(ln) <= MAX_WORDS
-             and is_wordy(" ".join(w.text for w in ln))]
+             and is_wordy(" ".join(w.text for w in ln), ln)]
     if not cands:
         return None
     big = max(max(w.size for w in ln) for ln in cands)

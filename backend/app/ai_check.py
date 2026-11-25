@@ -233,13 +233,25 @@ def run(schema: dict, pdf_bytes: bytes, fids: list[str], transport: Transport,
                 on_usage(bin_, bout)
             for f, read in zip(figs, _parse(resp, len(figs))):
                 match = bool(read) and reextraction_matches(f["raw"], read, f["kind"])
-                f["ai_check"] = {"raw": f["raw"], "read": read, "match": match, "model": cfg.gemini_model, "at": now}
+                f[FIELD] = {"raw": f["raw"], "read": read, "match": match, "model": cfg.gemini_model, "at": now}
                 confirmed += match
                 disagreed += not match
     finally:
         doc.close()
     usd = tin * cfg.gemini_price_in_per_m / 1e6 + tout * cfg.gemini_price_out_per_m / 1e6
     return Outcome(confirmed, disagreed, tin, tout, round(usd, 4), credits_for(usd))
+
+
+FIELD = "ai_check"            # the one thing a run writes: each checked figure's AI reading
+
+
+def without_readings(schema: dict) -> dict:
+    """The schema as it was before any AI reading was recorded on it: what the web page is
+    built from. (The page shows the figures as extracted; the AI's reading only decides
+    whether a finding still blocks, so it is never on the page.)"""
+    if not schema.get("figures"):
+        return schema
+    return {**schema, "figures": {k: {fk: fv for fk, fv in f.items() if fk != FIELD} for k, f in schema["figures"].items()}}
 
 
 def apply_confirmations(issues: list, schema: dict) -> None:

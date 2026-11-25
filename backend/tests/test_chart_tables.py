@@ -89,11 +89,13 @@ def test_a_staircase_of_chart_labels_is_not_published_as_a_table():
 
 
 def test_a_table_whose_numbers_line_up_stays_a_table():
-    ws = line("FY2026", 300, 60, bold=True) + line("FY2025", 400, 60, bold=True)
+    # numbers right-aligned in their columns, as a table sets them
+    ws = rline("FY2026", 350, 60, bold=True) + rline("FY2025", 450, 60, bold=True)
     for i, (label, a, b) in enumerate((("Revenue", "1,234", "1,100"), ("EBITDA", "456", "400"), ("PAT", "210", "190"))):
-        ws += line(label, 40, 90 + 22 * i) + line(a, 300, 90 + 22 * i) + line(b, 400, 90 + 22 * i)
+        ws += line(label, 40, 90 + 22 * i) + rline(a, 350, 90 + 22 * i) + rline(b, 450, 90 + 22 * i)
     (t,) = [e for e in analyse(page(ws)) if isinstance(e, layout.TableEl)]
     assert layout.table_problems(t) == [] and len(t.rows) == 3
+    assert [[w.text for w in c] for c in t.rows[0][1]] == [["1,234"], ["1,100"]]
 
 
 def test_a_table_shown_as_in_the_pdf_is_reported_in_checks_and_issues():
@@ -188,3 +190,77 @@ def test_a_table_shown_as_in_the_pdf_is_on_the_page_with_the_text_round_it():
     assert 'class="web-vis"' in html                                  # the table, cut out as in the PDF
     for words in ("Sales rose in every region", "The outlook for the full year is unchanged", "143,000"):
         assert words in html
+
+
+# ------------------------------------------------------------------ tables whose names and values don't line up
+
+
+def rline(text, x1, y, **kw) -> list[Word]:
+    """`line`, set so that it ends at x1 (numbers in a table are right-aligned)."""
+    size = kw.get("size", BODY)
+    width = sum(0.55 * size * len(t) for t in text.split()) + 0.3 * size * (len(text.split()) - 1)
+    return line(text, x1 - width, y, **kw)
+
+
+def table_words(header: list[str] | None, rows: list[tuple[str, list[str | None]]], cols=(320, 420, 520)) -> list[Word]:
+    ws = [w for x1, h in zip(cols, header or []) for w in rline(h, x1, 60, bold=True)]
+    for i, (label, values) in enumerate(rows):
+        y = 90 + 22 * i
+        ws += line(label, 40, y) if label else []
+        ws += [w for x1, v in zip(cols, values) if v for w in rline(v, x1, y)]
+    return ws
+
+
+def verdict(ws) -> list[str] | None:
+    """The check's reasons for the one table read from these words ([] when it goes out as a
+    table), or None when nothing was read as a table."""
+    tables = []
+    orig = layout.table_problems
+    layout.table_problems = lambda t: tables.append(orig(t)) or tables[-1]
+    try:
+        analyse(page(ws))
+    finally:
+        layout.table_problems = orig
+    assert len(tables) <= 1
+    return tables[0] if tables else None
+
+
+GOOD = [("Revenue", ["1,234", "1,100", "980"]), ("EBITDA", ["456", "400", "350"]), ("PAT", ["210", "190", "170"])]
+
+
+def test_a_table_with_column_names_and_lined_up_numbers_passes_every_rule():
+    assert verdict(table_words(["FY2026", "FY2025", "FY2024"], GOOD)) == []
+
+
+def test_a_name_with_a_number_in_it_is_still_a_name():
+    rows = GOOD + [("Loans above Rs 1.00 bn", ["31.64", "30.90", "28.10"])]
+    assert verdict(table_words(["FY2026", "FY2025", "FY2024"], rows)) == []
+
+
+def test_a_table_with_no_column_names_is_shown_as_in_the_pdf():
+    ws = table_words(None, GOOD)
+    assert verdict(ws) == ["no column names"]
+    (c,) = charts(analyse(page(ws)))
+    assert c.from_table and not [e for e in analyse(page(ws)) if isinstance(e, layout.TableEl)]
+
+
+def test_values_glued_to_another_tables_names_are_shown_as_in_the_pdf():
+    # Two tables side by side: the right one's names ("ESG score") are joined to the left
+    # one's last value, so that value and those words land in the row's name.
+    rows = [("Net Revenue", ["52,375", "63,595"]), ("EBITDA", ["3,490", "5,087"]),
+            ("EPS", ["38.6", "71.4", "150.8"]), ("P/E", ["325.5", "176.2", "83.4"])]
+    ws = table_words(["FY24", "FY25", "FY26"], rows)
+    for y, glued in ((90, "1,36,530 ESG score"), (112, "17,779 Environment")):
+        ws += line(glued, 480, y)
+    assert verdict(ws) == ["2 rows with names and values mixed up"]
+
+
+def test_values_in_offset_rows_are_shown_as_in_the_pdf():
+    rows = [("Sales", ["1,234", None, "1,456", None]), ("Margin", [None, "12.0%", None, "13.5%"]),
+            ("Volume", ["300", None, "320", None]), ("Share", [None, "5.0%", None, "5.5%"])]
+    assert verdict(table_words(["Q1", "Q2", "Q3", "Q4"], rows, cols=(300, 380, 460, 540))) == ["values in offset rows"]
+
+
+def test_a_charts_lone_values_with_no_names_are_shown_as_in_the_pdf():
+    rows = [("", ["2%"]), ("", ["5%"]), ("", ["7%"])]
+    assert verdict(table_words(["Share"], rows)) == ["lone values with no row names"]
