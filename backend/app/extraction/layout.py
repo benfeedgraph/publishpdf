@@ -187,6 +187,7 @@ class TableEl:
     kind: str = "table"
     corner_words: list[Word] = field(default_factory=list)   # the PDF's own header over the row labels
     unplaced: int = 0                        # numbers in the value columns that found no free cell
+    stray_rows: list[int] = field(default_factory=list)   # rows whose name took a value (see _build_table)
 
 
 @dataclass
@@ -685,6 +686,13 @@ def _demote_labels(blocks: list[TextEl], others: list) -> None:
 
 TABLE_MAX_EMPTY = 0.5      # a table with more empty cells than this is not laid out as a table
 TABLE_MAX_UNPLACED = 0.25  # nor one with this many numbers left over for every number placed in a cell
+TABLE_MAX_MIXED = 0.1      # nor one with more than this share of rows whose names and values are mixed up
+
+
+def _phrase(cell: list[Word]) -> bool:
+    """A value cell holding words (two or more), not a number: a row's name, a note or a
+    heading read into the value columns. A short mark such as "NA" or "N/M" is one word."""
+    return sum(1 for w in cell if sum(ch.isalpha() for ch in w.text) >= 2) >= 2
 
 
 def table_problems(t: TableEl) -> list[str]:
@@ -705,6 +713,32 @@ def table_problems(t: TableEl) -> list[str]:
         out.append("values scattered across rows instead of lined up")
     # (Too few column headers on their own don't make a table unreadable: its numbers still line
     # up, as in a results table whose period row wasn't read in full. It stays a table.)
+    # None at all is another matter: with two or more value columns and not one column name over
+    # them (a header set as white text on a band, or lost), nobody can tell the columns apart.
+    if ncols >= 2 and not any(c.words for hr in t.header_rows for c in hr):
+        out.append("no column names")
+    # Names and values mixed up: a row's name that took a value (a number standing on its own,
+    # or text from among the value columns — two tables side by side, a value glued to a label),
+    # a value cell holding words, or a row with no name whose values are years or periods (column
+    # names set over two lines, read as values). One such row in a long table is a slip; more is
+    # not a table.
+    def mixed_up(i: int, lab: list[Word], cells: list[list[Word] | None]) -> bool:
+        return i in t.stray_rows or any(c and _phrase(c) for c in cells) or \
+            (not lab and sum(1 for c in cells if c and _looks_like_header(Row([Segment(c)]))) >= 2)
+    mixed = sum(1 for i, (lab, cells) in enumerate(t.rows) if mixed_up(i, lab, cells))
+    if mixed > TABLE_MAX_MIXED * nrows:
+        out.append(f"{mixed} rows with names and values mixed up")
+    # Values in offset rows: two neighbouring columns that both hold values but never in the same
+    # row (a value and its year in alternating rows, two tables' rows interleaved, a value set a
+    # little off its column). In a table every pair of neighbouring columns shares a row.
+    holds = [{i for i, (_, cells) in enumerate(t.rows) if cells[k]} for k in range(ncols)]
+    if any(a and b and not a & b for a, b in zip(holds, holds[1:])):
+        out.append("values in offset rows")
+    # A chart's or a donut's leftover numbers: most rows that hold values hold a single one and
+    # no name, so nothing says what each number is.
+    data = [(lab, cells) for lab, cells in t.rows if any(cells)]
+    if sum(1 for lab, cells in data if not lab and sum(1 for c in cells if c) == 1) >= 0.5 * len(data) > 0:
+        out.append("lone values with no row names")
     return out
 
 
@@ -793,15 +827,19 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
     colw = min(widths) if widths else 60.0
     body: list[tuple[list[Word], list[list[Word] | None]]] = []
     unplaced = 0
+    stray_rows: list[int] = []
     for k in members:
         row = rows[k]
         cells: list[list[Word] | None] = [None] * len(anchors)
         label: list[Word] = []
+        stray = False
         for seg in row.segments:
             col = _col_of(seg, anchors, colw) if seg.is_numeric else None
             if col is not None and cells[col] is None:
                 cells[col] = seg.words
             elif seg.x1 < anchors[0] - colw * 0.6:
+                # a number standing on its own in the name column is a value, not part of a name
+                stray = stray or (seg.is_numeric and not _looks_like_header(Row([seg])))
                 label.extend(seg.words)
             else:
                 col = _col_of(seg, anchors, colw)
@@ -809,7 +847,10 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
                     cells[col] = seg.words
                 else:
                     unplaced += seg.is_numeric
+                    stray = True             # text from among the value columns, joined to the row's name
                     label.extend(seg.words)
+        if stray:
+            stray_rows.append(len(body))
         body.append((label, cells))
 
     # Header rows: up to 3 lines directly above whose segments sit over the numeric columns.
@@ -858,7 +899,8 @@ def _build_table(rows: list[Row], members: list[int], anchors: list[float], med_
     all_rows = [rows[m] for m in members + extra]
     bbox = (min(r.segments[0].x0 for r in all_rows), min(r.y0 for r in all_rows),
             max(r.segments[-1].x1 for r in all_rows), max(r.y1 for r in all_rows))
-    return TableEl(bbox, anchors, header_rows, col_words, body, caption, corner_words=corner, unplaced=unplaced), extra
+    return TableEl(bbox, anchors, header_rows, col_words, body, caption, corner_words=corner, unplaced=unplaced,
+                   stray_rows=stray_rows), extra
 
 
 def _looks_like_header(row: Row) -> bool:
